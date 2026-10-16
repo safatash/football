@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ReactNode } from "react";
 
-type Variant = "primary" | "secondary" | "success" | "warning" | "danger" | "ghost";
+type Variant = "primary" | "secondary" | "success" | "warning" | "danger" | "ghost" | "outline";
 
 type BaseProps = {
   children: ReactNode;
@@ -15,10 +15,11 @@ const variants: Record<Variant, string> = {
   warning: "bg-amber-500 text-white hover:bg-amber-400",
   danger: "bg-rose-600 text-white hover:bg-rose-500",
   ghost: "bg-transparent text-slate-700 hover:bg-slate-100",
+  outline: "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50",
 };
 
 const baseClass =
-  "inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-medium transition focus:outline-none";
+  "inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-medium transition focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed";
 
 function classes(variant: Variant, className?: string) {
   return `${baseClass} ${variants[variant]} ${className ?? ""}`.trim();
@@ -29,9 +30,21 @@ export function Button({
   variant = "primary",
   type = "button",
   className,
-}: BaseProps & { variant?: Variant; type?: "button" | "submit" | "reset" }) {
+  onClick,
+  disabled,
+}: BaseProps & { 
+  variant?: Variant; 
+  type?: "button" | "submit" | "reset";
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <button type={type} className={classes(variant, className)}>
+    <button 
+      type={type} 
+      className={classes(variant, className)}
+      onClick={onClick}
+      disabled={disabled}
+    >
       {children}
     </button>
   );

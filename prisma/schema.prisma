@@ -1,0 +1,520 @@
+// NVASA Database Schema
+// Maps the existing ColdFusion database to Prisma models
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// CORE USER & AUTH MODELS
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String // Will be bcrypt hashed (currently plaintext in CF)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One-to-one relationship with Player profile
+  player Player?
+
+  // Auth.js required fields
+  accounts      Account[]
+  sessions      Session[]
+  
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// PLAYER PROFILE
+// ============================================
+
+model Player {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Personal Information
+  firstName String
+  lastName  String
+  gender    Gender
+  dob       DateTime // Date of birth
+  phone     String
+
+  // Address
+  address        String
+  city           String
+  state          String
+  zip            String
+  fairfaxCounty  Boolean  @default(false) // Geographic restriction
+
+  // Soccer Info
+  position      String
+  tshirtSize    String
+
+  // Photo
+  photoId       String?
+  photo         String? // File path or URL
+
+  // Registration Status
+  finalApproval ApprovalStatus @default(NEEDS_REVIEW)
+  status        PlayerStatus   @default(ACTIVE)
+
+  // Preferences
+  contactMe    Boolean @default(false)
+  social       Boolean @default(false) // Show on social media
+  tournaments  Boolean @default(false) // Interested in tournaments
+
+  // Discount/Payment Codes
+  boardMemberCode   String? // bm - board member discount
+  discountCode      String? // dc - promotional discount
+  teamPaidFullCode  String? // pf - team paid in full code
+
+  // Timestamps
+  registrationDate DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relationships
+  teamMemberships TeamRoster[]
+  registrations   Registration[]
+  gamePasses      GamePass[]
+  payments        Payment[]
+
+  @@map("players")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  NEEDS_REVIEW
+  REJECTED
+}
+
+enum PlayerStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+// ============================================
+// SEASON & LEAGUE STRUCTURE
+// ============================================
+
+model Season {
+  id        String   @id @default(cuid())
+  name      String   @unique // e.g., "Fall 2024"
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(false) // Only one season should be active
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  divisions     Division[]
+  teams         Team[]
+  matches       Match[]
+  registrations Registration[]
+
+  @@map("seasons")
+}
+
+model Division {
+  id       String  @id @default(cuid())
+  seasonId String
+  season   Season  @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  name           String
+  description    String?
+  registrationFee Decimal @default(0) @db.Decimal(10, 2)
+  
+  // Age eligibility (birth date cutoffs)
+  maleBirthDateAfter   DateTime? // bbm - males must be born after this date
+  femaleBirthDateAfter DateTime? // bbf - females must be born after this date
+
+  displayOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  teams         Team[]
+  teamRosters   TeamRoster[]
+
+  @@unique([seasonId, name])
+  @@map("divisions")
+}
+
+model Team {
+  id         String   @id @default(cuid())
+  seasonId   String
+  season     Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  divisionId String
+  division   Division @relation(fields: [divisionId], references: [id])
+
+  name   String
+  status TeamStatus @default(ACTIVE)
+
+  // Team paid in full code
+  paidInFullCode String? @unique // pf code for free registration
+
+  maxPlayers Int @default(20) // Team capacity
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  roster       TeamRoster[]
+  homeMatches  Match[]      @relation("HomeTeam")
+  awayMatches  Match[]      @relation("AwayTeam")
+  gamePasses   GamePass[]
+
+  @@unique([seasonId, divisionId, name])
+  @@map("teams")
+}
+
+enum TeamStatus {
+  ACTIVE
+  INACTIVE
+  FULL
+}
+
+// ============================================
+// TEAM ROSTERS & MEMBERSHIPS
+// ============================================
+
+model TeamRoster {
+  id         String   @id @default(cuid())
+  playerId   String
+  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  teamId     String
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  divisionId String
+  division   Division @relation(fields: [divisionId], references: [id])
+
+  // Membership Type
+  membershipType MembershipType @default(SEASONAL)
+  
+  // Game Pass reference (if single-match)
+  gamePassId String?   @unique
+  gamePass   GamePass? @relation(fields: [gamePassId], references: [id])
+  matchId    String?   // Which match this applies to
+  match      Match?    @relation(fields: [matchId], references: [id])
+
+  // Captain Request
+  captainRequest Boolean @default(false) // capreq
+  isCaptain      Boolean @default(false) // Approved captain status
+
+  // Lineup Management
+  availability AvailabilityStatus @default(AVAILABLE)
+  lineupStatus LineupStatus       @default(BENCH)
+
+  joinedAt DateTime @default(now())
+  leftAt   DateTime?
+
+  @@unique([playerId, teamId, membershipType, matchId])
+  @@map("team_rosters")
+}
+
+enum MembershipType {
+  SEASONAL      // Full season membership
+  GAME_PASS     // Single match only
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  UNAVAILABLE
+  MAYBE
+}
+
+enum LineupStatus {
+  STARTING
+  BENCH
+  INACTIVE
+}
+
+// ============================================
+// REGISTRATION SYSTEM
+// ============================================
+
+model Registration {
+  id        String   @id @default(cuid())
+  playerId  String
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  seasonId  String
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  // Registration Type
+  registrationType RegistrationType @default(NEW_PLAYER)
+
+  // Selected Teams (comma-separated in old system, now proper relations)
+  selectedTeams String // JSON array of team IDs
+  
+  // Captain Requests (which teams)
+  captainRequests String? // JSON array of team IDs
+
+  // Status
+  status        RegistrationStatus @default(PENDING)
+  paymentStatus PaymentStatus      @default(UNPAID)
+
+  // Payment Info
+  totalAmount      Decimal  @db.Decimal(10, 2)
+  paymentId        String?  @unique
+  payment          Payment? @relation(fields: [paymentId], references: [id])
+
+  submittedAt DateTime @default(now())
+  approvedAt  DateTime?
+  rejectedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("registrations")
+}
+
+enum RegistrationType {
+  NEW_PLAYER
+  RETURNING_PLAYER
+  ADDITIONAL_TEAM
+}
+
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+  FAILED
+}
+
+// ============================================
+// GAME PASS SYSTEM
+// ============================================
+
+model GamePass {
+  id        String   @id @default(cuid())
+  playerId  String
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  matchId   String
+  match     Match    @relation(fields: [matchId], references: [id])
+  teamId    String?
+  team      Team?    @relation(fields: [teamId], references: [id])
+
+  // Payment
+  paymentId String  @unique
+  payment   Payment @relation(fields: [paymentId], references: [id])
+
+  // Status
+  status GamePassStatus @default(ACTIVE)
+
+  // Validity
+  validFrom  DateTime
+  validUntil DateTime
+  usedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One-to-one with TeamRoster
+  teamRoster TeamRoster?
+
+  @@map("game_passes")
+}
+
+enum GamePassStatus {
+  ACTIVE
+  USED
+  EXPIRED
+  CANCELLED
+}
+
+// ============================================
+// MATCHES & SCHEDULING
+// ============================================
+
+model Match {
+  id         String   @id @default(cuid())
+  seasonId   String
+  season     Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  divisionId String?
+
+  homeTeamId String
+  homeTeam   Team   @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeamId String
+  awayTeam   Team   @relation("AwayTeam", fields: [awayTeamId], references: [id])
+
+  scheduledAt DateTime
+  startTime   DateTime?
+  endTime     DateTime?
+
+  field    String?
+  location String?
+
+  // Scores
+  homeScore Int?
+  awayScore Int?
+
+  status MatchStatus @default(SCHEDULED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  gamePasses  GamePass[]
+  teamRosters TeamRoster[] // Game pass players for this match
+
+  @@map("matches")
+}
+
+enum MatchStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  POSTPONED
+}
+
+// ============================================
+// PAYMENTS
+// ============================================
+
+model Payment {
+  id     String @id @default(cuid())
+  userId String
+
+  // Stripe IDs
+  stripePaymentIntentId String? @unique
+  stripeChargeId        String? @unique
+
+  amount       Decimal       @db.Decimal(10, 2)
+  currency     String        @default("usd")
+  status       PaymentStatus @default(UNPAID)
+  paymentType  PaymentType
+
+  // What this payment is for
+  relatedEntityType String? // "registration", "game_pass"
+  relatedEntityId   String? // ID of the registration or game pass
+
+  // Legacy Authorize.Net support
+  authorizeNetTransactionId String? // TransactionID from old system
+
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relationships
+  player       Player        @relation(fields: [userId], references: [id])
+  registration Registration?
+  gamePass     GamePass?
+
+  @@map("payments")
+}
+
+enum PaymentType {
+  REGISTRATION_FEE
+  GAME_PASS
+  REFUND
+}
+
+// ============================================
+// BLOCKLIST (Security)
+// ============================================
+
+model Blocklist {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  reason    String?
+  blockedAt DateTime @default(now())
+  blockedBy String? // Admin who blocked them
+
+  @@map("blocklist")
+}
+
+// ============================================
+// GEOGRAPHIC RESTRICTIONS
+// ============================================
+
+model AllowedZipCode {
+  id      String @id @default(cuid())
+  zipCode String @unique
+  city    String?
+  state   String?
+
+  @@map("allowed_zip_codes")
+}
+
+// ============================================
+// REFERENCE DATA
+// ============================================
+
+model Position {
+  id       String @id @default(cuid())
+  name     String @unique
+  category String? // Defender, Midfielder, Forward, Goalkeeper
+
+  @@map("positions")
+}
+
+model TshirtSize {
+  id          String @id @default(cuid())
+  size        String @unique
+  displayOrder Int   @default(0)
+
+  @@map("tshirt_sizes")
+}

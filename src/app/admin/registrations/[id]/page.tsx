@@ -1,79 +1,151 @@
-import { PrototypeShell, SectionCard, StatusBadge } from "@/components/prototype-shell";
-import { Button } from "@/components/ui/button";
-import { FieldLabel, SelectInput, TextArea } from "@/components/ui/field";
-import { registrations } from "@/lib/mock-data";
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { redirect, notFound } from "next/navigation"
+import prisma from "@/lib/prisma"
+import { ApproveRegistrationForm } from "./approve-form"
 
-export default async function RegistrationDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const registration = registrations.find((item) => item.id === id) ?? registrations[0];
+export default async function RegistrationReviewPage({
+  params,
+}: {
+  params: { id: string }
+}) {
+  const session = await getServerSession(authOptions)
+  
+  if (!session?.user) {
+    redirect("/login")
+  }
+
+  const registration = await prisma.registration.findUnique({
+    where: { id: params.id },
+    include: {
+      player: {
+        include: {
+          user: true
+        }
+      },
+      season: true
+    }
+  })
+
+  if (!registration) {
+    notFound()
+  }
+
+  // Get all available teams for this season
+  const teams = await prisma.team.findMany({
+    where: {
+      seasonId: registration.seasonId,
+      status: 'ACTIVE'
+    },
+    include: {
+      division: true,
+      _count: {
+        select: {
+          roster: true
+        }
+      }
+    },
+    orderBy: {
+      name: 'asc'
+    }
+  })
 
   return (
-    <PrototypeShell
-      role="admin"
-      title={`Registration ${registration.id}`}
-      subtitle="Review, annotate, and assign this player into the season structure."
-    >
-      <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-        <SectionCard title="Player summary">
-          <div className="space-y-3 text-sm">
-            <div>
-              <p className="text-slate-500">Player</p>
-              <p className="text-base font-medium">{registration.playerName}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">Email</p>
-              <p>{registration.email}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">Preferred team</p>
-              <p>{registration.teamPreference}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">Current status</p>
-              <div className="mt-1"><StatusBadge label={registration.status} /></div>
-            </div>
-          </div>
-        </SectionCard>
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto px-4">
+        <div className="mb-6">
+          <a href="/admin/registrations" className="text-blue-600 hover:underline">
+            ← Back to Registrations
+          </a>
+        </div>
 
-        <SectionCard title="Actions">
-          <div className="space-y-3">
-            <Button variant="success" className="w-full">Approve registration</Button>
-            <Button variant="warning" className="w-full">Send to review</Button>
-            <Button variant="danger" className="w-full">Deny registration</Button>
+        <div className="bg-white rounded-lg shadow-lg p-8">
+          <h1 className="text-2xl font-bold mb-6">Review Registration</h1>
+
+          {/* Player Information */}
+          <div className="mb-8">
+            <h2 className="text-lg font-semibold mb-4">Player Information</h2>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-gray-600">Name</p>
+                <p className="font-medium">
+                  {registration.player.firstName} {registration.player.lastName}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600">Email</p>
+                <p className="font-medium">{registration.player.user.email}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Phone</p>
+                <p className="font-medium">{registration.player.phone}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Date of Birth</p>
+                <p className="font-medium">
+                  {new Date(registration.player.dob).toLocaleDateString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600">Gender</p>
+                <p className="font-medium">{registration.player.gender}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Position</p>
+                <p className="font-medium">{registration.player.position}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">T-Shirt Size</p>
+                <p className="font-medium">{registration.player.tshirtSize}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Address</p>
+                <p className="font-medium">
+                  {registration.player.address}, {registration.player.city}, {registration.player.state} {registration.player.zip}
+                </p>
+              </div>
+            </div>
           </div>
-        </SectionCard>
+
+          {/* Registration Details */}
+          <div className="mb-8 bg-gray-50 rounded-lg p-4">
+            <h2 className="text-lg font-semibold mb-4">Registration Details</h2>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-gray-600">Season</p>
+                <p className="font-medium">{registration.season.name}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Type</p>
+                <p className="font-medium">{registration.registrationType.replace('_', ' ')}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Payment Status</p>
+                <p className="font-medium">
+                  <span className={`inline-block px-2 py-1 rounded text-xs ${
+                    registration.paymentStatus === 'PAID' 
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {registration.paymentStatus}
+                  </span>
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600">Amount</p>
+                <p className="font-medium">${registration.totalAmount.toString()}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Approval Form */}
+          <ApproveRegistrationForm
+            registration={registration}
+            player={registration.player}
+            teams={teams}
+          />
+        </div>
       </div>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-2">
-        <SectionCard title="Assignment panel">
-          <div className="grid gap-4 md:grid-cols-2">
-            <FieldLabel label="Division">
-              <SelectInput>
-                <option>Women Premier</option>
-                <option>Women D2</option>
-                <option>Men D1</option>
-              </SelectInput>
-            </FieldLabel>
-            <FieldLabel label="Team">
-              <SelectInput>
-                <option>{registration.teamPreference}</option>
-                <option>Alexandria FC</option>
-                <option>Nova Strikers</option>
-              </SelectInput>
-            </FieldLabel>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Notes and payment">
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
-              <span>Payment status</span>
-              <StatusBadge label={registration.paymentStatus} />
-            </div>
-            <TextArea className="min-h-32 p-4" defaultValue="Captain request pending review. Address verification still needed." />
-          </div>
-        </SectionCard>
-      </div>
-    </PrototypeShell>
-  );
+    </div>
+  )
 }
