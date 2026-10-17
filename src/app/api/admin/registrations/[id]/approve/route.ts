@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const registration = await prisma.registration.findUnique({ where: { id } });
     if (!registration) return NextResponse.json({ error: "Registration not found." }, { status: 404 });
-    if (registration.status !== "PENDING") {
+    if (registration.status !== "PENDING" && registration.status !== "SUBMITTED") {
       return NextResponse.json({ error: `This registration is already ${registration.status === "REJECTED" ? "denied" : registration.status.toLowerCase()}.` }, { status: 409 });
     }
 
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await prisma.$transaction(async (tx) => {
       // Guard against a concurrent decision.
       const updated = await tx.registration.updateMany({
-        where: { id, status: "PENDING" },
+        where: { id, status: { in: ["PENDING", "SUBMITTED"] } },
         data: { status: "APPROVED", approvedAt: new Date() },
       });
       if (updated.count !== 1) throw new ConflictError();

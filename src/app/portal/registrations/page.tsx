@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/ui/card";
 import { AppBar, Screen } from "@/components/shell/layout";
 import prisma from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { fmtDay, fmtShort, money } from "../format";
+import { fmtDay, fmtShort, money } from "@/lib/format";
 
 export const metadata = { title: "Registrations" };
 
@@ -41,7 +41,11 @@ export default async function PlayerRegistrationsPage() {
 
   const [registrations, passes] = playerId
     ? await Promise.all([
-        prisma.registration.findMany({ where: { playerId }, include: { season: true }, orderBy: { submittedAt: "desc" } }),
+        prisma.registration.findMany({
+          where: { playerId },
+          include: { season: true, division: true, preferredTeam: true, backupTeam: true },
+          orderBy: { submittedAt: "desc" },
+        }),
         prisma.gamePass
           .findMany({
             where: { playerId },
@@ -52,12 +56,17 @@ export default async function PlayerRegistrationsPage() {
       ])
     : [[], []];
 
-  // Resolve selected team ids → "Division · Team" titles.
-  const teamIds = [...new Set(registrations.flatMap((r) => parseIds(r.selectedTeams)))];
-  const teams = teamIds.length
-    ? await prisma.team.findMany({ where: { id: { in: teamIds } }, include: { division: true } }).catch(() => [])
+  // Older registrations stored selected teams as ids or names; resolve both to "Division · Team".
+  const refs = [...new Set(registrations.flatMap((r) => parseIds(r.selectedTeams)))];
+  const teams = refs.length
+    ? await prisma.team
+        .findMany({ where: { OR: [{ id: { in: refs } }, { name: { in: refs } }] }, include: { division: true } })
+        .catch(() => [])
     : [];
-  const teamLabel = new Map(teams.map((t) => [t.id, `${t.division.name} · ${t.name}`]));
+  const teamLabel = (ref: string, seasonId: string) => {
+    const t = teams.find((x) => x.id === ref) ?? teams.find((x) => x.name === ref && x.seasonId === seasonId);
+    return t ? `${t.division.name} · ${t.name}` : undefined;
+  };
 
   const groups = new Map<string, Group>();
   const groupFor = (name: string, start: Date) => {
@@ -67,9 +76,14 @@ export default async function PlayerRegistrationsPage() {
   };
 
   for (const r of registrations) {
-    const names = parseIds(r.selectedTeams)
-      .map((id) => teamLabel.get(id))
-      .filter(Boolean);
+    const picked = [r.preferredTeam, r.backupTeam].filter((t) => t !== null);
+    const names = picked.length
+      ? picked.map((t) => `${r.division?.name ?? ""}${r.division ? " · " : ""}${t.name}`)
+      : r.division
+        ? [r.division.name]
+        : parseIds(r.selectedTeams)
+            .map((ref) => teamLabel(ref, r.seasonId))
+            .filter(Boolean);
     groupFor(r.season.name, r.season.startDate).entries.push({
       key: r.id,
       title: names.length ? names.join(", ") : `${r.season.name} season`,
@@ -88,7 +102,7 @@ export default async function PlayerRegistrationsPage() {
     const m = p.match;
     groupFor(m.season.name, m.season.startDate).entries.push({
       key: p.id,
-      title: `Game pass · ${m.homeTeam.name} vs ${m.awayTeam.name}`,
+      title: `Game pass · Game #${m.gameNumber} · ${m.homeTeam.name} vs ${m.awayTeam.name}`,
       sub: `${fmtDay(m.scheduledAt)}${m.field ? ` · ${m.field}` : ""} · Bought ${fmtShort(p.createdAt)}`,
       amount: money(p.payment.amount),
       at: p.createdAt,

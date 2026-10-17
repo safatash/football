@@ -6,11 +6,13 @@ import { Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Field, TextArea } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 
-/** "Can you make it?" buttons on the next-match card. */
-export function AvailabilityButtons({ onDark = true }: { onDark?: boolean }) {
-  const [choice, setChoice] = useState<"yes" | "no" | null>(null);
+export type Choice = "yes" | "no";
+
+/** "Can you make it?" buttons on the next-match card. `initial` is the player's saved answer. */
+export function AvailabilityButtons({ onDark = true, initial = null }: { onDark?: boolean; initial?: Choice | null }) {
+  const [choice, setChoice] = useState<Choice | null>(initial);
   const [toast, showToast] = useToast();
-  const pick = (v: "yes" | "no") => {
+  const pick = (v: Choice) => {
     setChoice(v);
     showToast(v === "yes" ? "You’re marked available" : "Your captain will see you can’t make it");
   };

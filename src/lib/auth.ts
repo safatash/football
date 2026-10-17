@@ -37,8 +37,8 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid password")
         }
 
-        // Check if player account is active
-        if (user.player && user.player.status !== "ACTIVE") {
+        // Inactive accounts can't sign in; suspended players can (they see their status)
+        if (user.player && user.player.status === "INACTIVE") {
           throw new Error("Account is not active")
         }
 

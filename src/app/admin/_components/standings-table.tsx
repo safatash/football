@@ -1,10 +1,24 @@
 import { Crest } from "@/components/league";
 import { BodyCell, BodyRow, DataTable, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import { points, standings, type DivisionId } from "@/lib/league-data";
+import type { StandingRow } from "@/lib/standings";
+import type { CrestTeam } from "@/components/league";
 
-/** Division table: Rank, Team, Pts, GP, W, D, L, GF, GA, GD. */
-export function StandingsTable({ division, highlight, linkBase = "/admin/teams" }: { division: DivisionId; highlight?: string; linkBase?: string | null }) {
-  const rows = standings(division);
+type StandingsTeam = CrestTeam & { id: string; code?: string | null };
+
+/** Division table: Rank, Team, Pts, GP, W, D, L, GF, GA, GD. Rows come from `loadStandings`. */
+export function StandingsTable({
+  rows,
+  highlight,
+  linkBase = "/admin/teams",
+  href,
+}: {
+  rows: StandingRow<StandingsTeam>[];
+  /** Team id or code to highlight. */
+  highlight?: string;
+  linkBase?: string | null;
+  /** Builds the team link (e.g. to keep the selected season). Defaults to `${linkBase}/${code ?? id}`. */
+  href?: (path: string) => string;
+}) {
   return (
     <TableWrap>
       <DataTable>
@@ -23,32 +37,33 @@ export function StandingsTable({ division, highlight, linkBase = "/admin/teams" 
           </tr>
         </TableHead>
         <TableBody>
-          {rows.map((t, i) => {
-            const gd = t.gf - t.ga;
+          {rows.map((r, i) => {
+            const t = r.team;
+            const path = `${linkBase}/${t.code ?? t.id}`;
             return (
-              <BodyRow key={t.id} highlight={t.id === highlight}>
+              <BodyRow key={t.id} highlight={!!highlight && (t.id === highlight || t.code === highlight)}>
                 <BodyCell align="center">
                   <b className="font-display text-xl font-extrabold">{i + 1}</b>
                 </BodyCell>
                 <BodyCell>
                   <span className="flex items-center gap-2.5 whitespace-nowrap">
-                    <Crest teamId={t.id} />
-                    {linkBase ? <RowLink href={`${linkBase}/${t.id}`}>{t.name}</RowLink> : <b>{t.name}</b>}
+                    <Crest team={t} />
+                    {linkBase ? <RowLink href={href ? href(path) : path}>{t.name}</RowLink> : <b>{t.name}</b>}
                   </span>
                 </BodyCell>
                 <BodyCell align="right">
-                  <b className="font-display text-[22px] font-extrabold">{points(t)}</b>
+                  <b className="font-display text-[22px] font-extrabold">{r.pts}</b>
                 </BodyCell>
-                <BodyCell align="right">{t.w + t.d + t.l}</BodyCell>
-                <BodyCell align="right">{t.w}</BodyCell>
-                <BodyCell align="right">{t.d}</BodyCell>
-                <BodyCell align="right">{t.l}</BodyCell>
-                <BodyCell align="right">{t.gf}</BodyCell>
-                <BodyCell align="right">{t.ga}</BodyCell>
+                <BodyCell align="right">{r.played}</BodyCell>
+                <BodyCell align="right">{r.w}</BodyCell>
+                <BodyCell align="right">{r.d}</BodyCell>
+                <BodyCell align="right">{r.l}</BodyCell>
+                <BodyCell align="right">{r.gf}</BodyCell>
+                <BodyCell align="right">{r.ga}</BodyCell>
                 <BodyCell align="right">
                   <b>
-                    {gd > 0 ? "+" : ""}
-                    {gd}
+                    {r.gd > 0 ? "+" : ""}
+                    {r.gd}
                   </b>
                 </BodyCell>
               </BodyRow>

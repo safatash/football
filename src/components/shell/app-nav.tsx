@@ -81,14 +81,15 @@ export function PublicTopNav() {
 }
 
 /** Captain sub-navigation (tabs). */
-export function CaptainTabs({ matchId = 204, reportMatchId = 203 }: { matchId?: number; reportMatchId?: number }) {
+/** Tabs for one team's captain tools. Match tabs show when there's a match to work on. */
+export function CaptainTabs({ base, matchNumber, reportNumber }: { base: string; matchNumber?: number | null; reportNumber?: number | null }) {
   const path = usePathname();
   const tabs = [
-    { href: "/captain", label: "Overview", on: path === "/captain" },
-    { href: "/captain/team", label: "Roster", on: path.startsWith("/captain/team") },
-    { href: `/captain/matches/${matchId}/roster`, label: "Match roster", on: path.endsWith("/roster") && path.includes("/matches/") },
-    { href: "/captain/lineup", label: "Lineup", on: path.startsWith("/captain/lineup") },
-    { href: `/captain/matches/${reportMatchId}/report`, label: "Match report", on: path.endsWith("/report") },
+    { href: base, label: "Overview", on: path === base },
+    { href: `${base}/team`, label: "Roster", on: path.startsWith(`${base}/team`) },
+    ...(matchNumber ? [{ href: `${base}/matches/${matchNumber}/roster`, label: "Match roster", on: path.endsWith("/roster") && path.includes("/matches/") }] : []),
+    { href: `${base}/lineup`, label: "Lineup", on: path.startsWith(`${base}/lineup`) },
+    ...(reportNumber ? [{ href: `${base}/matches/${reportNumber}/report`, label: "Match report", on: path.endsWith("/report") }] : []),
   ];
   return (
     <div role="tablist" aria-label="Captain tools" className="no-scrollbar sticky top-[58px] z-20 flex gap-1.5 overflow-x-auto border-b border-line bg-bg px-[max(16px,calc((100%-1120px)/2))] py-2.5 lg:top-[124px]">

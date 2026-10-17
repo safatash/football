@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
-import { MatchMeta, VsRow, vsFor } from "@/components/league";
+import { MatchMeta, VsRow } from "@/components/league";
 import { team, type Match } from "@/lib/league-data";
 
 /** Game pass ticket for one match. */
@@ -15,7 +15,7 @@ export function PassTicket({ match: m, holder, state }: { match: Match; holder?:
         <span className="font-display text-2xl font-extrabold">Game #{m.id}</span>
       </div>
       <div className="flex flex-col gap-3.5 p-4">
-        <VsRow {...vsFor(m)} />
+        <VsRow home={{ name: team(m.home).name, color: team(m.home).color, shortName: team(m.home).ab }} away={{ name: team(m.away).name, color: team(m.away).color, shortName: team(m.away).ab }} />
         <MatchMeta date={m.date} time={m.time} field={m.field} />
         <div className="-mx-4 border-t-[1.5px] border-dashed border-line-strong" />
         <div className="flex flex-wrap items-center justify-between gap-2">

@@ -83,6 +83,8 @@ export function MatchStatusBadge({ status }: { status: string }) {
     CANCELLED: ["Cancelled", "bad"],
     POSTPONED: ["Postponed", "neutral"],
     SUBMITTED: ["Submitted", "ok"],
+    CONFIRMED: ["Confirmed", "ok"],
+    NOT_STARTED: ["Not started", "neutral"],
     FINALIZED: ["Finalized", "ok"],
     DRAFT: ["Draft", "warn"],
     OVERDUE: ["Overdue", "bad"],

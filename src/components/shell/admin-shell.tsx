@@ -6,7 +6,6 @@ import type { ReactNode } from "react";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Badge, RoleTag } from "@/components/ui/badge";
 import { Logo } from "@/components/league";
-import { ACTIVE_SEASON, SEASONS } from "@/lib/league-data";
 
 type Item = { href: string; label: string; icon: IconName; count?: number };
 
@@ -14,15 +13,22 @@ export function AdminShell({
   children,
   user,
   counts,
+  seasons,
+  activeSeason,
+  divisionsHref,
 }: {
   children: ReactNode;
   user: { name: string; title: string };
   counts: { registrations: number; placement: number };
+  seasons: string[];
+  activeSeason: string;
+  divisionsHref: string;
 }) {
   const path = usePathname();
   const router = useRouter();
   const params = useSearchParams();
-  const season = params.get("season") ?? ACTIVE_SEASON;
+  const picked = params.get("season");
+  const season = picked && seasons.includes(picked) ? picked : activeSeason;
 
   const groups: [string, Item[]][] = [
     ["Today", [{ href: "/admin", label: "Operations", icon: "grid" }]],
@@ -40,16 +46,16 @@ export function AdminShell({
         { href: "/admin/teams", label: "Teams", icon: "shield" },
         { href: "/admin/matches", label: "Matches", icon: "cal" },
         { href: "/admin/standings", label: "Standings", icon: "trophy" },
-        { href: "/admin/divisions/wp", label: "Divisions", icon: "list" },
+        { href: divisionsHref, label: "Divisions", icon: "list" },
       ],
     ],
     ["Settings", [{ href: "/admin/settings", label: "Fees & eligibility", icon: "card" }]],
   ];
-  const isOn = (href: string) => (href === "/admin" ? path === "/admin" : path.startsWith(href.replace(/\/wp$/, "")));
+  const isOn = (href: string) => (href === "/admin" ? path === "/admin" : path.startsWith(href.startsWith("/admin/divisions") ? "/admin/divisions" : href));
 
   function changeSeason(s: string) {
     const q = new URLSearchParams(params.toString());
-    if (s === ACTIVE_SEASON) q.delete("season");
+    if (s === activeSeason) q.delete("season");
     else q.set("season", s);
     router.push(`${path}${q.size ? `?${q}` : ""}`);
   }
@@ -101,12 +107,12 @@ export function AdminShell({
             <Icon name="cal" />
             <span className="sr-only">Season</span>
             <select value={season} onChange={(e) => changeSeason(e.target.value)} className="h-[34px] cursor-pointer bg-transparent font-bold outline-none">
-              {SEASONS.map((s) => (
+              {seasons.map((s) => (
                 <option key={s}>{s}</option>
               ))}
             </select>
           </label>
-          {season === ACTIVE_SEASON ? <Badge tone="ok">Active season</Badge> : <Badge tone="info">Archived · read only</Badge>}
+          {season === activeSeason ? <Badge tone="ok">Active season</Badge> : <Badge tone="info">Archived · read only</Badge>}
           <form action="/admin/players" className="relative ml-auto min-w-[180px] max-w-[320px] flex-1">
             <Icon name="search" className="absolute top-2.5 left-3.5 size-[18px] text-muted" />
             <input

@@ -9,7 +9,7 @@ import { Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Field, SelectInput, TextInput } from "@/components/ui/field";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 
-type Status = "Active" | "Pending Approval" | "Suspended";
+type Status = "Active" | "Pending Approval" | "Suspended" | "Inactive";
 const REASONS = ["Red card", "Yellow card accumulation", "Unpaid fee", "Conduct"];
 
 /** Heading with status badge, suspend / lift actions and the player's note. */
@@ -115,7 +115,7 @@ export function PlayerHeader({
   );
 }
 
-type Access = { id: string; name: string; division: string; membership: string; role: "Captain" | "Player" };
+type Access = { id: string; name: string; color?: string | null; shortName?: string | null; division: string; membership: string; role: "Captain" | "Player" };
 
 export function TeamAccessTable({ teams, readOnly }: { teams: Access[]; readOnly?: boolean }) {
   const [roles, setRoles] = useState<Record<string, Access["role"]>>(() => Object.fromEntries(teams.map((t) => [t.id, t.role])));
@@ -140,7 +140,7 @@ export function TeamAccessTable({ teams, readOnly }: { teams: Access[]; readOnly
                 <BodyRow key={t.id}>
                   <BodyCell>
                     <span className="flex items-center gap-2 whitespace-nowrap">
-                      <Crest teamId={t.id} />
+                      <Crest team={t} />
                       <b>{t.name}</b>
                     </span>
                   </BodyCell>

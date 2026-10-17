@@ -1,8 +1,8 @@
 import { Badge, PaymentBadge, RegistrationBadge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/card";
 import { BodyCell, BodyRow, DataTable, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import { money } from "@/lib/league-data";
-import type { RegListRow } from "./registration-data";
+import { money } from "@/lib/format";
+import type { RegListRow } from "@/lib/queries/registrations";
 
 export function RegistrationTable({ rows, showAmount = true, hrefFor }: { rows: RegListRow[]; showAmount?: boolean; hrefFor: (id: string) => string }) {
   if (!rows.length) {

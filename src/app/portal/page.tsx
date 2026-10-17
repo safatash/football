@@ -7,10 +7,12 @@ import { Crest, MatchMeta, VsRow } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
 import prisma from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { now } from "@/lib/clock";
+import { TZ, fmtDay, fmtTime, money, relativeDay } from "@/lib/format";
+import { nextMatchFor } from "@/lib/queries/matches";
 import { requireUser } from "@/lib/session";
 import { AccessPanel } from "./access-panel";
-import { fmtDay, fmtTime, money, relativeDay } from "./format";
-import { AvailabilityButtons } from "./portal-client";
+import { AvailabilityButtons, type Choice } from "./portal-client";
 
 export const metadata = { title: "Dashboard" };
 
@@ -46,24 +48,18 @@ async function teamRecord(teamId: string) {
   }
 }
 
-async function nextMatchFor(teamId: string) {
-  try {
-    return await prisma.match.findFirst({
-      where: { OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }], scheduledAt: { gte: new Date() }, status: "SCHEDULED" },
-      include: { homeTeam: true, awayTeam: true },
-      orderBy: { scheduledAt: "asc" },
-    });
-  } catch {
-    return null;
-  }
+/** The player's saved answer for a match, if any. */
+async function myAvailability(teamRosterId: string, matchId: string): Promise<Choice | null> {
+  const row = await prisma.matchAvailability.findUnique({ where: { matchId_teamRosterId: { matchId, teamRosterId } }, select: { status: true } });
+  return row?.status === "AVAILABLE" ? "yes" : row?.status === "UNAVAILABLE" ? "no" : null;
 }
 
-export default async function PlayerDashboardPage({ searchParams }: { searchParams: Promise<{ team?: string; denied?: string }> }) {
-  const { team: teamParam, denied } = await searchParams;
+export default async function PlayerDashboardPage({ searchParams }: { searchParams: Promise<{ team?: string; denied?: string; notice?: string }> }) {
+  const { team: teamParam, denied, notice } = await searchParams;
   const session = await requireUser("/portal");
   // League-office accounts without a player profile land in the office.
   if (!session.user.playerId && session.user.isAdmin) redirect("/admin");
-  const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" });
+  const today = now().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: TZ });
 
   const player = session.user.playerId
     ? await prisma.player.findUnique({
@@ -114,6 +110,10 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
       <Notice tone="warn" icon="lock" className={span}>
         That area is for the league office.
       </Notice>
+    ) : notice === "no-team" ? (
+      <Notice tone="warn" icon="lock" className={span}>
+        Captain tools open once the league office makes you a team captain.
+      </Notice>
     ) : null;
 
   if (!player) {
@@ -141,7 +141,8 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
   const memberships = player.teamMemberships.filter((m) => m.membershipType !== "GAME_PASS");
   const selected = memberships.find((m) => m.id === teamParam) ?? memberships[0];
   const latestRegistration = player.registrations[0];
-  const [record, nextMatch] = selected ? await Promise.all([teamRecord(selected.teamId), nextMatchFor(selected.teamId)]) : [null, null];
+  const [record, nextMatch] = selected ? await Promise.all([teamRecord(selected.teamId), nextMatchFor(selected.teamId, selected.team.seasonId)]) : [null, null];
+  const myAnswer = selected && nextMatch ? await myAvailability(selected.id, nextMatch.id) : null;
 
   return (
     <>
@@ -204,7 +205,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
         {selected ? (
           <Card className="flex flex-col gap-3.5">
             <div className="flex items-center gap-3">
-              <Crest name={selected.team.name} size="lg" />
+              <Crest team={selected.team} size="lg" />
               <div className="min-w-0 flex-1">
                 <h3 className="text-[22px]">{selected.team.name}</h3>
                 <div className="text-sm text-muted">
@@ -218,6 +219,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
                 {selected.id === memberships[0].id ? "Primary team" : "Additional team"}
               </Badge>
               <Badge dot={false}>Season roster</Badge>
+              {selected.jerseyNumber != null ? <Badge dot={false}>#{selected.jerseyNumber}</Badge> : null}
               {player.position ? <Badge dot={false}>{player.position}</Badge> : null}
             </div>
             {record ? (
@@ -241,7 +243,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
               requestPending={selected.captainRequest && !selected.isCaptain}
             />
             {selected.isCaptain ? (
-              <ButtonLink href="/captain" block>
+              <ButtonLink href={`/captain/${selected.teamId}`} block>
                 Open captain tools
                 <Icon name="right" className="size-4" />
               </ButtonLink>
@@ -262,18 +264,13 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
           nextMatch ? (
             <HeroCard className="flex flex-col gap-3.5">
               <div className="flex items-center justify-between gap-3">
-                <span className="eyebrow text-white/75">Next match</span>
-                <Badge tone="warn">{relativeDay(nextMatch.scheduledAt)}</Badge>
+                <span className="eyebrow text-white/75">Next match · Game #{nextMatch.gameNumber}</span>
+                <Badge tone="warn">{relativeDay(nextMatch.scheduledAt, now())}</Badge>
               </div>
-              <VsRow home={{ name: nextMatch.homeTeam.name }} away={{ name: nextMatch.awayTeam.name }} onDark />
-              <MatchMeta
-                onDark
-                date={fmtDay(nextMatch.scheduledAt)}
-                time={fmtTime(nextMatch.startTime ?? nextMatch.scheduledAt)}
-                field={[nextMatch.location, nextMatch.field].filter(Boolean).join(" ") || null}
-              />
-              <AvailabilityButtons />
-              <ButtonLink href={`/matches/${nextMatch.id}/print`} size="sm" className="!bg-white !text-[#0F3D2E]">
+              <VsRow home={nextMatch.homeTeam} away={nextMatch.awayTeam} onDark />
+              <MatchMeta onDark date={nextMatch.date} time={nextMatch.time} field={nextMatch.field} />
+              <AvailabilityButtons initial={myAnswer} />
+              <ButtonLink href={`/matches/${nextMatch.gameNumber}/print`} size="sm" className="!bg-white !text-[#0F3D2E]">
                 <Icon name="print" className="size-4" />
                 Print game roster
               </ButtonLink>
@@ -315,7 +312,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
                         {gp.match.homeTeam.name} vs {gp.match.awayTeam.name}
                       </b>
                       <span className="text-xs text-muted">
-                        {fmtDay(gp.match.scheduledAt)} · {fmtTime(gp.match.startTime ?? gp.match.scheduledAt)}
+                        Game #{gp.match.gameNumber} · {fmtDay(gp.match.scheduledAt)} · {fmtTime(gp.match.startTime ?? gp.match.scheduledAt)}
                         {gp.match.field ? ` · ${gp.match.field}` : ""}
                       </span>
                     </div>

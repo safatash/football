@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { RoleTag } from "@/components/ui/badge";
-import { Crest } from "@/components/league";
+import { Crest, type CrestTeam } from "@/components/league";
 
 /** Horizontal gutter that also centers content at a max width. */
 export const gutter = {
@@ -72,14 +72,16 @@ export function ActionBar({ children, withTabs, width = "narrow", className = ""
 }
 
 /** Dark team header shown on every team view, with the viewer's access level. */
-export function TeamHeader({ teamId, name, sub, role, backHref = "/portal" }: { teamId?: string; name: string; sub: string; role: "Captain" | "Player"; backHref?: string }) {
+export function TeamHeader({ team, sub, role, backHref = "/portal", children }: { team: CrestTeam; sub: string; role: "Captain" | "Player" | "Admin"; backHref?: string; children?: ReactNode }) {
+  const name = team.name;
   return (
     <AppBar dark width="wide" backHref={backHref}>
-      <Crest teamId={teamId} name={name} />
+      <Crest team={team} />
       <div className="min-w-0 flex-1">
         <div className="truncate font-display text-[19px] font-extrabold lg:text-[22px]">{name}</div>
         <div className="truncate text-xs opacity-80">{sub}</div>
       </div>
+      {children}
       <RoleTag role={role} />
     </AppBar>
   );

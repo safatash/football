@@ -28,7 +28,7 @@ const DENY_REASONS = ["Outside the eligible area", "Doesn’t meet the division 
 
 /**
  * Decision card for a registration. `api` mode saves through /api/admin/registrations/:id;
- * `local` mode is used for the Spring 2026 sample queue.
+ * `local` mode keeps the decision on the page without saving.
  */
 export function ApproveRegistrationForm({
   mode,

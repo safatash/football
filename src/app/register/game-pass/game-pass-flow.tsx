@@ -10,7 +10,7 @@ import { CheckBox, Segmented } from "@/components/ui/controls";
 import { Field, TextInput } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { Stepper } from "@/components/ui/stepper";
-import { MatchMeta, VsRow, vsFor } from "@/components/league";
+import { MatchMeta, VsRow } from "@/components/league";
 import { ActionBar, AppBar, Screen } from "@/components/shell/layout";
 import { GAME_PASS_FEE, MATCHES, ageOn, division, match as matchById, money, team } from "@/lib/league-data";
 import { PassTicket } from "./ticket";
@@ -296,7 +296,7 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
                                 <CheckBox checked={on} round />
                               </span>
                             </div>
-                            <VsRow {...vsFor(x)} />
+                            <VsRow home={{ name: team(x.home).name, color: team(x.home).color, shortName: team(x.home).ab }} away={{ name: team(x.away).name, color: team(x.away).color, shortName: team(x.away).ab }} />
                             <MatchMeta date={x.date} time={x.time} field={x.field} />
                           </button>
                         );

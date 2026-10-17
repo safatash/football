@@ -1,34 +1,35 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Fragment } from "react";
 import { Notice } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
-import { ACTIVE_SEASON } from "@/lib/league-data";
+import { resolveSeason, type ResolvedSeason } from "@/lib/queries/season";
 
 export type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+export type AdminSeason = ResolvedSeason;
 
 /** First value of a query param. */
 export const param = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 
 /** Season selected in the admin top bar (`?season=`), defaulting to the active season. */
-export function seasonFrom(sp: Record<string, string | string[] | undefined>) {
-  const s = param(sp.season).trim();
-  return s || ACTIVE_SEASON;
+export async function seasonFrom(sp: Record<string, string | string[] | undefined>): Promise<AdminSeason> {
+  const season = await resolveSeason(param(sp.season).trim() || null);
+  if (!season) notFound();
+  return season;
 }
 
-export const isArchived = (season: string) => season !== ACTIVE_SEASON;
-
 /** Keeps an archived season selected when following an admin link. */
-export function withSeason(href: string, season: string) {
-  if (!isArchived(season)) return href;
-  return `${href}${href.includes("?") ? "&" : "?"}season=${encodeURIComponent(season)}`;
+export function withSeason(href: string, season: AdminSeason) {
+  if (!season.archived) return href;
+  return `${href}${href.includes("?") ? "&" : "?"}season=${encodeURIComponent(season.name)}`;
 }
 
 /** Shown on admin pages with actions when a closed season is selected. */
-export function ArchivedNotice({ season }: { season: string }) {
-  if (!isArchived(season)) return null;
+export function ArchivedNotice({ season }: { season: AdminSeason }) {
+  if (!season.archived) return null;
   return (
     <Notice tone="info">
-      You’re viewing <b>{season}</b>. It’s closed, so changes are turned off. Switch to {ACTIVE_SEASON} to make changes.
+      You’re viewing <b>{season.name}</b>. It’s closed, so changes are turned off. Switch to {season.activeName} to make changes.
     </Notice>
   );
 }

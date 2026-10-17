@@ -1,26 +1,25 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { notFound } from "next/navigation";
 import { Badge, PaymentBadge, RegistrationBadge } from "@/components/ui/badge";
 import { Card, CardHeader, EmptyState, KeyValue } from "@/components/ui/card";
-import { MATCHES, PLAYERS, division, team } from "@/lib/league-data";
-import { ArchivedNotice, Crumbs, isArchived, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
+import { isUpcoming, listMatches } from "@/lib/queries/matches";
+import { getPlayer } from "@/lib/queries/players";
+import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
 import { PlayerHeader, TeamAccessTable } from "./player-actions";
 
 export const metadata = { title: "Player" };
 
-/** Profile details on file. Only the players below have complete profiles in the league records. */
-const PROFILES: Record<string, { born: string; position: string; phone: string; address: string }> = {
-  "maya-johnson": { born: "Mar 12, 1994", position: "FWD · #9", phone: "(703) 555-0117", address: "Vienna, VA 22180" },
-};
-
 export default async function PlayerDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
   const { id } = await params;
-  const season = seasonFrom(await searchParams);
-  const p = PLAYERS.find((x) => x.slug === id);
+  const season = await seasonFrom(await searchParams);
+  const p = await getPlayer(id, season.id);
   if (!p) notFound();
-  const profile = PROFILES[p.slug];
-  const upcoming = MATCHES.filter((m) => m.status === "Scheduled" && p.teams.some(([t]) => m.home === t || m.away === t));
-  const readOnly = isArchived(season);
+  const teamIds = new Set(p.teams.map((t) => t.id));
+  const upcoming = p.teams.length
+    ? (await listMatches(season.id)).filter((m) => isUpcoming(m) && (teamIds.has(m.homeTeam.id) || teamIds.has(m.awayTeam.id)))
+    : [];
+  const readOnly = season.archived;
 
   return (
     <>
@@ -39,10 +38,10 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
           <CardHeader title="Profile" />
           <KeyValue
             items={[
-              ["Born", profile?.born ?? "—"],
-              ["Position", profile?.position ?? "—"],
-              ["Phone", profile?.phone ?? "—"],
-              ["Address", profile?.address ?? "—"],
+              ["Born", p.born],
+              ["Position", p.position],
+              ["Phone", p.phone],
+              ["Address", p.address],
               ["Player since", p.since],
             ]}
           />
@@ -51,15 +50,21 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
           <CardHeader title="Registration" />
           <KeyValue
             items={[
-              ["Season", "Spring 2026"],
+              ["Season", season.name],
               ["Status", <RegistrationBadge key="r" status={p.reg} />],
               ["Payment", <PaymentBadge key="p" status={p.pay} />],
-              ["Division", p.div ? division(p.div).name : "—"],
+              ["Division", p.division?.name ?? "—"],
             ]}
           />
-          {p.slug === "maya-johnson" ? (
+          {p.passes.length ? (
             <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-[var(--radius-field)] bg-surface-2 p-3.5 text-[13px]">
-              Game passes: <b>#207</b> <Badge tone="ok">Active</Badge> · <b>#205</b> <Badge tone="bad">Expired</Badge>
+              Game passes:{" "}
+              {p.passes.map((g, i) => (
+                <Fragment key={g.id}>
+                  {i > 0 ? " · " : null}
+                  <b>#{g.gameNumber}</b> {g.active ? <Badge tone="ok">Active</Badge> : <Badge tone="bad">Expired</Badge>}
+                </Fragment>
+              ))}
             </div>
           ) : null}
         </Card>
@@ -68,11 +73,11 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
           {upcoming.length ? (
             <div className="flex flex-col">
               {upcoming.map((m) => (
-                <Link key={m.id} href={withSeason(`/admin/matches/${m.id}`, season)} className="flex min-h-11 items-center gap-2.5 rounded-[10px] hover:bg-surface-2">
-                  <span className="font-mono text-[13px] text-muted">#{m.id}</span>
+                <Link key={m.id} href={withSeason(`/admin/matches/${m.gameNumber}`, season)} className="flex min-h-11 items-center gap-2.5 rounded-[10px] hover:bg-surface-2">
+                  <span className="font-mono text-[13px] text-muted">#{m.gameNumber}</span>
                   <span className="flex-1 text-sm">
                     <b>
-                      {team(m.home).ab} vs {team(m.away).ab}
+                      {m.homeTeam.shortName ?? m.homeTeam.name} vs {m.awayTeam.shortName ?? m.awayTeam.name}
                     </b>{" "}
                     · {m.date.slice(5)}
                   </span>
@@ -90,11 +95,19 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
         {p.teams.length ? (
           <TeamAccessTable
             readOnly={readOnly}
-            teams={p.teams.map(([t, role], i) => ({ id: t, name: team(t).name, division: division(team(t).div).name, membership: i === 0 ? "Primary team" : "Additional team", role }))}
+            teams={p.teams.map((t, i) => ({
+              id: t.id,
+              name: t.name,
+              color: t.color,
+              shortName: t.shortName,
+              division: t.division.name,
+              membership: i === 0 ? "Primary team" : "Additional team",
+              role: t.role,
+            }))}
           />
         ) : (
           <EmptyState icon="users" title="No team yet">
-            {p.reg === "Game pass only" ? "Game-pass players aren’t on any season roster." : "Assign a team from the registration."}
+            {p.passGame != null ? "Game-pass players aren’t on any season roster." : "Assign a team from the registration."}
           </EmptyState>
         )}
         <p className="text-[13px] text-muted">Access is per team. Captain on one team doesn’t give access to another.</p>

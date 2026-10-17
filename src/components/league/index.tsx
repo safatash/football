@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
-import { team as teamById, type Match } from "@/lib/league-data";
 
 export function Logo({ href = "/", className = "", tone = "default" }: { href?: string; className?: string; tone?: "default" | "light" }) {
   return (
@@ -14,11 +13,12 @@ export function Logo({ href = "/", className = "", tone = "default" }: { href?: 
   );
 }
 
-/** Team crest: colored tile with the team's short code. */
-export function Crest({ teamId, name, color, ab, size = "md" }: { teamId?: string; name?: string; color?: string; ab?: string; size?: "md" | "lg" }) {
-  const t = teamId ? teamById(teamId) : undefined;
-  const bg = color ?? t?.color ?? "#0F3D2E";
-  const code = (ab ?? t?.ab ?? (name ?? "").split(" ").map((w) => w[0]).join("")).slice(0, 3);
+export type CrestTeam = { name: string; color?: string | null; shortName?: string | null };
+
+/** Team crest: colored tile with the team's short code. Pass `team` or the parts. */
+export function Crest({ team, name, color, ab, size = "md" }: { team?: CrestTeam; name?: string; color?: string | null; ab?: string | null; size?: "md" | "lg" }) {
+  const bg = color ?? team?.color ?? "#0F3D2E";
+  const code = (ab ?? team?.shortName ?? (name ?? team?.name ?? "").split(" ").map((w) => w[0]).join("")).slice(0, 3);
   return (
     <span
       aria-hidden
@@ -53,12 +53,12 @@ export function PosTag({ pos }: { pos: string }) {
   return <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-extrabold tracking-[0.06em] text-muted">{pos}</span>;
 }
 
-/** Home vs away row. Pass names/ids; score shows when present. */
-export function VsRow({ home, away, score, onDark }: { home: { id?: string; name: string }; away: { id?: string; name: string }; score?: [number, number] | null; onDark?: boolean }) {
+/** Home vs away row; score shows when present. */
+export function VsRow({ home, away, score, onDark }: { home: CrestTeam; away: CrestTeam; score?: [number, number] | null; onDark?: boolean }) {
   return (
     <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
       <div className="flex min-w-0 items-center gap-2 font-bold">
-        <Crest teamId={home.id} name={home.name} />
+        <Crest team={home} />
         <span className="truncate">{home.name}</span>
       </div>
       {score ? (
@@ -70,7 +70,7 @@ export function VsRow({ home, away, score, onDark }: { home: { id?: string; name
       )}
       <div className="flex min-w-0 items-center justify-end gap-2 text-right font-bold">
         <span className="truncate">{away.name}</span>
-        <Crest teamId={away.id} name={away.name} />
+        <Crest team={away} />
       </div>
     </div>
   );
@@ -98,11 +98,6 @@ export function MatchMeta({ date, time, field, onDark, extra }: { date: string; 
       {extra}
     </div>
   );
-}
-
-/** Convenience for sample-data matches */
-export function vsFor(m: Match) {
-  return { home: { id: m.home, name: teamById(m.home).name }, away: { id: m.away, name: teamById(m.away).name } };
 }
 
 export function PageHeading({ eyebrow, title, sub, actions }: { eyebrow?: ReactNode; title: ReactNode; sub?: ReactNode; actions?: ReactNode }) {

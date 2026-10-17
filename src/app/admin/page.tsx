@@ -7,60 +7,71 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card, CardHeader, StatCard } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import {
-  ACTIVE_SEASON,
-  MATCHES,
-  PLACEMENTS,
-  PLAYERS,
-  REGISTRATIONS,
-  TEAMS,
-  TODAY_LABEL,
-  division,
-  points,
-  refsAssigned,
-  team,
-} from "@/lib/league-data";
+import { now } from "@/lib/clock";
+import { fmtDay, fmtShort } from "@/lib/format";
+import { isUpcoming, listMatches, nextMatchDay, reportOverdue } from "@/lib/queries/matches";
+import { listPlacements } from "@/lib/queries/placements";
+import { suspendedPlayers } from "@/lib/queries/players";
+import { listRegistrations, openCaptainRequests, openRegistrationStats } from "@/lib/queries/registrations";
+import { loadStandings } from "@/lib/queries/standings";
+import { listTeams } from "@/lib/queries/teams";
 import { ArchivedNotice, seasonFrom, withSeason, type SearchParams } from "./_components/season";
-import { loadDbRegistrations, samplePending, shortDate, type RegListRow } from "./_components/registration-data";
 import { RegistrationTable } from "./_components/registration-table";
 
 export const metadata = { title: "Operations" };
 
-const HOME_ROSTER: Record<number, string> = { 204: "Draft", 206: "Finalized" };
+const WEEK_MS = 7 * 864e5;
+const ROSTER_STATUS = { DRAFT: "Draft", FINALIZED: "Finalized" } as const;
 
 export default async function OperationsPage({ searchParams }: { searchParams: SearchParams }) {
-  const season = seasonFrom(await searchParams);
+  const season = await seasonFrom(await searchParams);
   const s = (href: string) => withSeason(href, season);
+  const at = now();
 
-  const pendingSample = samplePending();
-  let pendingCount = pendingSample.length;
-  let oldest = "May 9";
-  let queue: RegListRow[] = [];
-  try {
-    pendingCount = await prisma.registration.count({ where: { status: "PENDING" } });
-    const first = await prisma.registration.findFirst({ where: { status: "PENDING" }, orderBy: { submittedAt: "asc" }, select: { submittedAt: true } });
-    oldest = first ? shortDate(first.submittedAt) : "";
-    queue = pendingCount ? await loadDbRegistrations({ pendingOnly: true, take: 5 }) : [];
-  } catch {
-    pendingCount = pendingSample.length;
-    oldest = "May 9";
-  }
-  const usingSample = queue.length === 0;
-  if (usingSample) queue = pendingSample.slice(0, 5);
+  const [stats, queue, captainReqs, suspended, matches, placements, teams] = await Promise.all([
+    openRegistrationStats(season.id),
+    listRegistrations(season.id, { openOnly: true, take: 5 }),
+    openCaptainRequests(season.id),
+    suspendedPlayers(season.id),
+    listMatches(season.id),
+    listPlacements(season, ["NEW"]),
+    listTeams(season.id),
+  ]);
+  const pendingCount = stats.count;
+  const oldest = stats.oldest;
 
-  const captainReqs = REGISTRATIONS.filter((r) => r.captainRequest && (r.reg === "Submitted" || r.reg === "Pending Review"));
-  const suspended = PLAYERS.filter((p) => p.status === "Suspended");
-  const scheduled = MATCHES.filter((m) => m.status === "Scheduled");
-  const sunday = scheduled.filter((m) => m.date === "Sun, May 17");
-  const overdue = MATCHES.filter((m) => m.report === "Overdue");
-  const noRefs = scheduled.filter((m) => refsAssigned(m) === 0);
-  const attention = suspended.length + overdue.length + noRefs.length;
+  const scheduled = matches.filter((m) => isUpcoming(m, at));
+  const sundayDay = nextMatchDay(matches, at);
+  const sunday = sundayDay.matches;
+  const sundayLabel = sunday[0] ? fmtShort(sunday[0].scheduledAt) : "";
+  const homeRosters = sunday.length
+    ? await prisma.matchRoster.findMany({
+        where: { OR: sunday.map((m) => ({ matchId: m.id, teamId: m.homeTeam.id })) },
+        select: { matchId: true, status: true },
+      })
+    : [];
+  const homeRoster = new Map(homeRosters.map((r) => [r.matchId, ROSTER_STATUS[r.status]]));
+
+  const captainsOf = new Map(teams.map((t) => [t.id, t.captains]));
+  const overdue = matches.filter((m) => m.status !== "CANCELLED" && (m.reportStatus === "OVERDUE" || reportOverdue(m.scheduledAt, m.reportStatus, at)));
+  const toConfirm = matches.filter((m) => m.reportStatus === "SUBMITTED");
+  const noRefs = scheduled.filter((m) => m.refsAssigned === 0);
+  const attention = suspended.length + overdue.length + toConfirm.length + noRefs.length + captainReqs.length;
+
+  // Team snapshot: first six teams with points from confirmed results
+  const snapshot = teams.slice(0, 6);
+  const tables = await Promise.all([...new Set(snapshot.map((t) => t.division.id))].map((d) => loadStandings(season.id, d)));
+  const points = new Map(tables.flat().map((r) => [r.team.id, r.pts]));
+
+  const totalWeeks = Math.max(1, Math.ceil((season.endDate.getTime() - season.startDate.getTime()) / WEEK_MS));
+  const week = Math.floor((at.getTime() - season.startDate.getTime()) / WEEK_MS) + 1;
+  const sub = !season.archived && week >= 1 && week <= totalWeeks ? `${fmtDay(at)} · ${season.name}, week ${week} of ${totalWeeks}` : `${fmtDay(at)} · ${season.name}`;
 
   return (
     <>
       <PageHeading
         title="Operations"
-        sub={`${TODAY_LABEL} · ${ACTIVE_SEASON}, week 8 of 14`}
+        sub={sub}
         actions={
           <>
             <ButtonLink href={s("/admin/matches")} variant="ghost" size="sm">
@@ -81,10 +92,10 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
           label="Captain requests"
           value={captainReqs.length}
           tone="pass"
-          note={[...new Set(captainReqs.map((r) => r.pref))].join(", ")}
+          note={[...new Set(captainReqs.map((r) => r.team.name))].join(", ")}
           href={s("/admin/registrations?filter=captain")}
         />
-        <StatCard label="Suspended players" value={suspended.length} tone="bad" note="1 red card · 1 payment" href={s("/admin/players?status=suspended")} />
+        <StatCard label="Suspended players" value={suspended.length} tone="bad" note={suspended.map((p) => p.name).join(", ")} href={s("/admin/players?status=suspended")} />
         <StatCard label="Upcoming matches" value={scheduled.length} note={`${sunday.length} this Sunday`} href={s("/admin/matches")} />
       </div>
 
@@ -94,7 +105,7 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-[26px]">Registration queue</h2>
               <Link href={s("/admin/registrations")} className="text-[13.5px] font-bold text-pitch-2 underline underline-offset-4">
-                See all{usingSample ? ` ${REGISTRATIONS.length}` : ""}
+                See all {stats.total}
               </Link>
             </div>
             <RegistrationTable rows={queue} showAmount={false} hrefFor={(id) => s(`/admin/registrations/${id}`)} />
@@ -103,7 +114,7 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
           <section className="flex flex-col gap-2.5">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-[26px]">This Sunday</h2>
-              <span className="text-[13px] text-muted">May 17</span>
+              <span className="text-[13px] text-muted">{sundayLabel}</span>
             </div>
             <TableWrap>
               <DataTable>
@@ -119,14 +130,14 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
                 </TableHead>
                 <TableBody>
                   {sunday.map((m) => {
-                    const refs = refsAssigned(m);
+                    const refs = m.refsAssigned;
                     return (
                       <BodyRow key={m.id}>
                         <BodyCell className="font-mono">
-                          <RowLink href={s(`/admin/matches/${m.id}`)}>#{m.id}</RowLink>
+                          <RowLink href={s(`/admin/matches/${m.gameNumber}`)}>#{m.gameNumber}</RowLink>
                         </BodyCell>
                         <BodyCell className="min-w-[200px]">
-                          <b>{team(m.home).name}</b> <span className="text-muted">vs</span> <b>{team(m.away).name}</b>
+                          <b>{m.homeTeam.name}</b> <span className="text-muted">vs</span> <b>{m.awayTeam.name}</b>
                         </BodyCell>
                         <BodyCell className="whitespace-nowrap">{m.time}</BodyCell>
                         <BodyCell className="whitespace-nowrap">{m.field}</BodyCell>
@@ -134,7 +145,7 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
                           <Badge tone={refs === 3 ? "ok" : "warn"}>{refs} of 3</Badge>
                         </BodyCell>
                         <BodyCell>
-                          <MatchStatusBadge status={HOME_ROSTER[m.id] ?? "Not started"} />
+                          <MatchStatusBadge status={homeRoster.get(m.id) ?? "Not started"} />
                         </BodyCell>
                       </BodyRow>
                     );
@@ -158,32 +169,55 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
             <div className="flex flex-col gap-1">
               {suspended.map((p) => (
                 <AttentionRow
-                  key={p.slug}
-                  href={s(`/admin/players/${p.slug}`)}
+                  key={p.id}
+                  href={s(`/admin/players/${p.id}`)}
                   icon={<Avatar name={p.name} />}
                   title={p.name}
                   badge={<PlayerStatusBadge status={p.status} />}
                   sub={p.note}
                 />
               ))}
-              {overdue.map((m) => (
+              {overdue.map((m) => {
+                const caps = [...(captainsOf.get(m.homeTeam.id) ?? []), ...(captainsOf.get(m.awayTeam.id) ?? [])];
+                return (
+                  <AttentionRow
+                    key={m.id}
+                    href={s(`/admin/matches/${m.gameNumber}`)}
+                    icon={<IconTile name="clip" />}
+                    title={`Game #${m.gameNumber} report overdue`}
+                    badge={<Badge tone="bad">Overdue</Badge>}
+                    sub={`${m.homeTeam.name} vs ${m.awayTeam.name}${caps.length ? ` · ${caps.join(", ")}` : ""}`}
+                  />
+                );
+              })}
+              {toConfirm.map((m) => (
                 <AttentionRow
                   key={m.id}
-                  href={s(`/admin/matches/${m.id}`)}
+                  href={s(`/admin/matches/${m.gameNumber}`)}
                   icon={<IconTile name="clip" />}
-                  title={`Game #${m.id} report overdue`}
-                  badge={<Badge tone="bad">Overdue</Badge>}
-                  sub={`${team(m.home).name} vs ${team(m.away).name} · ${team(m.home).caps[0]}`}
+                  title={`Game #${m.gameNumber} report to confirm`}
+                  badge={<MatchStatusBadge status="SUBMITTED" />}
+                  sub={`${m.homeTeam.name} vs ${m.awayTeam.name}${m.score ? ` · ${m.score[0]}–${m.score[1]}` : ""}`}
                 />
               ))}
               {noRefs.map((m) => (
                 <AttentionRow
                   key={m.id}
-                  href={s(`/admin/matches/${m.id}`)}
+                  href={s(`/admin/matches/${m.gameNumber}`)}
                   icon={<IconTile name="whistle" />}
-                  title={`Game #${m.id} has no referee`}
-                  badge={<Badge tone="warn">{m.date.replace("Sun, ", "")}</Badge>}
-                  sub={`${team(m.home).name} vs ${team(m.away).name}`}
+                  title={`Game #${m.gameNumber} has no referee`}
+                  badge={<Badge tone="warn">{fmtShort(m.scheduledAt)}</Badge>}
+                  sub={`${m.homeTeam.name} vs ${m.awayTeam.name}`}
+                />
+              ))}
+              {captainReqs.map((r) => (
+                <AttentionRow
+                  key={r.id}
+                  href={s(r.registrationId ? `/admin/registrations/${r.registrationId}` : `/admin/players/${r.player.id}`)}
+                  icon={<Avatar name={r.name} />}
+                  title={r.name}
+                  badge={<Badge tone="pass">Captain request</Badge>}
+                  sub={r.team.name}
                 />
               ))}
             </div>
@@ -199,13 +233,13 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
               }
             />
             <div className="flex flex-col">
-              {PLACEMENTS.filter((p) => p.state === "New").map((p) => (
+              {placements.map((p) => (
                 <Link key={p.id} href={s(`/admin/placements/${p.id}`)} className="flex min-h-12 items-center gap-2.5 rounded-[10px] py-1.5 hover:bg-surface-2">
                   <Avatar name={p.name} />
                   <div className="min-w-0 flex-1">
                     <b className="text-sm">{p.name}</b>
                     <div className="truncate text-xs text-muted">
-                      {division(p.div).name} · {p.level} · {p.pos}
+                      {p.division?.name ?? "—"} · {p.level} · {p.pos}
                     </div>
                   </div>
                   <Icon name="right" className="size-4 text-faint" />
@@ -232,27 +266,27 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
                 </tr>
               </TableHead>
               <TableBody>
-                {TEAMS.slice(0, 6).map((t) => (
+                {snapshot.map((t) => (
                   <BodyRow key={t.id}>
                     <BodyCell className="px-2">
                       <span className="flex items-center gap-2">
-                        <Crest teamId={t.id} />
+                        <Crest team={t} />
                         <span className="min-w-0">
-                          <RowLink href={s(`/admin/teams/${t.id}`)}>{t.name}</RowLink>
-                          <div className="text-xs text-muted">{division(t.div).name}</div>
+                          <RowLink href={s(`/admin/teams/${t.code ?? t.id}`)}>{t.name}</RowLink>
+                          <div className="text-xs text-muted">{t.division.name}</div>
                         </span>
                       </span>
                     </BodyCell>
                     <BodyCell align="right" className="px-2 whitespace-nowrap">
-                      {t.size}
-                      {t.size < 16 ? (
+                      {t.rosterSize}
+                      {t.rosterSize < 16 ? (
                         <Badge tone="warn" dot={false} className="ml-1.5">
                           Low
                         </Badge>
                       ) : null}
                     </BodyCell>
                     <BodyCell align="right" className="px-2">
-                      <b>{points(t)}</b>
+                      <b>{points.get(t.id) ?? 0}</b>
                     </BodyCell>
                   </BodyRow>
                 ))}

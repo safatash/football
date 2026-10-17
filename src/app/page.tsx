@@ -4,14 +4,62 @@ import { Icon } from "@/components/ui/icon";
 import { Badge, GamePassTag } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import { Logo, MatchMeta, VsRow, vsFor } from "@/components/league";
-import { DIVISIONS, GAME_PASS_FEE, MATCHES, TEAMS, division, money } from "@/lib/league-data";
+import { Logo, MatchMeta, VsRow } from "@/components/league";
+import prisma from "@/lib/prisma";
+import { fmtShort, money } from "@/lib/format";
+import { listMatches, nextMatchDay } from "@/lib/queries/matches";
+import { getActiveSeason, getSettings } from "@/lib/queries/season";
 
 export const metadata: Metadata = {
   title: { absolute: "NVASA · Sunday soccer for adults" },
 };
 
-const SUNDAY = "Sun, May 17";
+// League data changes all the time; render on every request.
+export const dynamic = "force-dynamic";
+
+type DivisionRow = {
+  id: string;
+  name: string;
+  level: string | null;
+  registrationFee: { toString(): string };
+  genderRule: "WOMEN" | "MEN" | "COED";
+  maleBornOnOrBefore: Date | null;
+  femaleBornOnOrBefore: Date | null;
+  minAge: number;
+};
+
+/** Date-only columns are stored at UTC midnight. */
+const mdy = (d: Date) => d.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "numeric", timeZone: "UTC" });
+const monthDay = (d: Date) => d.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+const monthDayYear = (d: Date) => d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+
+/** "18+", "Born on or before 12/31/2008" or "Men born ≤ … · Women ≤ …". */
+function whoCanPlay(d: DivisionRow, openingDay: Date) {
+  const ageCutoff = `${openingDay.getUTCFullYear() - d.minAge}${openingDay.toISOString().slice(4, 10)}`;
+  const one = (c: Date | null) => (!c || c.toISOString().slice(0, 10) === ageCutoff ? `${d.minAge}+` : `Born on or before ${mdy(c)}`);
+  if (d.genderRule === "WOMEN") return one(d.femaleBornOnOrBefore);
+  if (d.genderRule === "MEN") return one(d.maleBornOnOrBefore);
+  const [m, f] = [d.maleBornOnOrBefore, d.femaleBornOnOrBefore];
+  if (m && f && m.getTime() !== f.getTime()) return `Men born ≤ ${mdy(m)} · Women ≤ ${mdy(f)}`;
+  return one(m ?? f);
+}
+
+async function loadLanding() {
+  const season = await getActiveSeason();
+  if (!season) return null;
+  const [divisions, teams, fields, settings, matches] = await Promise.all([
+    prisma.division.findMany({
+      where: { seasonId: season.id },
+      select: { id: true, name: true, level: true, registrationFee: true, genderRule: true, maleBornOnOrBefore: true, femaleBornOnOrBefore: true, minAge: true },
+      orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+    }),
+    prisma.team.count({ where: { seasonId: season.id } }),
+    prisma.match.findMany({ where: { seasonId: season.id, location: { not: null } }, distinct: ["location"], select: { location: true } }),
+    getSettings(season.id),
+    listMatches(season.id),
+  ]);
+  return { season, divisions, teams, fields: fields.length, gamePassFee: settings.gamePassFee, next: nextMatchDay(matches) };
+}
 
 function PitchLines() {
   return (
@@ -36,11 +84,16 @@ function PitchLines() {
 }
 
 const section = "mx-auto w-full max-w-[1180px] px-4";
-const feeMin = Math.min(...DIVISIONS.map((d) => d.fee));
-const feeMax = Math.max(...DIVISIONS.map((d) => d.fee));
 
-export default function LandingPage() {
-  const sunday = MATCHES.filter((m) => m.date === SUNDAY);
+export default async function LandingPage() {
+  const data = await loadLanding();
+  const divisions = data?.divisions ?? [];
+  const fees = divisions.map((d) => Number(d.registrationFee));
+  const feeMin = fees.length ? Math.min(...fees) : 0;
+  const feeMax = fees.length ? Math.max(...fees) : 0;
+  const gamePassFee = data?.gamePassFee ?? 15;
+  const sunday = data?.next.matches ?? [];
+  const seasonName = data?.season.name ?? "";
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -63,7 +116,9 @@ export default function LandingPage() {
 
         <div className={`relative z-[1] grid items-center gap-10 pt-9 pb-10 lg:grid-cols-[1.25fr_1fr] lg:pt-14 lg:pb-16 ${section}`}>
           <div className="flex flex-col gap-5">
-            <span className="eyebrow !text-lime">Spring 2026 · Games every Sunday through June 28</span>
+            <span className="eyebrow !text-lime">
+              {data ? `${seasonName} · Games every Sunday through ${monthDay(data.season.endDate)}` : "Games every Sunday"}
+            </span>
             <h1 className="text-[clamp(46px,7vw,88px)] leading-[.9] uppercase">
               Sunday soccer for adults. <em className="not-italic text-lime">Properly run.</em>
             </h1>
@@ -74,14 +129,15 @@ export default function LandingPage() {
             <div className="flex flex-wrap gap-[18px] text-sm font-semibold text-white/85">
               <span className="inline-flex items-center gap-1.5">
                 <Icon name="shield" className="size-[18px]" />
-                {DIVISIONS.length} divisions
+                {divisions.length} divisions
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Icon name="users" className="size-[18px]" />
-                {TEAMS.length} teams
+                {data?.teams ?? 0} teams
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <Icon name="pin" className="size-[18px]" />9 fields
+                <Icon name="pin" className="size-[18px]" />
+                {data?.fields ?? 0} fields
               </span>
             </div>
           </div>
@@ -110,14 +166,14 @@ export default function LandingPage() {
                 <GamePassTag>Game pass</GamePassTag>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="font-display text-[44px] leading-none font-extrabold">{money(GAME_PASS_FEE)}</span>
+                <span className="font-display text-[44px] leading-none font-extrabold">{money(gamePassFee)}</span>
                 <span className="text-sm text-muted">one game, one day</span>
               </div>
               <p className="text-sm text-muted">
                 Pick a match, pay, and play. Good for that game day only. It doesn’t add you to a team.
               </p>
               <ButtonLink href="/register/game-pass" variant="primary" block>
-                Buy a game pass {money(GAME_PASS_FEE)} <Icon name="right" className="size-[18px]" />
+                Buy a game pass {money(gamePassFee)} <Icon name="right" className="size-[18px]" />
               </ButtonLink>
             </div>
 
@@ -136,11 +192,12 @@ export default function LandingPage() {
         <section id="fees" className={`flex scroll-mt-4 flex-col gap-5 py-12 ${section}`}>
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="flex flex-col gap-1.5">
-              <span className="eyebrow">Spring 2026</span>
+              <span className="eyebrow">{seasonName}</span>
               <h2 className="text-[40px]">Divisions & fees</h2>
             </div>
             <p className="max-w-[48ch] text-muted">
-              Your date of birth decides which divisions you can join. Ages are counted on opening day, March 29, 2026.
+              Your date of birth decides which divisions you can join.
+              {data ? ` Ages are counted on opening day, ${monthDayYear(data.season.startDate)}.` : ""}
             </p>
           </div>
           <TableWrap>
@@ -154,13 +211,13 @@ export default function LandingPage() {
                 </tr>
               </TableHead>
               <TableBody>
-                {DIVISIONS.map((d) => (
+                {divisions.map((d) => (
                   <BodyRow key={d.id}>
                     <BodyCell className="font-bold whitespace-nowrap">{d.name}</BodyCell>
                     <BodyCell className="text-muted">{d.level}</BodyCell>
-                    <BodyCell className="min-w-[180px]">{d.age}</BodyCell>
+                    <BodyCell className="min-w-[180px]">{whoCanPlay(d, data!.season.startDate)}</BodyCell>
                     <BodyCell align="right">
-                      <b className="font-display text-[22px] font-extrabold">{money(d.fee)}</b>
+                      <b className="font-display text-[22px] font-extrabold">{money(d.registrationFee)}</b>
                     </BodyCell>
                   </BodyRow>
                 ))}
@@ -171,7 +228,7 @@ export default function LandingPage() {
                   <BodyCell className="text-muted">Any</BodyCell>
                   <BodyCell className="min-w-[180px]">Must meet the division’s age rule</BodyCell>
                   <BodyCell align="right" className="whitespace-nowrap">
-                    <b className="font-display text-[22px] font-extrabold">{money(GAME_PASS_FEE)}</b>{" "}
+                    <b className="font-display text-[22px] font-extrabold">{money(gamePassFee)}</b>{" "}
                     <span className="text-[13px] text-muted">/ match</span>
                   </BodyCell>
                 </BodyRow>
@@ -185,24 +242,26 @@ export default function LandingPage() {
         </section>
 
         {/* This Sunday */}
+        {sunday.length ? (
         <section className={`flex flex-col gap-5 pb-12 ${section}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-[32px]">This Sunday · May 17</h2>
+            <h2 className="text-[32px]">This Sunday · {fmtShort(sunday[0].scheduledAt)}</h2>
             <span className="text-[13.5px] text-muted">{sunday.length} matches</span>
           </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-3.5">
             {sunday.map((m) => (
               <div key={m.id} className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-line bg-surface p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[13px] text-muted">Game #{m.id}</span>
-                  <span className="text-xs text-muted">{division(m.div).name}</span>
+                  <span className="font-mono text-[13px] text-muted">Game #{m.gameNumber}</span>
+                  <span className="text-xs text-muted">{m.division?.name ?? m.homeTeam.division.name}</span>
                 </div>
-                <VsRow {...vsFor(m)} />
+                <VsRow home={m.homeTeam} away={m.awayTeam} />
                 <MatchMeta date={m.date} time={m.time} field={m.field} />
               </div>
             ))}
           </div>
         </section>
+        ) : null}
       </main>
 
       <footer className="border-t border-line py-7">

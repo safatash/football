@@ -3,7 +3,7 @@ import { PaymentBadge, PlayerStatusBadge, RegistrationBadge, RoleTag } from "@/c
 import { EmptyState } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, FilterChip, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import { ACTIVE_SEASON, PLAYERS, team, type PlayerRow } from "@/lib/league-data";
+import { listPlayers, registeredCount, type PlayerRow } from "@/lib/queries/players";
 import { param, seasonFrom, withSeason, type SearchParams } from "../_components/season";
 
 export const metadata = { title: "Players" };
@@ -17,32 +17,33 @@ const FILTERS: [key: string, label: string, test: (p: PlayerRow) => boolean][] =
 
 export default async function PlayersPage({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
-  const season = seasonFrom(sp);
+  const season = await seasonFrom(sp);
+  const [players, registered] = await Promise.all([listPlayers(season.id), registeredCount(season.id)]);
   const filter = FILTERS.find(([k]) => k === param(sp.status)) ?? FILTERS[0];
   const q = param(sp.q).trim();
   const needle = q.toLowerCase();
-  const rows = PLAYERS.filter(filter[2]).filter((p) => !needle || `${p.name} ${p.email}`.toLowerCase().includes(needle));
+  const rows = players.filter(filter[2]).filter((p) => !needle || `${p.name} ${p.email}`.toLowerCase().includes(needle));
 
   const href = (key: string) => {
     const p = new URLSearchParams();
     if (key !== "all") p.set("status", key);
     if (q) p.set("q", q);
-    if (season !== ACTIVE_SEASON) p.set("season", season);
+    if (season.archived) p.set("season", season.name);
     return `/admin/players${p.size ? `?${p}` : ""}`;
   };
 
   return (
     <>
-      <PageHeading title="Players" sub={`${rows.length} shown · 486 registered this season`} />
+      <PageHeading title="Players" sub={`${rows.length} shown · ${registered} registered this season`} />
       <div className="flex flex-wrap items-center gap-2">
         {FILTERS.map(([key, label, test]) => (
-          <FilterChip key={key} href={href(key)} active={filter[0] === key} count={PLAYERS.filter(test).length}>
+          <FilterChip key={key} href={href(key)} active={filter[0] === key} count={players.filter(test).length}>
             {label}
           </FilterChip>
         ))}
         <form action="/admin/players" role="search" className="relative min-w-[180px] max-w-[320px] flex-1">
           {filter[0] !== "all" ? <input type="hidden" name="status" value={filter[0]} /> : null}
-          {season !== ACTIVE_SEASON ? <input type="hidden" name="season" value={season} /> : null}
+          {season.archived ? <input type="hidden" name="season" value={season.name} /> : null}
           <Icon name="search" className="absolute top-2.5 left-3.5 size-[18px] text-muted" />
           <input
             name="q"
@@ -69,12 +70,12 @@ export default async function PlayersPage({ searchParams }: { searchParams: Sear
             </TableHead>
             <TableBody>
               {rows.map((p) => (
-                <BodyRow key={p.slug}>
+                <BodyRow key={p.id}>
                   <BodyCell className="min-w-[220px]">
                     <span className="flex items-center gap-2.5">
                       <Avatar name={p.name} />
                       <span className="min-w-0">
-                        <RowLink href={withSeason(`/admin/players/${p.slug}`, season)}>{p.name}</RowLink>
+                        <RowLink href={withSeason(`/admin/players/${p.id}`, season)}>{p.name}</RowLink>
                         <div className="truncate text-xs text-muted">{p.email}</div>
                       </span>
                     </span>
@@ -85,15 +86,15 @@ export default async function PlayersPage({ searchParams }: { searchParams: Sear
                   <BodyCell>
                     {p.teams.length ? (
                       <div className="flex flex-col gap-1">
-                        {p.teams.map(([t, role]) => (
-                          <span key={t} className="flex items-center gap-1.5 whitespace-nowrap">
-                            <span className="text-[13px]">{team(t).name}</span>
-                            <RoleTag role={role} />
+                        {p.teams.map((t) => (
+                          <span key={t.id} className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="text-[13px]">{t.name}</span>
+                            <RoleTag role={t.role} />
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <span className="text-[13px] whitespace-nowrap text-muted">{p.reg === "Game pass only" ? "Game pass · #204" : "Not placed yet"}</span>
+                      <span className="text-[13px] whitespace-nowrap text-muted">{p.passGame != null ? `Game pass · #${p.passGame}` : "Not placed yet"}</span>
                     )}
                   </BodyCell>
                   <BodyCell>

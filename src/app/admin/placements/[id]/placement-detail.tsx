@@ -8,28 +8,45 @@ import { Card, CardHeader, KeyValue } from "@/components/ui/card";
 import { Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Field, SelectInput, TextArea } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
-import { DIVISIONS, TEAMS, division, team, type DivisionId, type Placement, type PlacementState } from "@/lib/league-data";
+import type { Placement, PlacementLabel, PlacementTeam } from "@/lib/queries/placements";
 import { PlacementBadge } from "../placement-badge";
 
-export function PlacementDetail({ placement: p, readOnly, crumbs, notice }: { placement: Placement; readOnly: boolean; crumbs: ReactNode; notice: ReactNode }) {
+type DivisionOption = { id: string; name: string };
+
+export function PlacementDetail({
+  placement: p,
+  divisions,
+  teams: allTeams,
+  readOnly,
+  crumbs,
+  notice,
+}: {
+  placement: Placement;
+  divisions: DivisionOption[];
+  teams: PlacementTeam[];
+  readOnly: boolean;
+  crumbs: ReactNode;
+  notice: ReactNode;
+}) {
   const first = p.name.split(" ")[0];
-  const [state, setState] = useState<PlacementState>(p.state);
-  const [div, setDiv] = useState<DivisionId>(p.rec.div);
-  const [teamId, setTeamId] = useState(p.rec.team);
+  const [state, setState] = useState<PlacementLabel>(p.state);
+  const [div, setDiv] = useState(p.division?.id ?? divisions[0]?.id ?? "");
+  const [teamId, setTeamId] = useState(p.rec?.teamId ?? "");
   const [asking, setAsking] = useState(false);
   const [ask, setAsk] = useState(`Hi ${first}, thanks for registering. Which Sunday time slots work best for you, and have you played 11v11 before?`);
   const [toast, showToast] = useToast();
   const closeAsk = useCallback(() => setAsking(false), []);
 
-  const teams = TEAMS.filter((t) => t.div === div);
-  const pick = teamId && team(teamId).div === div ? team(teamId) : null;
-  const rec = team(p.rec.team);
+  const teams = allTeams.filter((t) => t.divisionId === div);
+  const pick = teams.find((t) => t.id === teamId) ?? null;
+  const rec = p.rec;
+  const divisionName = (id: string | undefined) => divisions.find((d) => d.id === id)?.name ?? "—";
 
   return (
     <>
       <div className="flex flex-col gap-2">
         {crumbs}
-        <PageHeading title={p.name} sub={`${p.id} · ${p.city} · age ${p.age}`} actions={<PlacementBadge state={state} />} />
+        <PageHeading title={p.name} sub={`${p.number} · ${p.city} · age ${p.age ?? "unknown"}`} actions={<PlacementBadge state={state} />} />
       </div>
       {notice}
 
@@ -39,19 +56,19 @@ export function PlacementDetail({ placement: p, readOnly, crumbs, notice }: { pl
             <CardHeader title="What they told us" />
             <KeyValue
               items={[
-                ["Requested division", division(p.div).name],
+                ["Requested division", p.division?.name ?? "—"],
                 ["Level", p.level],
                 ["Position", p.pos],
               ]}
             />
             <div className="mt-3 rounded-[var(--radius-field)] bg-surface-2 p-3.5">
               <span className="eyebrow">Notes</span>
-              <p className="mt-1">“{p.notes}”</p>
+              <p className="mt-1">{p.notes ? `“${p.notes}”` : "No notes."}</p>
             </div>
           </Card>
 
           <Card>
-            <CardHeader title={`Teams in ${division(div).name}`} action={<span className="text-[13px] text-muted">Pick one</span>} />
+            <CardHeader title={`Teams in ${divisionName(div)}`} action={<span className="text-[13px] text-muted">Pick one</span>} />
             <div role="radiogroup" aria-label="Team" className="flex flex-col gap-2">
               {teams.map((t) => {
                 const on = pick?.id === t.id;
@@ -67,14 +84,15 @@ export function PlacementDetail({ placement: p, readOnly, crumbs, notice }: { pl
                       on ? "border-pitch-2 bg-pitch-tint shadow-[inset_0_0_0_1px_var(--pitch-2)]" : "border-line-strong hover:border-pitch-2"
                     }`}
                   >
-                    <Crest teamId={t.id} />
+                    <Crest team={t} />
                     <span className="flex min-w-0 flex-1 flex-col">
                       <b className="text-[14.5px]">{t.name}</b>
                       <span className="text-[12.5px] text-muted">
-                        {t.size} players · {t.w}-{t.d}-{t.l} · captain {t.caps[0]}
+                        {t.size} players · {t.record}
+                        {t.captain ? ` · captain ${t.captain}` : ""}
                       </span>
                     </span>
-                    {t.id === p.rec.team ? (
+                    {t.id === rec?.teamId ? (
                       <Badge tone="ok" dot={false}>
                         Suggested
                       </Badge>
@@ -87,22 +105,24 @@ export function PlacementDetail({ placement: p, readOnly, crumbs, notice }: { pl
         </div>
 
         <div className="flex min-w-0 flex-col gap-[18px]">
-          <Card className="flex flex-col gap-3 border-ok">
-            <span className="eyebrow">Suggested placement</span>
-            <div className="flex items-center gap-3">
-              <Crest teamId={rec.id} size="lg" />
-              <div>
-                <h3 className="text-[20px]">{rec.name}</h3>
-                <div className="text-[13px] text-muted">{division(p.rec.div).name}</div>
+          {rec ? (
+            <Card className="flex flex-col gap-3 border-ok">
+              <span className="eyebrow">Suggested placement</span>
+              <div className="flex items-center gap-3">
+                <Crest team={rec.team} size="lg" />
+                <div>
+                  <h3 className="text-[20px]">{rec.team.name}</h3>
+                  <div className="text-[13px] text-muted">{rec.divisionName}</div>
+                </div>
               </div>
-            </div>
-            <p className="text-sm">{p.rec.why}</p>
-          </Card>
+              <p className="text-sm">{rec.why}</p>
+            </Card>
+          ) : null}
 
           <Card className="flex flex-col gap-3">
             <Field label="Division" htmlFor="placement-division">
-              <SelectInput id="placement-division" value={div} disabled={readOnly} onChange={(e) => setDiv(e.target.value as DivisionId)}>
-                {DIVISIONS.map((d) => (
+              <SelectInput id="placement-division" value={div} disabled={readOnly} onChange={(e) => setDiv(e.target.value)}>
+                {divisions.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
                   </option>

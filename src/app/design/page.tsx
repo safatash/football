@@ -8,6 +8,26 @@ import { CheckBox } from "@/components/ui/controls";
 import { StandingsTable } from "@/app/admin/_components/standings-table";
 import { DemoControls } from "./demo-controls";
 
+// Style-sheet example rows (this page shows components, not league data)
+const EXAMPLE_STANDINGS = (
+  [
+    ["ffx", "Fairfax United", "FU", "#0F3D2E", 5, 1, 1, 17, 7],
+    ["alx", "Alexandria FC", "AFC", "#7A1F2B", 4, 2, 1, 14, 8],
+    ["pot", "Potomac Valkyries", "PV", "#27407A", 4, 0, 3, 11, 10],
+    ["brk", "Burke Athletic", "BA", "#8A5A12", 2, 1, 4, 6, 13],
+  ] as const
+).map(([id, name, shortName, color, w, d, l, gf, ga]) => ({
+  team: { id, code: id, name, shortName, color },
+  played: w + d + l,
+  w,
+  d,
+  l,
+  gf,
+  ga,
+  gd: gf - ga,
+  pts: w * 3 + d,
+}));
+
 export const metadata = {
   title: "Components & styles",
   description: "NVASA design tokens, type and shared components.",
@@ -261,7 +281,7 @@ export default function DesignPage() {
               </div>
             </div>
             <div className="flex min-w-0 flex-col gap-3.5">
-              <StandingsTable division="wp" highlight="ffx" linkBase={null} />
+              <StandingsTable rows={EXAMPLE_STANDINGS} highlight="ffx" linkBase={null} />
               <EmptyState icon="users" title="No players waiting">
                 New players without a team will show up here.
               </EmptyState>

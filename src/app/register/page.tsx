@@ -3,11 +3,14 @@ import { ButtonLink } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { AppBar, Screen } from "@/components/shell/layout";
-import { DIVISIONS, GAME_PASS_FEE, money } from "@/lib/league-data";
+import prisma from "@/lib/prisma";
+import { money } from "@/lib/format";
+import { getActiveSeason, getSettings } from "@/lib/queries/season";
 
 export const metadata: Metadata = { title: "Join NVASA" };
 
-const minFee = Math.min(...DIVISIONS.map((d) => d.fee));
+// Fees come from the active season's settings.
+export const dynamic = "force-dynamic";
 
 type Path = {
   eyebrow: string;
@@ -21,9 +24,9 @@ type Path = {
   accent: boolean;
 };
 
-const PATHS: Path[] = [
+const paths = ({ season, minFee, gamePassFee }: { season: string; minFee: number; gamePassFee: number }): Path[] => [
   {
-    eyebrow: "Spring 2026 season",
+    eyebrow: season ? `${season} season` : "Season",
     title: "Season registration",
     price: `${money(minFee)}+`,
     body: "Join a team for every match this season. Reviewed by the league office.",
@@ -36,7 +39,7 @@ const PATHS: Path[] = [
   {
     eyebrow: "One match",
     title: "Game pass",
-    price: money(GAME_PASS_FEE),
+    price: money(gamePassFee),
     body: "Valid for one match on its game day. You won’t join a team roster.",
     login: "/register/game-pass?mode=login",
     find: "/register/game-pass?mode=find",
@@ -78,7 +81,14 @@ function PathCard({ p }: { p: Path }) {
   );
 }
 
-export default function RegisterBranchPage() {
+export default async function RegisterBranchPage() {
+  const season = await getActiveSeason();
+  const [fee, settings] = season
+    ? await Promise.all([prisma.division.aggregate({ where: { seasonId: season.id }, _min: { registrationFee: true } }), getSettings(season.id)])
+    : [null, null];
+  const minFee = Number(fee?._min.registrationFee ?? 0);
+  const gamePassFee = settings?.gamePassFee ?? 15;
+  const PATHS = paths({ season: season?.name ?? "", minFee, gamePassFee });
   return (
     <>
       <AppBar title="Join NVASA" backHref="/" />
@@ -108,7 +118,7 @@ export default function RegisterBranchPage() {
                 ["Matches", "All season", "One"],
                 ["Team roster", "Yes", "That match only"],
                 ["Review", "League office", "None"],
-                ["Price", `${money(minFee)}+ by division`, money(GAME_PASS_FEE)],
+                ["Price", `${money(minFee)}+ by division`, money(gamePassFee)],
               ].map(([k, a, b]) => (
                 <BodyRow key={k}>
                   <BodyCell className="text-muted">{k}</BodyCell>
