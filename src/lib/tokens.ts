@@ -8,11 +8,11 @@ export const TOKEN_TTL_MS = 30 * 60_000;
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const identifier = (purpose: TokenPurpose, userId: string) => `${purpose}:${userId}`;
 
-export async function createToken(purpose: TokenPurpose, userId: string) {
+export async function createToken(purpose: TokenPurpose, userId: string, ttlMs = TOKEN_TTL_MS) {
   const token = randomBytes(32).toString("base64url");
   // One live token per user and purpose
   await prisma.verificationToken.deleteMany({ where: { identifier: identifier(purpose, userId) } });
-  await prisma.verificationToken.create({ data: { identifier: identifier(purpose, userId), token: hash(token), expires: new Date(Date.now() + TOKEN_TTL_MS) } });
+  await prisma.verificationToken.create({ data: { identifier: identifier(purpose, userId), token: hash(token), expires: new Date(Date.now() + ttlMs) } });
   return token;
 }
 

@@ -8,7 +8,14 @@ import { now } from "@/lib/clock";
 import { fullName } from "@/lib/format";
 import { normalizeCode } from "@/lib/fees";
 import { sendMail } from "@/lib/mail";
-import { captainDecisionEmail, placementInfoEmail, reportReminderEmail } from "@/lib/mail-templates";
+import { accountInviteEmail, captainDecisionEmail, placementInfoEmail, reportReminderEmail } from "@/lib/mail-templates";
+import { randomBytes } from "node:crypto";
+import { checkEligibility } from "@/lib/eligibility";
+import { hashPassword } from "@/lib/password";
+import { blocklistHit } from "@/lib/queries/registrations";
+import { appUrl } from "@/lib/stripe";
+import { createToken } from "@/lib/tokens";
+import { isAdminEmail } from "@/lib/admin";
 import { assertSeasonWritable } from "@/lib/queries/season";
 import { syncMatchReportStatus } from "@/lib/reports";
 import { getSession } from "@/lib/session";
@@ -455,5 +462,199 @@ export async function removeBlock(input: { entry: string }): Promise<ActionResul
     if (!res.count) throw new ActionError(`${entry} isn’t on the blocklist.`, 404);
     refreshAdmin();
     return { ok: true, message: `${entry} removed` };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Players, rosters and league-office access                          */
+/* ------------------------------------------------------------------ */
+
+const INVITE_TTL_MS = 7 * 24 * 3600_000;
+
+const NewPlayerInput = z.object({
+  firstName: z.string().trim().min(1, "Enter a first name.").max(50),
+  lastName: z.string().trim().min(1, "Enter a last name.").max(50),
+  email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254),
+  dob: IsoDate,
+  gender: z.enum(["FEMALE", "MALE", "NON_BINARY"], { message: "Choose a gender." }),
+  phone: z
+    .string()
+    .trim()
+    .max(30)
+    .refine((v) => !v || v.replace(/\D/g, "").length >= 10, "Enter a 10-digit phone number."),
+  zip: z
+    .string()
+    .trim()
+    .refine((v) => !v || /^\d{5}$/.test(v), "Enter a 5-digit ZIP code."),
+  position: z.enum(["", "GK", "DEF", "MID", "FWD"]).default(""),
+  teamId: Id.nullish(),
+  jerseyNumber: z.number().int().min(0).max(99).nullish(),
+  sendInvite: z.boolean().default(true),
+});
+
+/**
+ * Creates a player account on someone's behalf (approved, active). The password is random and
+ * unknown to anyone; the player gets an invitation link to choose one. Optionally adds them to a
+ * team in the active season.
+ */
+export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>): Promise<ActionResult<{ playerId: string }>> {
+  return runAction(async () => {
+    const data = NewPlayerInput.parse(input);
+    const admin = await requireAdminUser();
+    if (await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } })) {
+      throw new ActionError("That email already has an NVASA account. Search for the player instead.", 409);
+    }
+    if (await blocklistHit(data.email)) throw new ActionError("That email is on the blocklist.", 409);
+    const team = data.teamId ? await teamForRoster(data.teamId) : null;
+    if (team) {
+      const elig = checkEligibility(team.division, { dob: day(data.dob), gender: data.gender }, team.season.startDate);
+      if (!elig.ok) throw new ActionError(`Can’t add to ${team.name} (${team.division.name}): ${elig.reason}.`, 400);
+      await assertJerseyFree(team.id, data.jerseyNumber ?? null);
+    }
+    const zip = data.zip ? await prisma.allowedZipCode.findUnique({ where: { zipCode: data.zip } }) : null;
+
+    const user = await prisma.user.create({
+      data: {
+        email: data.email,
+        password: await hashPassword(randomBytes(24).toString("base64url")),
+        player: {
+          create: {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            gender: data.gender,
+            dob: day(data.dob),
+            phone: data.phone,
+            address: "",
+            city: zip?.city ?? "",
+            state: "VA",
+            zip: data.zip,
+            fairfaxCounty: Boolean(zip?.fairfaxCounty),
+            position: data.position,
+            tshirtSize: "",
+            finalApproval: "APPROVED",
+            status: "ACTIVE",
+            ...(team
+              ? { teamMemberships: { create: { teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL", jerseyNumber: data.jerseyNumber ?? null } } }
+              : {}),
+          },
+        },
+      },
+      include: { player: true },
+    });
+
+    let invited = false;
+    if (data.sendInvite) {
+      const token = await createToken("reset", user.id, INVITE_TTL_MS);
+      const res = await sendMail({
+        to: user.email,
+        replyTo: admin.email,
+        ...accountInviteEmail({ firstName: data.firstName, url: `${appUrl()}/login/reset?token=${token}`, teamName: team?.name ?? null }),
+      });
+      invited = res.sent + res.logged > 0;
+    }
+    refreshAdmin();
+    if (team) revalidatePath(`/captain/${team.id}`, "layout");
+    return {
+      ok: true,
+      message: `${data.firstName} ${data.lastName} added${team ? ` to ${team.name}` : ""}${invited ? " · invitation sent" : ""}`,
+      data: { playerId: user.player!.id },
+    };
+  });
+}
+
+/** A team in the active season, for roster changes. */
+async function teamForRoster(teamId: string) {
+  const team = await prisma.team.findUnique({ where: { id: teamId }, include: { division: true, season: true } });
+  if (!team) throw new ActionError("Team not found.", 404);
+  await assertSeasonWritable(team.seasonId);
+  return team;
+}
+
+async function assertJerseyFree(teamId: string, jersey: number | null, exceptPlayerId?: string) {
+  if (jersey == null) return;
+  const taken = await prisma.teamRoster.findFirst({
+    where: { teamId, jerseyNumber: jersey, leftAt: null, membershipType: "SEASONAL", ...(exceptPlayerId ? { playerId: { not: exceptPlayerId } } : {}) },
+    select: { player: { select: { firstName: true, lastName: true } } },
+  });
+  if (taken) throw new ActionError(`#${jersey} is already ${fullName(taken.player)}’s number on this team.`, 409);
+}
+
+const RosterAddInput = z.object({ playerId: Id, teamId: Id, jerseyNumber: z.number().int().min(0).max(99).nullish() });
+
+/** Adds an existing player to a team's season roster (also a second team). Checks division eligibility. */
+export async function addPlayerToTeam(input: z.input<typeof RosterAddInput>): Promise<ActionResult> {
+  return runAction(async () => {
+    const data = RosterAddInput.parse(input);
+    await requireAdminUser();
+    const team = await teamForRoster(data.teamId);
+    const player = await prisma.player.findUnique({ where: { id: data.playerId } });
+    if (!player) throw new ActionError("Player not found.", 404);
+    if (player.status === "INACTIVE") throw new ActionError("This account is inactive.", 409);
+    const elig = checkEligibility(team.division, { dob: player.dob, gender: player.gender }, team.season.startDate);
+    if (!elig.ok) throw new ActionError(`${fullName(player)} can’t play in ${team.division.name}: ${elig.reason}.`, 400);
+    await assertJerseyFree(team.id, data.jerseyNumber ?? null, player.id);
+
+    const existing = await prisma.teamRoster.findFirst({ where: { playerId: player.id, teamId: team.id, membershipType: "SEASONAL", matchId: null } });
+    if (existing && !existing.leftAt) throw new ActionError(`${fullName(player)} is already on ${team.name}.`, 409);
+    if (existing) {
+      await prisma.teamRoster.update({ where: { id: existing.id }, data: { leftAt: null, isCaptain: false, jerseyNumber: data.jerseyNumber ?? existing.jerseyNumber, joinedAt: now() } });
+    } else {
+      await prisma.teamRoster.create({ data: { playerId: player.id, teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL", jerseyNumber: data.jerseyNumber ?? null } });
+    }
+    if (player.finalApproval !== "APPROVED") await prisma.player.update({ where: { id: player.id }, data: { finalApproval: "APPROVED" } });
+    refreshAdmin();
+    revalidatePath(`/captain/${team.id}`, "layout");
+    return { ok: true, message: `${fullName(player)} added to ${team.name}` };
+  });
+}
+
+/**
+ * Takes a player off a team's season roster: the membership is closed (kept for history), captain
+ * access ends, and they leave any draft match roster for upcoming matches. Finalized rosters and
+ * reports are left as they are.
+ */
+export async function removePlayerFromTeam(input: { playerId: string; teamId: string }): Promise<ActionResult> {
+  return runAction(async () => {
+    const data = z.object({ playerId: Id, teamId: Id }).parse(input);
+    await requireAdminUser();
+    const team = await teamForRoster(data.teamId);
+    const membership = await prisma.teamRoster.findFirst({
+      where: { playerId: data.playerId, teamId: team.id, membershipType: "SEASONAL", leftAt: null },
+      include: { player: { select: { firstName: true, lastName: true } } },
+    });
+    if (!membership) throw new ActionError("That player isn’t on this team’s season roster.", 404);
+    const at = now();
+    await prisma.$transaction([
+      prisma.teamRoster.update({ where: { id: membership.id }, data: { leftAt: at, isCaptain: false } }),
+      prisma.matchRosterEntry.deleteMany({
+        where: { teamRosterId: membership.id, matchRoster: { status: "DRAFT", match: { scheduledAt: { gt: at }, status: "SCHEDULED" } } },
+      }),
+      prisma.matchAvailability.deleteMany({ where: { teamRosterId: membership.id, match: { scheduledAt: { gt: at } } } }),
+      prisma.captainRequest.updateMany({ where: { playerId: data.playerId, teamId: team.id, status: "PENDING" }, data: { status: "DENIED", decidedAt: at } }),
+    ]);
+    refreshAdmin();
+    revalidatePath(`/captain/${team.id}`, "layout");
+    return { ok: true, message: `${fullName(membership.player)} removed from ${team.name}` };
+  });
+}
+
+/**
+ * Grants or revokes league-office access (User.role). Addresses in ADMIN_EMAILS stay admins
+ * whatever the role, and you can't remove your own access.
+ */
+export async function setLeagueOfficeAccess(input: { email: string; admin: boolean }): Promise<ActionResult> {
+  return runAction(async () => {
+    const data = z.object({ email: z.string().trim().toLowerCase().email("Enter a valid email address."), admin: z.boolean() }).parse(input);
+    const me = await requireAdminUser();
+    const user = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
+    if (!user) throw new ActionError(`No NVASA account uses ${data.email}. They need to sign up or be added as a player first.`, 404);
+    if (!data.admin && user.id === me.id) throw new ActionError("You can’t remove your own league-office access.", 409);
+    if (!data.admin && isAdminEmail(user.email)) {
+      throw new ActionError(`${user.email} is listed in ADMIN_EMAILS, so it stays an admin. Remove it from that setting to revoke access.`, 409);
+    }
+    if ((user.role === "ADMIN") === data.admin) throw new ActionError(data.admin ? `${user.email} already has league-office access.` : `${user.email} isn’t an admin.`, 409);
+    await prisma.user.update({ where: { id: user.id }, data: { role: data.admin ? "ADMIN" : "PLAYER" } });
+    refreshAdmin();
+    return { ok: true, message: data.admin ? `${user.email} can now use the league office` : `League-office access removed for ${user.email}` };
   });
 }

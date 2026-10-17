@@ -1,5 +1,7 @@
 import { isoDate } from "@/lib/format";
-import { blocklistEntries, extraZipCodes, genderLabel, hasSeparateCutoffs, listDiscountCodes, listDivisions } from "@/lib/queries/admin-league";
+import { blocklistEntries, extraZipCodes, genderLabel, hasSeparateCutoffs, leagueOfficeMembers, listDiscountCodes, listDivisions } from "@/lib/queries/admin-league";
+import { getSession } from "@/lib/session";
+import { LeagueOffice } from "./league-office";
 import { getSettings } from "@/lib/queries/season";
 import { listTeams } from "@/lib/queries/teams";
 import { ArchivedNotice, seasonFrom, type SearchParams } from "../_components/season";
@@ -9,13 +11,15 @@ export const metadata = { title: "Fees & eligibility" };
 
 export default async function SettingsPage({ searchParams }: { searchParams: SearchParams }) {
   const season = await seasonFrom(await searchParams);
-  const [divisionRows, settings, codes, zips, blocklist, teams] = await Promise.all([
+  const [divisionRows, settings, codes, zips, blocklist, teams, members, session] = await Promise.all([
     listDivisions(season.id),
     getSettings(season.id),
     listDiscountCodes(season.id),
     extraZipCodes(),
     blocklistEntries(),
     listTeams(season.id),
+    leagueOfficeMembers(),
+    getSession(),
   ]);
 
   const divisions: DivisionSetting[] = divisionRows.map((d) => {
@@ -46,6 +50,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
       blocklist={blocklist}
       readOnly={season.archived}
       notice={<ArchivedNotice season={season} />}
+      office={<LeagueOffice members={members} selfId={session?.user?.id ?? ""} />}
     />
   );
 }

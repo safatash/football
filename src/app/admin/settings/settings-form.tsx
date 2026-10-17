@@ -51,6 +51,7 @@ export function SettingsForm({
   blocklist: initialBlock,
   readOnly,
   notice,
+  office,
 }: {
   seasonId: string;
   teams: { id: string; name: string }[];
@@ -62,6 +63,8 @@ export function SettingsForm({
   blocklist: string[];
   readOnly?: boolean;
   notice: ReactNode;
+  /** League-office members card (not tied to a season, so it stays editable). */
+  office: ReactNode;
 }) {
   const [toast, showToast] = useToast();
   const [fairfax, setFairfax] = useState(fairfaxCountyAllowed);
@@ -399,6 +402,7 @@ export function SettingsForm({
           </div>
         </div>
       </fieldset>
+      <div className="max-w-[560px]">{office}</div>
       <Toast message={toast} />
     </>
   );

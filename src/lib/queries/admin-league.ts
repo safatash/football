@@ -175,3 +175,29 @@ export async function refereeNames() {
   for (const r of rows) for (const n of [r.ref1, r.ref2, r.ref3]) if (n?.trim()) names.add(n.trim());
   return [...names].sort((a, b) => a.localeCompare(b));
 }
+
+/** Everyone with league-office access: role ADMIN accounts plus ADMIN_EMAILS addresses. */
+export async function leagueOfficeMembers() {
+  const listed = (process.env.ADMIN_EMAILS ?? "safatash@gmail.com")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const users = await prisma.user.findMany({
+    where: { OR: [{ role: "ADMIN" }, ...listed.map((email) => ({ email: { equals: email, mode: "insensitive" as const } }))] },
+    select: { id: true, email: true, role: true, player: { select: { id: true, firstName: true, lastName: true } } },
+    orderBy: { email: "asc" },
+  });
+  const rows = users.map((u) => ({
+    email: u.email,
+    name: u.player ? `${u.player.firstName} ${u.player.lastName}` : null,
+    playerId: u.player?.id ?? null,
+    viaSetting: listed.includes(u.email.toLowerCase()),
+    hasAccount: true,
+    userId: u.id,
+  }));
+  for (const email of listed) {
+    if (!rows.some((r) => r.email.toLowerCase() === email)) rows.push({ email, name: null, playerId: null, viaSetting: true, hasAccount: false, userId: "" });
+  }
+  return rows;
+}
+export type LeagueOfficeMember = Awaited<ReturnType<typeof leagueOfficeMembers>>[number];

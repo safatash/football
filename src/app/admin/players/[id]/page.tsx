@@ -9,7 +9,10 @@ import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } fro
 import prisma from "@/lib/prisma";
 import { now } from "@/lib/clock";
 import { dayKey, fmtShort } from "@/lib/format";
-import { CaptainRequests, PlayerHeader, TeamAccessTable } from "./player-actions";
+import { isAdminEmail } from "@/lib/admin";
+import { listTeams } from "@/lib/queries/teams";
+import { getSession } from "@/lib/session";
+import { AddToTeam, CaptainRequests, LeagueOfficeAccess, PlayerHeader, TeamAccessTable } from "./player-actions";
 
 export const metadata = { title: "Player" };
 
@@ -23,6 +26,9 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
     ? (await listMatches(season.id)).filter((m) => isUpcoming(m) && (teamIds.has(m.homeTeam.id) || teamIds.has(m.awayTeam.id)))
     : [];
   const readOnly = season.archived;
+  const [seasonTeams, session] = await Promise.all([listTeams(season.id), getSession()]);
+  const onTeam = new Set(p.teams.map((t) => t.id));
+  const addable = seasonTeams.filter((t) => !onTeam.has(t.id)).map((t) => ({ id: t.id, name: t.name, division: t.division.name }));
   const requests = await prisma.captainRequest.findMany({
     where: { playerId: p.id, status: "PENDING", team: { seasonId: season.id } },
     select: { id: true, note: true, createdAt: true, team: { select: { name: true } } },
@@ -110,6 +116,7 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
         {p.teams.length ? (
           <TeamAccessTable
             playerId={p.id}
+            playerName={p.name}
             readOnly={readOnly}
             teams={p.teams.map((t, i) => ({
               id: t.id,
@@ -123,10 +130,23 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
           />
         ) : (
           <EmptyState icon="users" title="No team yet">
-            {p.passGame != null ? "Game-pass players aren’t on any season roster." : "Assign a team from the registration."}
+            {p.passGame != null ? "Game-pass players aren’t on any season roster." : "Add them to a team below, or assign one from their registration."}
           </EmptyState>
         )}
+        {readOnly ? null : <AddToTeam playerId={p.id} teams={addable} />}
         <p className="text-[13px] text-muted">Access is per team. Captain on one team doesn’t give access to another.</p>
+      </section>
+
+      <section className="flex max-w-[640px] flex-col gap-2.5">
+        <h2 className="text-[26px]">League office</h2>
+        <Card>
+          <LeagueOfficeAccess
+            email={p.email}
+            isAdmin={p.role === "ADMIN" || isAdminEmail(p.email)}
+            viaSetting={isAdminEmail(p.email)}
+            isSelf={session?.user?.id === p.userId}
+          />
+        </Card>
       </section>
     </>
   );

@@ -102,6 +102,10 @@ describe("admin actions and API routes", () => {
       admin.setOfficials({ matchId: "m1", refs: ["A", "", ""] }),
       admin.confirmReport({ matchId: "m1", teamId: "team-ffx" }),
       admin.reopenRegistration({ registrationId: "r1" }),
+      admin.createPlayerAccount({ firstName: "New", lastName: "Player", email: "new@example.com", dob: "1990-01-01", gender: "FEMALE", phone: "", zip: "" }),
+      admin.addPlayerToTeam({ playerId: "p2", teamId: "team-ffx" }),
+      admin.removePlayerFromTeam({ playerId: "p2", teamId: "team-ffx" }),
+      admin.setLeagueOfficeAccess({ email: "player@example.com", admin: true }),
     ]);
     for (const r of results) expect(r).toMatchObject({ ok: false, status: 403 });
   });

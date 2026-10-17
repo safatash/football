@@ -1,6 +1,7 @@
 import { Avatar, PageHeading } from "@/components/league";
 import { PaymentBadge, PlayerStatusBadge, RegistrationBadge, RoleTag } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/card";
+import { ButtonLink } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, FilterChip, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { listPlayers, registeredCount, type PlayerRow } from "@/lib/queries/players";
@@ -18,7 +19,7 @@ const FILTERS: [key: string, label: string, test: (p: PlayerRow) => boolean][] =
 export default async function PlayersPage({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
   const season = await seasonFrom(sp);
-  const [players, registered] = await Promise.all([listPlayers(season.id), registeredCount(season.id)]);
+  const [players, registered] = await Promise.all([listPlayers(season.id, param(sp.q)), registeredCount(season.id)]);
   const filter = FILTERS.find(([k]) => k === param(sp.status)) ?? FILTERS[0];
   const q = param(sp.q).trim();
   const needle = q.toLowerCase();
@@ -34,7 +35,18 @@ export default async function PlayersPage({ searchParams }: { searchParams: Sear
 
   return (
     <>
-      <PageHeading title="Players" sub={`${rows.length} shown · ${registered} registered this season`} />
+      <PageHeading
+        title="Players"
+        sub={`${rows.length} shown · ${registered} registered this season${q ? " · search covers every player" : ""}`}
+        actions={
+          season.archived ? null : (
+            <ButtonLink href="/admin/players/new" variant="primary" size="sm">
+              <Icon name="plus" className="size-4" />
+              Add player
+            </ButtonLink>
+          )
+        }
+      />
       <div className="flex flex-wrap items-center gap-2">
         {FILTERS.map(([key, label, test]) => (
           <FilterChip key={key} href={href(key)} active={filter[0] === key} count={players.filter(test).length}>

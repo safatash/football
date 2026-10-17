@@ -9,7 +9,7 @@ import { Notice } from "@/components/ui/card";
 import { Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Field, SelectInput, TextInput } from "@/components/ui/field";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import { decideCaptainRequest, liftSuspension, setCaptain, suspendPlayer } from "@/lib/actions/admin";
+import { addPlayerToTeam, decideCaptainRequest, liftSuspension, removePlayerFromTeam, setCaptain, setLeagueOfficeAccess, suspendPlayer } from "@/lib/actions/admin";
 
 type Status = "Active" | "Pending Approval" | "Suspended" | "Inactive";
 const REASONS = ["Red card", "Yellow card accumulation", "Unpaid fee", "Conduct"];
@@ -133,7 +133,8 @@ export function PlayerHeader({
 
 type Access = { id: string; name: string; color?: string | null; shortName?: string | null; division: string; membership: string; role: "Captain" | "Player" };
 
-export function TeamAccessTable({ playerId, teams, readOnly }: { playerId: string; teams: Access[]; readOnly?: boolean }) {
+export function TeamAccessTable({ playerId, playerName, teams, readOnly }: { playerId: string; playerName: string; teams: Access[]; readOnly?: boolean }) {
+  const [removing, setRemoving] = useState<Access | null>(null);
   const [roles, setRoles] = useState<Record<string, Access["role"]>>(() => Object.fromEntries(teams.map((t) => [t.id, t.role])));
   const [toast, showToast] = useToast();
   const [pending, startTransition] = useTransition();
@@ -185,6 +186,9 @@ export function TeamAccessTable({ playerId, teams, readOnly }: { playerId: strin
                     >
                       {role === "Captain" ? "Remove captain" : "Make captain"}
                     </Button>
+                    <Button variant="ghost" size="sm" className="ml-2 text-bad" disabled={readOnly || pending} onClick={() => setRemoving(t)}>
+                      Remove
+                    </Button>
                   </BodyCell>
                 </BodyRow>
               );
@@ -192,8 +196,130 @@ export function TeamAccessTable({ playerId, teams, readOnly }: { playerId: strin
           </TableBody>
         </DataTable>
       </TableWrap>
+      <Dialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        title={removing ? `Remove ${playerName} from ${removing.name}?` : ""}
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setRemoving(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const t = removing!;
+                  const res = await removePlayerFromTeam({ playerId, teamId: t.id });
+                  setRemoving(null);
+                  showToast(res.ok ? res.message : res.error);
+                  if (res.ok) router.refresh();
+                })
+              }
+            >
+              Remove from team
+            </Button>
+          </>
+        }
+      >
+        <p className="text-muted">
+          They come off the season roster and any draft match roster for upcoming games, and lose captain access on this team. Past matches and reports stay as they are.
+        </p>
+      </Dialog>
       <Toast message={toast} />
     </>
+  );
+}
+
+type TeamChoice = { id: string; name: string; division: string };
+
+/** Adds the player to another team's season roster. */
+export function AddToTeam({ playerId, teams, readOnly }: { playerId: string; teams: TeamChoice[]; readOnly?: boolean }) {
+  const [teamId, setTeamId] = useState("");
+  const [jersey, setJersey] = useState("");
+  const [error, setError] = useState("");
+  const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  const divisions = [...new Set(teams.map((t) => t.division))];
+  if (!teams.length) return null;
+  return (
+    <form
+      className="flex flex-wrap items-end gap-2.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setError("");
+        if (!teamId) return setError("Pick a team.");
+        if (jersey && !/^\d{1,2}$/.test(jersey)) return setError("Jersey numbers are 0–99.");
+        startTransition(async () => {
+          const res = await addPlayerToTeam({ playerId, teamId, jerseyNumber: jersey ? Number(jersey) : null });
+          if (!res.ok) return setError(res.error);
+          setTeamId("");
+          setJersey("");
+          showToast(res.message);
+          router.refresh();
+        });
+      }}
+    >
+      <Field label="Add to team" htmlFor="add-team" className="min-w-[220px] flex-1">
+        <SelectInput id="add-team" className="h-[42px]" value={teamId} disabled={readOnly} onChange={(e) => setTeamId(e.target.value)}>
+          <option value="">Choose a team</option>
+          {divisions.map((d) => (
+            <optgroup key={d} label={d}>
+              {teams
+                .filter((t) => t.division === d)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </SelectInput>
+      </Field>
+      <Field label="Jersey" htmlFor="add-jersey">
+        <TextInput id="add-jersey" className="h-[42px] w-20" inputMode="numeric" maxLength={2} value={jersey} disabled={readOnly} onChange={(e) => setJersey(e.target.value)} />
+      </Field>
+      <Button type="submit" variant="primary" size="sm" className="!min-h-[42px]" disabled={readOnly || pending}>
+        Add
+      </Button>
+      {error ? <span className="basis-full text-[12.5px] font-semibold text-bad">{error}</span> : null}
+      <Toast message={toast} />
+    </form>
+  );
+}
+
+/** League-office (admin) access for this player's account. */
+export function LeagueOfficeAccess({ email, isAdmin, viaSetting, isSelf }: { email: string; isAdmin: boolean; viaSetting: boolean; isSelf: boolean }) {
+  const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  const toggle = () =>
+    startTransition(async () => {
+      const res = await setLeagueOfficeAccess({ email, admin: !isAdmin });
+      showToast(res.ok ? res.message : res.error);
+      if (res.ok) router.refresh();
+    });
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-2">
+        {isAdmin ? <RoleTag role="Admin" /> : <span className="text-sm text-muted">No league-office access</span>}
+      </div>
+      <p className="text-[13px] text-muted">
+        {viaSetting
+          ? "This address is listed in the ADMIN_EMAILS setting, so it always has access."
+          : isAdmin
+            ? "Can use the league office: registrations, placement, players, teams, matches and settings."
+            : "Admins can review registrations, manage teams and change league settings."}
+      </p>
+      {viaSetting || isSelf ? null : (
+        <Button variant={isAdmin ? "ghost" : "primary"} size="sm" className={`self-start ${isAdmin ? "text-bad" : ""}`} disabled={pending} onClick={toggle}>
+          {isAdmin ? "Remove league-office access" : "Give league-office access"}
+        </Button>
+      )}
+      <Toast message={toast} />
+    </div>
   );
 }
 

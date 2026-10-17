@@ -113,3 +113,9 @@ export function gamePassReceiptEmail(opts: { firstName: string; gameNumber: numb
   const link = `${appUrl()}/register/game-pass/confirmation?pass=${opts.passId}`;
   return { subject, text: `${body}\n\n${link}${footer}`, html: layout({ title: "Game pass confirmed", body: paras(body), cta: { label: "See my pass", href: link } }) };
 }
+
+export function accountInviteEmail(opts: { firstName: string; url: string; teamName: string | null }) {
+  const subject = "Your NVASA player account";
+  const body = `Hi ${opts.firstName},\n\nThe NVASA league office set up a player account for you${opts.teamName ? ` on ${opts.teamName}` : ""}. Use this link to choose your password. It works once and expires in 7 days.\n\nAfter that you can log in to see your schedule, mark your availability and buy game passes.`;
+  return { subject, text: `${body}\n\n${opts.url}${footer}`, html: layout({ title: "Welcome to NVASA", body: paras(body), cta: { label: "Choose a password", href: opts.url } }) };
+}

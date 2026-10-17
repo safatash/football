@@ -30,7 +30,7 @@ const playerSelect = (seasonId: string) =>
     status: true,
     finalApproval: true,
     registrationDate: true,
-    user: { select: { email: true } },
+    user: { select: { id: true, email: true, role: true } },
     suspensions: { where: activeSuspensionWhere(), select: { reason: true, endsAt: true }, orderBy: { startsAt: "desc" }, take: 1 },
     teamMemberships: {
       where: { ...seasonalWhere, team: { seasonId } },
@@ -84,6 +84,8 @@ function toRow(p: PlayerRowData) {
     id: p.id,
     name: fullName(p),
     email: p.user.email,
+    userId: p.user.id,
+    role: p.user.role,
     status,
     teams,
     division: reg?.division ?? teams[0]?.division ?? null,
@@ -98,9 +100,22 @@ function toRow(p: PlayerRowData) {
 export type PlayerRow = ReturnType<typeof toRow>;
 
 /** Players in a season, by last name. */
-export async function listPlayers(seasonId: string) {
+/** Players in a season. A search (`q`) looks across every player, so new accounts can be found. */
+export async function listPlayers(seasonId: string, q = "") {
+  const needle = q.trim();
   const rows = await prisma.player.findMany({
-    where: inSeasonWhere(seasonId),
+    where: needle
+      ? {
+          OR: [
+            { firstName: { contains: needle, mode: "insensitive" } },
+            { lastName: { contains: needle, mode: "insensitive" } },
+            { user: { email: { contains: needle, mode: "insensitive" } } },
+            ...(needle.includes(" ")
+              ? [{ AND: [{ firstName: { contains: needle.split(" ")[0], mode: "insensitive" as const } }, { lastName: { contains: needle.split(" ").slice(1).join(" "), mode: "insensitive" as const } }] }]
+              : []),
+          ],
+        }
+      : inSeasonWhere(seasonId),
     select: playerSelect(seasonId),
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   });
