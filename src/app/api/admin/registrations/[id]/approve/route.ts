@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { SeasonReadOnlyError, assertSeasonWritable } from "@/lib/queries/season";
 
 const Body = z.object({
   teamId: z
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const registration = await prisma.registration.findUnique({ where: { id } });
     if (!registration) return NextResponse.json({ error: "Registration not found." }, { status: 404 });
+    await assertSeasonWritable(registration.seasonId);
     if (registration.status !== "PENDING" && registration.status !== "SUBMITTED") {
       return NextResponse.json({ error: `This registration is already ${registration.status === "REJECTED" ? "denied" : registration.status.toLowerCase()}.` }, { status: 409 });
     }
@@ -52,7 +54,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // Guard against a concurrent decision.
       const updated = await tx.registration.updateMany({
         where: { id, status: { in: ["PENDING", "SUBMITTED"] } },
-        data: { status: "APPROVED", approvedAt: new Date() },
+        data: {
+          status: "APPROVED",
+          approvedAt: new Date(),
+          // No team yet: the player goes to the placement queue
+          placementState: team ? "ASSIGNED" : registration.placementState === "NONE" ? "NEW" : registration.placementState,
+          ...(team ? { divisionId: team.divisionId } : {}),
+        },
       });
       if (updated.count !== 1) throw new ConflictError();
 
@@ -60,7 +68,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       if (team) {
         const requested = parseList(registration.captainRequests);
-        const captainRequest = requested.includes(team.id) || requested.includes(team.name);
+        const captainRequest =
+          requested.includes(team.id) || requested.includes(team.name) || (await tx.captainRequest.count({ where: { registrationId: id, teamId: team.id } })) > 0;
+        if (makeCaptain) {
+          await tx.captainRequest.updateMany({
+            where: { playerId: registration.playerId, teamId: team.id, status: "PENDING" },
+            data: { status: "APPROVED", decidedById: session.user.id, decidedAt: new Date() },
+          });
+        }
         const existing = await tx.teamRoster.findFirst({
           where: { playerId: registration.playerId, teamId: team.id, membershipType: "SEASONAL", matchId: null },
         });
@@ -87,6 +102,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ success: true, placement: !team });
   } catch (error) {
     if (error instanceof ConflictError) return NextResponse.json({ error: "This registration was already decided." }, { status: 409 });
+    if (error instanceof SeasonReadOnlyError) return NextResponse.json({ error: error.message }, { status: 409 });
     console.error("Approve registration failed", error);
     return NextResponse.json({ error: "Couldn’t approve this registration. Try again." }, { status: 500 });
   }

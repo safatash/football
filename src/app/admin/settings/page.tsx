@@ -1,6 +1,7 @@
 import { isoDate } from "@/lib/format";
 import { blocklistEntries, extraZipCodes, genderLabel, hasSeparateCutoffs, listDiscountCodes, listDivisions } from "@/lib/queries/admin-league";
 import { getSettings } from "@/lib/queries/season";
+import { listTeams } from "@/lib/queries/teams";
 import { ArchivedNotice, seasonFrom, type SearchParams } from "../_components/season";
 import { SettingsForm, type DivisionSetting } from "./settings-form";
 
@@ -8,12 +9,13 @@ export const metadata = { title: "Fees & eligibility" };
 
 export default async function SettingsPage({ searchParams }: { searchParams: SearchParams }) {
   const season = await seasonFrom(await searchParams);
-  const [divisionRows, settings, codes, zips, blocklist] = await Promise.all([
+  const [divisionRows, settings, codes, zips, blocklist, teams] = await Promise.all([
     listDivisions(season.id),
     getSettings(season.id),
     listDiscountCodes(season.id),
     extraZipCodes(),
     blocklistEntries(),
+    listTeams(season.id),
   ]);
 
   const divisions: DivisionSetting[] = divisionRows.map((d) => {
@@ -34,6 +36,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
 
   return (
     <SettingsForm
+      seasonId={season.id}
+      teams={teams.map((t) => ({ id: t.id, name: t.name }))}
       divisions={divisions}
       gamePassFee={settings.gamePassFee}
       discountCodes={codes}

@@ -150,6 +150,7 @@ export async function listDiscountCodes(seasonId: string) {
       kind: KIND_LABEL[c.kind],
       value: c.type === "PERCENT" ? `${amount}% off` : `$${amount} off`,
       uses: c.maxUses != null ? `${c.uses} / ${c.maxUses}` : String(c.uses),
+      used: c.uses > 0,
       active: c.active,
     };
   });

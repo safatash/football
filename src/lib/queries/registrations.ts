@@ -192,7 +192,7 @@ export async function getRegistrationReview(id: string, season: Pick<SeasonRef, 
       preferredTeam: { select: { id: true, name: true } },
       backupTeam: { select: { id: true, name: true } },
       discountCode: { select: { code: true } },
-      captainRequestRows: { select: { status: true, note: true, team: { select: { id: true, name: true } } } },
+      captainRequestRows: { select: { id: true, status: true, note: true, createdAt: true, team: { select: { id: true, name: true } } } },
     },
   });
   if (!reg) return null;
@@ -304,6 +304,7 @@ export async function getRegistrationReview(id: string, season: Pick<SeasonRef, 
     checks,
     application,
     captain,
+    pendingCaptainRequests: pendingCaps.map((c) => ({ id: c.id, teamName: c.team.name, note: c.note, requested: fmtShort(c.createdAt) })),
     denyNote,
     decision: {
       id: reg.id,

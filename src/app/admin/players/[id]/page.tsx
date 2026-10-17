@@ -6,7 +6,10 @@ import { Card, CardHeader, EmptyState, KeyValue } from "@/components/ui/card";
 import { isUpcoming, listMatches } from "@/lib/queries/matches";
 import { getPlayer } from "@/lib/queries/players";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
-import { PlayerHeader, TeamAccessTable } from "./player-actions";
+import prisma from "@/lib/prisma";
+import { now } from "@/lib/clock";
+import { dayKey, fmtShort } from "@/lib/format";
+import { CaptainRequests, PlayerHeader, TeamAccessTable } from "./player-actions";
 
 export const metadata = { title: "Player" };
 
@@ -20,10 +23,19 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
     ? (await listMatches(season.id)).filter((m) => isUpcoming(m) && (teamIds.has(m.homeTeam.id) || teamIds.has(m.awayTeam.id)))
     : [];
   const readOnly = season.archived;
+  const requests = await prisma.captainRequest.findMany({
+    where: { playerId: p.id, status: "PENDING", team: { seasonId: season.id } },
+    select: { id: true, note: true, createdAt: true, team: { select: { name: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  // Two weeks from today, as the default "eligible again" date
+  const defaultUntil = dayKey(new Date(now().getTime() + 14 * 864e5));
 
   return (
     <>
       <PlayerHeader
+        playerId={p.id}
+        defaultUntil={defaultUntil}
         name={p.name}
         email={p.email}
         status={p.status}
@@ -32,6 +44,9 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
         crumbs={<Crumbs items={[["Players", withSeason("/admin/players", season)], [p.name]]} />}
       />
       <ArchivedNotice season={season} />
+      {requests.length ? (
+        <CaptainRequests readOnly={readOnly} requests={requests.map((r) => ({ id: r.id, teamName: r.team.name, note: r.note, requested: fmtShort(r.createdAt) }))} />
+      ) : null}
 
       <div className="grid gap-[18px] md:grid-cols-2 lg:grid-cols-3">
         <Card>
@@ -94,6 +109,7 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
         <h2 className="text-[26px]">Team access</h2>
         {p.teams.length ? (
           <TeamAccessTable
+            playerId={p.id}
             readOnly={readOnly}
             teams={p.teams.map((t, i) => ({
               id: t.id,

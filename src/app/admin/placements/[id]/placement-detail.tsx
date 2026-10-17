@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useState, useTransition, type ReactNode } from "react";
 import { Crest, PageHeading } from "@/components/league";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,8 @@ import { Card, CardHeader, KeyValue } from "@/components/ui/card";
 import { Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Field, SelectInput, TextArea } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
+import { assignPlacement, requestPlacementInfo, waitlistPlacement } from "@/lib/actions/admin";
+import type { ActionResult } from "@/lib/actions/result";
 import type { Placement, PlacementLabel, PlacementTeam } from "@/lib/queries/placements";
 import { PlacementBadge } from "../placement-badge";
 
@@ -36,6 +39,17 @@ export function PlacementDetail({
   const [ask, setAsk] = useState(`Hi ${first}, thanks for registering. Which Sunday time slots work best for you, and have you played 11v11 before?`);
   const [toast, showToast] = useToast();
   const closeAsk = useCallback(() => setAsking(false), []);
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  const run = (action: () => Promise<ActionResult>, next: PlacementLabel, after?: () => void) =>
+    startTransition(async () => {
+      const res = await action();
+      showToast(res.ok ? res.message : res.error);
+      if (!res.ok) return;
+      setState(next);
+      after?.();
+      router.refresh();
+    });
 
   const teams = allTeams.filter((t) => t.divisionId === div);
   const pick = teams.find((t) => t.id === teamId) ?? null;
@@ -132,12 +146,8 @@ export function PlacementDetail({
             <Button
               variant="primary"
               block
-              disabled={readOnly || !pick}
-              onClick={() => {
-                if (!pick) return;
-                setState("Assigned");
-                showToast(`${p.name} assigned to ${pick.name}`);
-              }}
+              disabled={readOnly || !pick || pending}
+              onClick={() => pick && run(() => assignPlacement({ registrationId: p.id, teamId: pick.id }), "Assigned")}
             >
               <Icon name="check" className="size-4" />
               Assign to {pick ? pick.name : "a team"}
@@ -145,16 +155,13 @@ export function PlacementDetail({
             <div className="grid grid-cols-2 gap-2.5">
               <Button
                 variant="ghost"
-                disabled={readOnly}
-                onClick={() => {
-                  setState("Waitlisted");
-                  showToast(`${p.name} waitlisted`);
-                }}
+                disabled={readOnly || pending}
+                onClick={() => run(() => waitlistPlacement({ registrationId: p.id }), "Waitlisted")}
               >
                 <Icon name="wait" className="size-4" />
                 Waitlist
               </Button>
-              <Button variant="ghost" disabled={readOnly} onClick={() => setAsking(true)}>
+              <Button variant="ghost" disabled={readOnly || pending} onClick={() => setAsking(true)}>
                 <Icon name="mail" className="size-4" />
                 Request info
               </Button>
@@ -174,12 +181,8 @@ export function PlacementDetail({
             </Button>
             <Button
               variant="primary"
-              disabled={!ask.trim()}
-              onClick={() => {
-                setState("Info requested");
-                setAsking(false);
-                showToast("Request sent");
-              }}
+              disabled={!ask.trim() || pending}
+              onClick={() => run(() => requestPlacementInfo({ registrationId: p.id, message: ask }), "Info requested", () => setAsking(false))}
             >
               <Icon name="send" className="size-4" />
               Send

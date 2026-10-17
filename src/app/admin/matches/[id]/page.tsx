@@ -11,7 +11,8 @@ import { getMatchByGameNumber, reportOverdue } from "@/lib/queries/matches";
 import { getSettings } from "@/lib/queries/season";
 import { listTeams } from "@/lib/queries/teams";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
-import { ToastButton } from "../../_components/toast-button";
+import { confirmReport, sendReportReminder } from "@/lib/actions/admin";
+import { ActionButton } from "../../_components/action-button";
 import { OfficialsForm } from "./officials-form";
 
 export const metadata = { title: "Match" };
@@ -100,6 +101,7 @@ export default async function MatchDetailPage({ params, searchParams }: { params
   const capOf = (teamId: string) => (teamId === home.id ? homeCap : awayCap);
   const nameOf = (teamId: string) => (teamId === home.id ? home.name : away.name);
   const reported = submitted[0];
+  const toConfirm = reports.find((r) => r.status === "SUBMITTED");
   const reportedScore = reported && reported.homeScore != null && reported.awayScore != null ? `${reported.homeScore}–${reported.awayScore}` : m.score?.join("–");
   const date = m.scheduledAt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: TZ });
 
@@ -157,7 +159,7 @@ export default async function MatchDetailPage({ params, searchParams }: { params
         </Card>
         <Card>
           <CardHeader title="Officials" />
-          <OfficialsForm refs={m.refs} referees={referees} readOnly={readOnly} />
+          <OfficialsForm matchId={m.id} refs={m.refs} referees={referees} readOnly={readOnly} />
         </Card>
         <Card className="flex flex-col gap-3">
           <CardHeader title="Match report" action={<MatchStatusBadge status={report} />} className="mb-0" />
@@ -170,14 +172,14 @@ export default async function MatchDetailPage({ params, searchParams }: { params
                 {reported?.submittedAt ? ` on ${fmtShort(reported.submittedAt)}` : ""}.{reportedScore ? ` Final ${reportedScore}.` : ""}
               </p>
               <div>
-                <ToastButton label="Confirm & update standings" variant="primary" message="Report confirmed. Standings updated." disabled={readOnly} />
+                <ActionButton label="Confirm & update standings" variant="primary" action={confirmReport.bind(null, { matchId: m.id, teamId: (toConfirm ?? reported)?.teamId ?? home.id })} disabled={readOnly || !toConfirm} />
               </div>
             </>
           ) : report === "OVERDUE" ? (
             <>
               <p className="text-sm">Due 48 hours after the match. {capOf(missing.id)} hasn’t submitted.</p>
               <div>
-                <ToastButton label="Send reminder" icon="send" message={`Reminder sent to ${capOf(missing.id)}`} disabled={readOnly} />
+                <ActionButton label="Send reminder" icon="send" action={sendReportReminder.bind(null, { matchId: m.id, teamId: missing.id })} disabled={readOnly} />
               </div>
             </>
           ) : report === "DRAFT" ? (

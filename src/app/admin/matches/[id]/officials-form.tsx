@@ -1,17 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Toast, useToast } from "@/components/ui/controls";
 import { Field, SelectInput } from "@/components/ui/field";
+import { setOfficials } from "@/lib/actions/admin";
 
 const ROLES = ["Referee", "Assistant ref 1", "Assistant ref 2"];
 
-export function OfficialsForm({ refs, referees, readOnly }: { refs: [string, string, string]; referees: string[]; readOnly?: boolean }) {
+export function OfficialsForm({ matchId, refs, referees, readOnly }: { matchId: string; refs: [string, string, string]; referees: string[]; readOnly?: boolean }) {
   const [crew, setCrew] = useState<string[]>([...refs]);
   const [dirty, setDirty] = useState(false);
   const [toast, showToast] = useToast();
-  const assigned = crew.filter(Boolean).length;
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   return (
     <div className="flex flex-col gap-3">
@@ -42,10 +45,17 @@ export function OfficialsForm({ refs, referees, readOnly }: { refs: [string, str
         <Button
           variant="primary"
           size="sm"
-          onClick={() => {
-            setDirty(false);
-            showToast(`Officials saved · ${assigned} of 3 assigned`);
-          }}
+          disabled={pending}
+          onClick={() =>
+            startTransition(async () => {
+              const res = await setOfficials({ matchId, refs: crew });
+              showToast(res.ok ? res.message : res.error);
+              if (res.ok) {
+                setDirty(false);
+                router.refresh();
+              }
+            })
+          }
         >
           Save officials
         </Button>

@@ -7,6 +7,7 @@ import { Card, Notice } from "@/components/ui/card";
 import { Dialog, Switch, Toast, useToast } from "@/components/ui/controls";
 import { Field, SelectInput, TextArea } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
+import { reopenRegistration } from "@/lib/actions/admin";
 
 export type DecisionReg = {
   id: string;
@@ -176,13 +177,24 @@ export function ApproveRegistrationForm({
                   ? "This registration was denied."
                   : "This registration was cancelled."}
           </p>
-          {mode === "local" && !open && !readOnly ? (
+          {status === "denied" && !readOnly ? (
             <Button
               variant="ghost"
               block
-              onClick={() => {
-                setStatus("open");
-                showToast("Reopened for review");
+              disabled={busy}
+              onClick={async () => {
+                if (mode === "local") {
+                  setStatus("open");
+                  return showToast("Reopened for review");
+                }
+                setBusy(true);
+                const res = await reopenRegistration({ registrationId: r.id });
+                setBusy(false);
+                showToast(res.ok ? res.message : res.error);
+                if (res.ok) {
+                  setStatus("open");
+                  router.refresh();
+                }
               }}
             >
               Reopen

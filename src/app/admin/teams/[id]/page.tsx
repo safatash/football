@@ -8,7 +8,8 @@ import { listMatches } from "@/lib/queries/matches";
 import { loadStandings } from "@/lib/queries/standings";
 import { getTeam, teamRoster } from "@/lib/queries/teams";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
-import { ToastButton } from "../../_components/toast-button";
+import { Button, ButtonLink } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 
 export const metadata = { title: "Team" };
 
@@ -23,6 +24,7 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
   const [w, d, l, gf, ga, pts] = [rec?.w ?? 0, rec?.d ?? 0, rec?.l ?? 0, rec?.gf ?? 0, rec?.ga ?? 0, rec?.pts ?? 0];
   const gd = gf - ga;
   const caps = roster.filter((p) => p.isCaptain).map((p) => p.name);
+  const capEmails = roster.filter((p) => p.isCaptain).map((p) => p.player.user.email);
 
   return (
     <>
@@ -36,7 +38,19 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
             </span>
           }
           sub={[t.division.name, season.name, t.homeField ? `home field ${t.homeField}` : null].filter(Boolean).join(" · ")}
-          actions={<ToastButton label="Message captains" icon="mail" message={`Message sent to ${caps.join(" & ")}`} disabled={season.archived || !caps.length} />}
+          actions={
+            capEmails.length && !season.archived ? (
+              <ButtonLink href={`mailto:${capEmails.join(",")}?subject=${encodeURIComponent(`${t.name} · NVASA league office`)}`} variant="ghost" size="sm">
+                <Icon name="mail" className="size-4" />
+                Message captains
+              </ButtonLink>
+            ) : (
+              <Button variant="ghost" size="sm" disabled>
+                <Icon name="mail" className="size-4" />
+                Message captains
+              </Button>
+            )
+          }
         />
       </div>
       <ArchivedNotice season={season} />

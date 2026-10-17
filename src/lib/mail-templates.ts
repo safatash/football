@@ -41,3 +41,28 @@ export function teamUpdateEmail(opts: { teamName: string; captainName: string; m
 }
 
 export { esc, paras, footer };
+
+export function captainDecisionEmail(opts: { firstName: string; teamName: string; approved: boolean; teamId: string }) {
+  const subject = opts.approved ? `You’re a captain of ${opts.teamName}` : `Your captain request for ${opts.teamName}`;
+  const body = opts.approved
+    ? `Hi ${opts.firstName},\n\nThe league office approved your captain request. You can now set match rosters, lineups and match reports for ${opts.teamName}.`
+    : `Hi ${opts.firstName},\n\nThe league office reviewed your captain request for ${opts.teamName} and didn’t approve it this time. You’re still on the team as a player. Reply if you’d like to talk about it.`;
+  const link = opts.approved ? `${appUrl()}/captain/${opts.teamId}` : `${appUrl()}/portal`;
+  return { subject, text: `${body}\n\n${link}${footer}`, html: layout({ title: subject, body: paras(body), cta: { label: opts.approved ? "Open captain tools" : "Go to your portal", href: link } }) };
+}
+
+export function placementInfoEmail(opts: { firstName: string; message: string }) {
+  const subject = "A question about your NVASA placement";
+  return {
+    subject,
+    text: `${opts.message}\n\nJust reply to this email.${footer}`,
+    html: layout({ title: subject, body: `${paras(opts.message)}<p style="margin:0;color:#5B6B61">Just reply to this email.</p>` }),
+  };
+}
+
+export function reportReminderEmail(opts: { firstName: string; teamName: string; gameNumber: number; teamId: string }) {
+  const subject = `Reminder: match report for Game #${opts.gameNumber}`;
+  const body = `Hi ${opts.firstName},\n\nWe haven’t received ${opts.teamName}’s match report for Game #${opts.gameNumber} yet. Please submit the score, scorers and any cards so the standings can be updated.`;
+  const link = `${appUrl()}/captain/${opts.teamId}/matches/${opts.gameNumber}/report`;
+  return { subject, text: `${body}\n\n${link}${footer}`, html: layout({ title: subject, body: paras(body), cta: { label: "Submit the report", href: link } }) };
+}

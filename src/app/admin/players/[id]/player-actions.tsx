@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useState, useTransition, type ReactNode } from "react";
 import { Crest, PageHeading } from "@/components/league";
 import { PlayerStatusBadge, RoleTag } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,12 +9,15 @@ import { Notice } from "@/components/ui/card";
 import { Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Field, SelectInput, TextInput } from "@/components/ui/field";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
+import { decideCaptainRequest, liftSuspension, setCaptain, suspendPlayer } from "@/lib/actions/admin";
 
 type Status = "Active" | "Pending Approval" | "Suspended" | "Inactive";
 const REASONS = ["Red card", "Yellow card accumulation", "Unpaid fee", "Conduct"];
 
 /** Heading with status badge, suspend / lift actions and the player's note. */
 export function PlayerHeader({
+  playerId,
+  defaultUntil,
   name,
   email,
   status: initial,
@@ -21,6 +25,9 @@ export function PlayerHeader({
   readOnly,
   crumbs,
 }: {
+  playerId: string;
+  /** Default "eligible again" date (YYYY-MM-DD). */
+  defaultUntil: string;
   name: string;
   email: string;
   status: Status;
@@ -32,10 +39,31 @@ export function PlayerHeader({
   const [note, setNote] = useState(initialNote);
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState(REASONS[0]);
-  const [until, setUntil] = useState("2026-05-31");
+  const [until, setUntil] = useState(defaultUntil);
   const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const close = useCallback(() => setOpen(false), []);
-  const untilLabel = until ? new Date(`${until}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+
+  const lift = () =>
+    startTransition(async () => {
+      const res = await liftSuspension({ playerId });
+      showToast(res.ok ? res.message : res.error);
+      if (!res.ok) return;
+      setStatus("Active");
+      setNote(undefined);
+      router.refresh();
+    });
+  const suspend = () =>
+    startTransition(async () => {
+      const res = await suspendPlayer({ playerId, reason, until: until || null });
+      if (!res.ok) return showToast(res.error);
+      setStatus("Suspended");
+      setNote(res.data?.note);
+      setOpen(false);
+      showToast(res.message);
+      router.refresh();
+    });
 
   return (
     <>
@@ -51,12 +79,8 @@ export function PlayerHeader({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={readOnly}
-                  onClick={() => {
-                    setStatus("Active");
-                    setNote(undefined);
-                    showToast("Suspension lifted");
-                  }}
+                  disabled={readOnly || pending}
+                  onClick={lift}
                 >
                   Lift suspension
                 </Button>
@@ -84,15 +108,7 @@ export function PlayerHeader({
             <Button variant="ghost" onClick={close}>
               Cancel
             </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                setStatus("Suspended");
-                setNote(`${reason}.${untilLabel ? ` Eligible again ${untilLabel}.` : ""}`);
-                setOpen(false);
-                showToast("Player suspended");
-              }}
-            >
+            <Button variant="danger" disabled={pending} onClick={suspend}>
               Suspend
             </Button>
           </>
@@ -117,9 +133,11 @@ export function PlayerHeader({
 
 type Access = { id: string; name: string; color?: string | null; shortName?: string | null; division: string; membership: string; role: "Captain" | "Player" };
 
-export function TeamAccessTable({ teams, readOnly }: { teams: Access[]; readOnly?: boolean }) {
+export function TeamAccessTable({ playerId, teams, readOnly }: { playerId: string; teams: Access[]; readOnly?: boolean }) {
   const [roles, setRoles] = useState<Record<string, Access["role"]>>(() => Object.fromEntries(teams.map((t) => [t.id, t.role])));
   const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
   return (
     <>
       <TableWrap>
@@ -153,12 +171,17 @@ export function TeamAccessTable({ teams, readOnly }: { teams: Access[]; readOnly
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={readOnly}
-                      onClick={() => {
-                        const next = role === "Captain" ? "Player" : "Captain";
-                        setRoles((r) => ({ ...r, [t.id]: next }));
-                        showToast(`${role === "Captain" ? "Captain access removed" : "Captain access granted"} on ${t.name}`);
-                      }}
+                      disabled={readOnly || pending}
+                      onClick={() =>
+                        startTransition(async () => {
+                          const next = role === "Captain" ? "Player" : "Captain";
+                          const res = await setCaptain({ playerId, teamId: t.id, isCaptain: next === "Captain" });
+                          showToast(res.ok ? res.message : res.error);
+                          if (!res.ok) return;
+                          setRoles((r) => ({ ...r, [t.id]: next }));
+                          router.refresh();
+                        })
+                      }
                     >
                       {role === "Captain" ? "Remove captain" : "Make captain"}
                     </Button>
@@ -169,6 +192,41 @@ export function TeamAccessTable({ teams, readOnly }: { teams: Access[]; readOnly
           </TableBody>
         </DataTable>
       </TableWrap>
+      <Toast message={toast} />
+    </>
+  );
+}
+
+type PendingRequest = { id: string; teamName: string; note: string | null; requested: string };
+
+/** Pending captain requests with approve / deny. Approving gives access on that team only. */
+export function CaptainRequests({ requests, readOnly }: { requests: PendingRequest[]; readOnly?: boolean }) {
+  const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  const decide = (id: string, approve: boolean) =>
+    startTransition(async () => {
+      const res = await decideCaptainRequest({ requestId: id, approve });
+      showToast(res.ok ? res.message : res.error);
+      if (res.ok) router.refresh();
+    });
+  return (
+    <>
+      <div className="flex flex-col gap-2.5">
+        {requests.map((r) => (
+          <Notice key={r.id} tone="pass" icon="star" title={`Captain request · ${r.teamName}`}>
+            <span className="block">{r.note ? `“${r.note}”` : "No note."} Requested {r.requested}.</span>
+            <span className="mt-2 flex flex-wrap gap-2">
+              <Button variant="primary" size="sm" disabled={readOnly || pending} onClick={() => decide(r.id, true)}>
+                Approve
+              </Button>
+              <Button variant="ghost" size="sm" disabled={readOnly || pending} onClick={() => decide(r.id, false)}>
+                Deny
+              </Button>
+            </span>
+          </Notice>
+        ))}
+      </div>
       <Toast message={toast} />
     </>
   );

@@ -5,6 +5,7 @@ import { Card, CardHeader, KeyValue, Notice } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { getRegistrationReview } from "@/lib/queries/registrations";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
+import { CaptainRequests } from "../../players/[id]/player-actions";
 import { ApproveRegistrationForm } from "./approve-form";
 
 export const metadata = { title: "Registration" };
@@ -73,6 +74,9 @@ export default async function RegistrationDetailPage({ params, searchParams }: {
         </div>
 
         <div className="min-w-0">
+          {v.decision.status !== "open" && v.pendingCaptainRequests.length ? (
+            <CaptainRequests requests={v.pendingCaptainRequests} readOnly={season.archived} />
+          ) : null}
           <ApproveRegistrationForm mode="api" registration={v.decision} teams={v.teams} defaultTeamId={v.defaultTeamId} readOnly={season.archived} />
         </div>
       </div>
