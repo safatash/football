@@ -4,11 +4,14 @@ import { Icon } from "@/components/ui/icon";
 import { Badge, GamePassTag } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import { Logo, MatchMeta, VsRow } from "@/components/league";
+import { Crest, Logo, MatchMeta, VsRow } from "@/components/league";
 import prisma from "@/lib/prisma";
 import { fmtShort, money } from "@/lib/format";
 import { listMatches, nextMatchDay } from "@/lib/queries/matches";
 import { getActiveSeason, getSettings } from "@/lib/queries/season";
+import { listPublicMatches } from "@/lib/queries/public";
+import { gameNo } from "@/lib/public";
+import { Score } from "@/components/public";
 
 export const metadata: Metadata = {
   title: { absolute: "NVASA · Sunday soccer for adults" },
@@ -58,7 +61,8 @@ async function loadLanding() {
     getSettings(season.id),
     listMatches(season.id),
   ]);
-  return { season, divisions, teams, fields: fields.length, gamePassFee: settings.gamePassFee, next: nextMatchDay(matches) };
+  const latest = await listPublicMatches(season.id, "results");
+  return { season, divisions, teams, fields: fields.length, gamePassFee: settings.gamePassFee, next: nextMatchDay(matches), latest: latest.slice(0, 6) };
 }
 
 function PitchLines() {
@@ -103,6 +107,12 @@ export default async function LandingPage() {
         <nav aria-label="NVASA" className={`relative z-[2] flex items-center gap-3 py-3.5 sm:gap-4 ${section}`}>
           <Logo tone="light" />
           <span className="flex-1" />
+          <Link href="/standings" className="hidden text-[13.5px] font-bold text-white sm:inline">
+            Standings
+          </Link>
+          <Link href="/results" className="hidden text-[13.5px] font-bold text-white sm:inline">
+            Results
+          </Link>
           <Link href="#fees" className="hidden text-[13.5px] font-bold text-white sm:inline">
             Divisions & fees
           </Link>
@@ -250,9 +260,11 @@ export default async function LandingPage() {
           </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-3.5">
             {sunday.map((m) => (
-              <div key={m.id} className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-line bg-surface p-4">
+              <div key={m.id} className="relative flex flex-col gap-3 rounded-[var(--radius-card)] border border-line bg-surface p-4 hover:bg-surface-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[13px] text-muted">Game #{m.gameNumber}</span>
+                  <Link href={`/matches/${m.id}`} className="font-mono text-[13px] text-muted after:absolute after:inset-0 hover:underline">
+                    Game #{m.gameNumber}
+                  </Link>
                   <span className="text-xs text-muted">{m.division?.name ?? m.homeTeam.division.name}</span>
                 </div>
                 <VsRow home={m.homeTeam} away={m.awayTeam} />
@@ -262,11 +274,61 @@ export default async function LandingPage() {
           </div>
         </section>
         ) : null}
+
+        {/* Latest results */}
+        {data?.latest.length ? (
+          <section className={`flex flex-col gap-5 pb-12 ${section}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-[32px]">Latest results</h2>
+              <Link href="/results" className="text-[13.5px] font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
+                All results
+              </Link>
+            </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-3.5">
+              {data.latest.map((m) => (
+                <div key={m.id} className="relative flex flex-col gap-3 rounded-[var(--radius-card)] border border-line bg-surface p-4 hover:bg-surface-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Link href={`/matches/${m.id}`} className="font-mono text-[13px] text-muted after:absolute after:inset-0 hover:underline">
+                      Game {gameNo(m.gameNumber)}
+                    </Link>
+                    <span className="text-xs text-muted">{m.division?.name}</span>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 font-bold">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Crest team={m.homeTeam} />
+                      <span className="truncate">{m.homeTeam.name}</span>
+                    </span>
+                    <Score m={m} />
+                    <span className="flex min-w-0 items-center justify-end gap-2 text-right">
+                      <span className="truncate">{m.awayTeam.name}</span>
+                      <Crest team={m.awayTeam} />
+                    </span>
+                  </div>
+                  <span className="text-[13px] text-muted">{m.dayLabel}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </main>
 
       <footer className="border-t border-line py-7">
         <div className={`flex flex-wrap items-center justify-between gap-3 text-[13.5px] text-muted ${section}`}>
           <Logo className="!text-lg text-fg" />
+          <span className="flex flex-wrap gap-4 font-bold">
+            <Link href="/standings" className="hover:text-fg">
+              Standings
+            </Link>
+            <Link href="/results" className="hover:text-fg">
+              Results
+            </Link>
+            <a href="https://www.facebook.com/groups/nvasa/" target="_blank" rel="noopener noreferrer" className="hover:text-fg">
+              Facebook
+            </a>
+            <a href="https://twitter.com/NVASA" target="_blank" rel="noopener noreferrer" className="hover:text-fg">
+              X (Twitter)
+            </a>
+          </span>
           <span>
             Northern Virginia Adult Soccer Association ·{" "}
             <a href="mailto:office@nvasa.org" className="font-semibold hover:text-fg">

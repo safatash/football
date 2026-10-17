@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Crest } from "@/components/league";
 import { Card, EmptyState } from "@/components/ui/card";
-import { PageTitle, PublicFrame, SeasonTabs } from "@/components/public";
+import { PageTitle, PublicFrame, RedirectNotice, SeasonTabs } from "@/components/public";
 import { one, type PublicSearchParams } from "@/components/public/matches-page";
 import { resolvePublicSeason } from "@/lib/queries/public";
 import { loadSeasonStandings } from "@/lib/queries/standings";
@@ -24,6 +24,7 @@ export default async function TeamsPage({ searchParams }: { searchParams: Public
   return (
     <PublicFrame>
       <PageTitle eyebrow={season.name} title="Teams" sub={`${divisions.reduce((n, d) => n + d.rows.length, 0)} teams in ${divisions.length} divisions.`} />
+      <RedirectNotice code={one(sp.notice)} />
       <SeasonTabs seasons={seasons} current={season} href={(slug) => (slug === active?.slug ? "/teams" : `/teams?season=${slug}`)} />
       {divisions.length ? null : <EmptyState icon="shield" title={`No teams in ${season.name}`} />}
       {divisions.map(({ division, rows }) => (

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/card";
-import { Leaders, PageTitle, PublicFrame, PublicStandings, SeasonTabs } from "@/components/public";
+import { Leaders, PageTitle, PublicFrame, PublicStandings, RedirectNotice, SeasonTabs } from "@/components/public";
 import { one, type PublicSearchParams } from "@/components/public/matches-page";
 import { resolvePublicSeason } from "@/lib/queries/public";
 import { loadSeasonStandings, seasonLeaders, topBy } from "@/lib/queries/standings";
@@ -23,6 +23,7 @@ export default async function StandingsPage({ searchParams }: { searchParams: Pu
   return (
     <PublicFrame>
       <PageTitle eyebrow={season.name} title="Standings" sub="3 points for a win, 1 for a draw. Ties go to goal difference, then goals scored." />
+      <RedirectNotice code={one(sp.notice)} />
       <SeasonTabs seasons={seasons} current={season} href={(slug) => (slug === active?.slug ? "/standings" : `/standings?season=${slug}`)} />
       {divisions.length ? null : <EmptyState icon="trophy" title={`No divisions in ${season.name}`} />}
       {divisions.map(({ division, rows }) => (

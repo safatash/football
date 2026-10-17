@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Avatar, Crest, type CrestTeam } from "@/components/league";
 import { Badge } from "@/components/ui/badge";
-import { Card, EmptyState } from "@/components/ui/card";
+import { Card, EmptyState, Notice as NoticeBox } from "@/components/ui/card";
 import { Segmented } from "@/components/ui/controls";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
@@ -365,4 +365,18 @@ export function Kit({ label, shirt, shorts }: { label: string; shirt: string | n
 /** JSON-LD script for search engines. */
 export function JsonLd({ data }: { data: object }) {
   return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, "\\u003c") }} />;
+}
+
+const NOTICES: Record<string, string> = {
+  "team-not-found": "We couldn’t find that team from the old site. Here are this season’s teams.",
+  "player-not-found": "We couldn’t find that player from the old site. Try their team’s roster.",
+  "division-not-found": "We couldn’t find that division from the old site. Here are the standings.",
+  "game-not-found": "We couldn’t find that game from the old site. Here are the results.",
+  "season-not-found": "We couldn’t find that season. Showing the current one.",
+};
+
+/** Explains a redirect from an old link that didn't match anything. */
+export function RedirectNotice({ code }: { code: string }) {
+  const text = NOTICES[code];
+  return text ? <NoticeBox>{text}</NoticeBox> : null;
 }

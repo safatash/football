@@ -4,7 +4,7 @@ import { Icon } from "@/components/ui/icon";
 import { FilterChip } from "@/components/ui/table";
 import { divisionsOf, listPublicMatches, resolvePublicSeason } from "@/lib/queries/public";
 import { listTeams } from "@/lib/queries/teams";
-import { MatchList, PageTitle, PublicFrame, SeasonTabs } from "./index";
+import { MatchList, PageTitle, PublicFrame, RedirectNotice, SeasonTabs } from "./index";
 
 export type PublicSearchParams = Promise<Record<string, string | string[] | undefined>>;
 export const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
@@ -35,6 +35,7 @@ export async function MatchesPage({ kind, searchParams }: { kind: "results" | "s
   return (
     <PublicFrame>
       <PageTitle eyebrow={season.name} title={title} sub={kind === "results" ? "Final scores, newest first." : "Upcoming games, soonest first."} />
+      <RedirectNotice code={one(sp.notice)} />
       <SeasonTabs seasons={seasons} current={season} href={(slug) => href({ season: slug === active?.slug ? "" : slug, division: "", team: "" })} />
       <div className="flex flex-wrap items-center gap-2">
         <FilterChip href={href({ division: "" })} active={!division}>
