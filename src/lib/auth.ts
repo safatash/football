@@ -4,7 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import prisma from "@/lib/prisma"
 import { Adapter } from "next-auth/adapters"
-import { isAdminEmail } from "@/lib/admin"
+import { isAdminUser } from "@/lib/admin"
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
@@ -21,8 +21,8 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Find user with player profile
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+        const user = await prisma.user.findFirst({
+          where: { email: { equals: credentials.email.trim(), mode: "insensitive" } },
           include: { player: true }
         })
 
@@ -72,7 +72,7 @@ export const authOptions: NextAuthOptions = {
           }
         })
 
-        session.user.isAdmin = isAdminEmail(user?.email)
+        session.user.isAdmin = isAdminUser(user)
         if (user?.player) {
           session.user.playerId = user.player.id
           session.user.name = `${user.player.firstName} ${user.player.lastName}`

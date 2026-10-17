@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import prisma from "@/lib/prisma";
-import { hashPassword, validatePasswordStrength } from "@/lib/password";
+import { accountPasswordErrors, hashPassword } from "@/lib/password";
 import { DIVISIONS, discountFor } from "@/lib/league-data";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -76,8 +76,7 @@ export async function POST(req: NextRequest) {
     if (!gender) return bad("Please choose a gender.");
 
     // 3. Password: 10+ characters plus the strength rules
-    const strength = validatePasswordStrength(password);
-    const pwErrors = [...(password.length < 10 ? ["Password must be at least 10 characters long"] : []), ...strength.errors.filter((e) => !e.includes("8 characters"))];
+    const pwErrors = accountPasswordErrors(password);
     if (pwErrors.length) return bad(pwErrors.join(", "));
 
     // 4. Division and amount are computed here, never taken from the client

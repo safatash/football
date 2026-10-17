@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/icon";
 import { Crest, MatchMeta, VsRow } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
 import prisma from "@/lib/prisma";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { AccessPanel } from "./access-panel";
 import { fmtDay, fmtTime, money, relativeDay } from "./format";
@@ -60,6 +61,8 @@ async function nextMatchFor(teamId: string) {
 export default async function PlayerDashboardPage({ searchParams }: { searchParams: Promise<{ team?: string; denied?: string }> }) {
   const { team: teamParam, denied } = await searchParams;
   const session = await requireUser("/portal");
+  // League-office accounts without a player profile land in the office.
+  if (!session.user.playerId && session.user.isAdmin) redirect("/admin");
   const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" });
 
   const player = session.user.playerId

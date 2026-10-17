@@ -18,6 +18,7 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   password  String // Will be bcrypt hashed (currently plaintext in CF)
+  role      Role     @default(PLAYER)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -29,6 +30,11 @@ model User {
   sessions      Session[]
   
   @@map("users")
+}
+
+enum Role {
+  PLAYER
+  ADMIN
 }
 
 model Account {

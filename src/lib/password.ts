@@ -40,3 +40,12 @@ export function validatePasswordStrength(password: string): {
     errors,
   }
 }
+
+/** Account password rules shared by registration, change password and reset: 10+ characters plus the strength rules. */
+export function accountPasswordErrors(password: string): string[] {
+  const strength = validatePasswordStrength(password)
+  return [
+    ...(password.length < 10 ? ["Password must be at least 10 characters long"] : []),
+    ...strength.errors.filter((e) => !e.includes("8 characters")),
+  ]
+}

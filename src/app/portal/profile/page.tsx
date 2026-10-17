@@ -5,6 +5,7 @@ import { Crest } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
 import prisma from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
+import { PasswordForm } from "./password-form";
 import { LogoutButton, ProfileForm } from "./profile-form";
 
 export const metadata = { title: "Profile" };
@@ -42,6 +43,12 @@ export default async function PlayerProfilePage() {
           >
             Your player details are created when you register.
           </EmptyState>
+          <PasswordForm />
+          {session.user.isAdmin ? (
+            <ButtonLink href="/admin" variant="ghost" block>
+              Go to the league office
+            </ButtonLink>
+          ) : null}
           <LogoutButton />
         </Screen>
       </>
@@ -108,6 +115,7 @@ export default async function PlayerProfilePage() {
               <p className="text-sm text-muted">You’re not on a team yet.</p>
             )}
           </Card>
+          <PasswordForm />
           <LogoutButton />
         </aside>
       </Screen>
