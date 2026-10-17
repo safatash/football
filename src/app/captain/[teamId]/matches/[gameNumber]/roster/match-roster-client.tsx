@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { Badge, GamePassTag } from "@/components/ui/badge";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, Notice } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { CheckBox, Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Icon } from "@/components/ui/icon";
 import { Jersey, PosTag } from "@/components/league";
 import { ActionBar, Screen } from "@/components/shell/layout";
+import { reopenMatchRoster, saveMatchRoster } from "@/lib/actions/captain";
 import type { SquadPlayer } from "@/lib/queries/captain";
 import { AvailText, jerseyLabel } from "../../../roster-helpers";
 
@@ -17,6 +19,8 @@ const timeLabel = (d: Date) =>
   `${d.toLocaleDateString("en-US", { weekday: "short" })} ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 
 export function MatchRosterClient({
+  teamId,
+  matchDbId,
   matchId,
   kickoff,
   opponent,
@@ -26,6 +30,9 @@ export function MatchRosterClient({
   finalized = null,
   canEdit,
 }: {
+  teamId: string;
+  /** Match id (database), used by the save actions. */
+  matchDbId: string;
   matchId: number;
   kickoff: string;
   opponent: string;
@@ -41,7 +48,29 @@ export function MatchRosterClient({
   const [finalizedAt, setFinalizedAt] = useState<string | null>(finalized);
   const [confirming, setConfirming] = useState(false);
   const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const locked = finalizedAt !== null;
+
+  const save = (finalize: boolean) =>
+    startTransition(async () => {
+      const res = await saveMatchRoster({ teamId, matchId: matchDbId, teamRosterIds: [...sel], finalize });
+      if (!res.ok) return showToast(res.error);
+      if (finalize) {
+        setFinalizedAt(timeLabel(new Date()));
+        setConfirming(false);
+      }
+      showToast(res.warnings?.length ? `${res.message} · ${res.warnings.length} warning${res.warnings.length > 1 ? "s" : ""}` : res.message);
+      router.refresh();
+    });
+  const reopen = () =>
+    startTransition(async () => {
+      const res = await reopenMatchRoster({ teamId, matchId: matchDbId });
+      if (!res.ok) return showToast(res.error);
+      setFinalizedAt(null);
+      showToast(res.message);
+      router.refresh();
+    });
 
   const season = pool.filter((p) => !p.gamePass);
   const passes = pool.filter((p) => p.gamePass);
@@ -87,7 +116,7 @@ export function MatchRosterClient({
 
   const actions = locked ? (
     <>
-      <Button variant="ghost" disabled={!canEdit} onClick={() => setFinalizedAt(null)}>
+      <Button variant="ghost" disabled={!canEdit || pending} onClick={reopen}>
         Reopen
       </Button>
       <ButtonLink href={`/matches/${matchId}/print`} variant="accent" className="grow">
@@ -97,10 +126,10 @@ export function MatchRosterClient({
     </>
   ) : (
     <>
-      <Button variant="ghost" disabled={!canEdit} onClick={() => showToast("Draft saved")}>
-        Save draft
+      <Button variant="ghost" disabled={!canEdit || pending} onClick={() => save(false)}>
+        {pending ? "Saving…" : "Save draft"}
       </Button>
-      <Button className="grow" disabled={!canEdit} onClick={() => setConfirming(true)}>
+      <Button className="grow" disabled={!canEdit || pending} onClick={() => setConfirming(true)}>
         Finalize roster
       </Button>
     </>
@@ -242,12 +271,8 @@ export function MatchRosterClient({
               Keep editing
             </Button>
             <Button
-              disabled={blocking.length > 0}
-              onClick={() => {
-                setFinalizedAt(timeLabel(new Date()));
-                setConfirming(false);
-                showToast("Roster finalized");
-              }}
+              disabled={blocking.length > 0 || pending}
+              onClick={() => save(true)}
             >
               Finalize
             </Button>

@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import { Badge, RoleTag } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChoiceGroup, Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { Jersey } from "@/components/league";
+import { setLineupRole } from "@/lib/actions/captain";
 import type { SquadPlayer } from "@/lib/queries/captain";
 import { jerseyLabel, rosterStatus, statusTone, type RosterStatus } from "../roster-helpers";
 
@@ -17,10 +19,12 @@ const ROLE_SUB: Record<Editable, string> = {
   Unavailable: "Not playing this match",
 };
 
-export function TeamRosterClient({ roster, gameNumber, canEdit }: { roster: SquadPlayer[]; gameNumber: number | null; canEdit: boolean }) {
+export function TeamRosterClient({ teamId, roster, gameNumber, canEdit }: { teamId: string; roster: SquadPlayer[]; gameNumber: number | null; canEdit: boolean }) {
   const [overrides, setOverrides] = useState<Record<string, Editable>>({});
   const [editing, setEditing] = useState<SquadPlayer | null>(null);
   const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   const statusOf = (p: SquadPlayer) => rosterStatus(p, overrides[p.id]);
   const counts: Record<RosterStatus, number> = { Starter: 0, Bench: 0, Unavailable: 0, Suspended: 0 };
@@ -100,9 +104,23 @@ export function TeamRosterClient({ roster, gameNumber, canEdit }: { roster: Squa
             name="Lineup role"
             value={statusOf(editing) as Editable}
             onChange={(r) => {
-              setOverrides((o) => ({ ...o, [editing.id]: r }));
+              if (pending) return;
+              const p = editing;
+              setOverrides((o) => ({ ...o, [p.id]: r }));
               setEditing(null);
-              showToast(`Role updated: ${r}`);
+              startTransition(async () => {
+                const res = await setLineupRole({ teamId, teamRosterId: p.id, role: r });
+                if (!res.ok) {
+                  setOverrides((o) => {
+                    const next = { ...o };
+                    delete next[p.id];
+                    return next;
+                  });
+                  return showToast(res.error);
+                }
+                showToast(res.message);
+                router.refresh();
+              });
             }}
             options={(Object.keys(ROLE_SUB) as Editable[]).map((r) => ({ value: r, label: r, sub: ROLE_SUB[r] }))}
           />

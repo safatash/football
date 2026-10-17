@@ -1,20 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Field, TextArea } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
+import { setAvailability } from "@/lib/actions/captain";
+import { requestCaptainAccess } from "@/lib/actions/player";
 
 export type Choice = "yes" | "no";
 
 /** "Can you make it?" buttons on the next-match card. `initial` is the player's saved answer. */
-export function AvailabilityButtons({ onDark = true, initial = null }: { onDark?: boolean; initial?: Choice | null }) {
+export function AvailabilityButtons({
+  teamId,
+  matchId,
+  onDark = true,
+  initial = null,
+}: {
+  teamId: string;
+  matchId: string;
+  onDark?: boolean;
+  initial?: Choice | null;
+}) {
   const [choice, setChoice] = useState<Choice | null>(initial);
   const [toast, showToast] = useToast();
+  const [, startTransition] = useTransition();
   const pick = (v: Choice) => {
+    const before = choice;
     setChoice(v);
-    showToast(v === "yes" ? "You’re marked available" : "Your captain will see you can’t make it");
+    startTransition(async () => {
+      const res = await setAvailability({ teamId, matchId, status: v === "yes" ? "AVAILABLE" : "UNAVAILABLE" });
+      if (!res.ok) setChoice(before);
+      showToast(res.ok ? res.message : res.error);
+    });
   };
   const cls = (on: boolean) =>
     on ? "bg-lime text-lime-ink hover:bg-lime-2" : onDark ? "bg-white/12 text-white hover:bg-white/20" : "bg-surface-2 text-fg hover:bg-surface-3";
@@ -48,7 +66,8 @@ export function AvailabilityButtons({ onDark = true, initial = null }: { onDark?
 }
 
 /** Request captain access for a team the player isn't captain of. Reviewed by the league office. */
-export function RequestCaptainAccess({ teamName, captainName }: { teamName: string; captainName?: string }) {
+export function RequestCaptainAccess({ teamId, teamName, captainName }: { teamId: string; teamName: string; captainName?: string }) {
+  const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState(false);
   const [note, setNote] = useState("");
@@ -77,11 +96,15 @@ export function RequestCaptainAccess({ teamName, captainName }: { teamName: stri
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                setOpen(false);
-                setSent(true);
-                showToast("Request sent. Status: Pending review");
-              }}
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const res = await requestCaptainAccess({ teamId, note });
+                  setOpen(false);
+                  if (res.ok) setSent(true);
+                  showToast(res.ok ? res.message : res.error);
+                })
+              }
             >
               Send request
             </Button>

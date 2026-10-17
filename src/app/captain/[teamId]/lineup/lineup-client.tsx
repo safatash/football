@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, type DragEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition, type DragEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/ui/card";
 import { Segmented, Toast, useToast } from "@/components/ui/controls";
 import { ActionBar, Screen } from "@/components/shell/layout";
+import { saveLineup } from "@/lib/actions/captain";
 import type { SquadPlayer } from "@/lib/queries/captain";
 import { firstLast, jerseyLabel } from "../roster-helpers";
 
@@ -17,6 +20,9 @@ function slotsFor(positions: [string, number, number][], players: string[]): Slo
 const DRAG_TYPE = "text/plain";
 
 export function LineupClient({
+  teamId,
+  matchDbId,
+  finalized,
   matchId,
   opponent,
   pool,
@@ -26,6 +32,10 @@ export function LineupClient({
   initialSlots,
   canEdit,
 }: {
+  teamId: string;
+  matchDbId: string;
+  /** Lineups can only be saved from a finalized match roster. */
+  finalized: boolean;
   matchId: number;
   opponent: string;
   pool: SquadPlayer[];
@@ -42,6 +52,14 @@ export function LineupClient({
   const [picked, setPicked] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  const save = () =>
+    startTransition(async () => {
+      const res = await saveLineup({ teamId, matchId: matchDbId, formation, slots });
+      showToast(res.ok ? res.message : res.error);
+      if (res.ok) router.refresh();
+    });
 
   const byId = (id: string) => pool.find((p) => p.id === id);
   const selSet = new Set(selected);
@@ -92,8 +110,8 @@ export function LineupClient({
         }}>
         Clear
       </Button>
-      <Button className="grow" disabled={!canEdit} onClick={() => showToast("Lineup saved")}>
-        Save lineup
+      <Button className="grow" disabled={!canEdit || !finalized || pending} onClick={save}>
+        {pending ? "Saving…" : "Save lineup"}
       </Button>
     </>
   );
@@ -145,6 +163,11 @@ export function LineupClient({
               <b className="font-display text-2xl text-fg">{placed.size}</b>/11
             </span>
           </div>
+          {!finalized && canEdit ? (
+            <Notice tone="warn" title="Match roster is still a draft.">
+              Finalize the match roster for Game #{matchId}, then save your lineup.
+            </Notice>
+          ) : null}
           <Segmented
             label="Formation"
             className="max-w-[420px]"

@@ -66,6 +66,7 @@ export default async function PlayerTeamPage({ searchParams }: { searchParams: P
   const mine = next
     ? await prisma.matchAvailability.findUnique({ where: { matchId_teamRosterId: { matchId: next.id, teamRosterId: selected.id } }, select: { status: true } })
     : null;
+  const captainRequestPending = playerId ? await prisma.captainRequest.count({ where: { playerId, teamId: t.id, status: "PENDING" } }) : 0;
   const myAnswer: Choice | null = mine?.status === "AVAILABLE" ? "yes" : mine?.status === "UNAVAILABLE" ? "no" : null;
 
   return (
@@ -81,7 +82,7 @@ export default async function PlayerTeamPage({ searchParams }: { searchParams: P
           />
         ) : null}
 
-        <AccessPanel teamName={t.name} isCaptain={selected.isCaptain} captainNames={captains} requestPending={selected.captainRequest && !selected.isCaptain} />
+        <AccessPanel teamId={t.id} teamName={t.name} isCaptain={selected.isCaptain} captainNames={captains} requestPending={captainRequestPending > 0 && !selected.isCaptain} />
         {selected.isCaptain ? (
           <ButtonLink href={`/captain/${t.id}`} block>
             Open captain tools
@@ -97,7 +98,7 @@ export default async function PlayerTeamPage({ searchParams }: { searchParams: P
             </div>
             <VsRow home={next.homeTeam} away={next.awayTeam} />
             <MatchMeta date={fmtShort(next.scheduledAt)} time={next.time} field={next.field} />
-            <AvailabilityButtons onDark={false} initial={myAnswer} />
+            <AvailabilityButtons teamId={t.id} matchId={next.id} onDark={false} initial={myAnswer} />
             <ButtonLink href={`/matches/${next.gameNumber}/print`} variant="ghost" size="sm">
               <Icon name="print" className="size-4" />
               Print game roster

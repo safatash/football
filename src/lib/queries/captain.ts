@@ -128,7 +128,7 @@ export async function squadFor(members: RosterMember[], matchId: string | null, 
       suspended,
       suspendedUntil: until ? fmtShort(until) : null,
       gamePass: m.gamePass,
-      starter: !!slots?.get(m.id),
+      starter: !!slots?.get(m.id) || m.lineupStatus === "STARTING",
     };
   });
 }

@@ -26,6 +26,8 @@ export default async function CaptainMatchRosterPage({ params }: { params: Promi
 
   return (
     <MatchRosterClient
+      teamId={team.id}
+      matchDbId={m.id}
       matchId={m.gameNumber}
       kickoff={`${weekday(m.scheduledAt)} ${m.time}`}
       opponent={opponentOf(m, team.id).name}

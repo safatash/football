@@ -4,11 +4,13 @@ import { RequestCaptainAccess } from "./portal-client";
 
 /** What the viewer can do on this team. Captain actions only appear for captain memberships. */
 export function AccessPanel({
+  teamId,
   teamName,
   isCaptain,
   captainNames,
   requestPending,
 }: {
+  teamId: string;
   teamName: string;
   isCaptain: boolean;
   captainNames: string[];
@@ -50,7 +52,7 @@ export function AccessPanel({
           Captain request · Pending review
         </span>
       ) : (
-        <RequestCaptainAccess teamName={teamName} captainName={captainNames[0]} />
+        <RequestCaptainAccess teamId={teamId} teamName={teamName} captainName={captainNames[0]} />
       )}
     </div>
   );

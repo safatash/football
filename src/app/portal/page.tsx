@@ -142,7 +142,10 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
   const selected = memberships.find((m) => m.id === teamParam) ?? memberships[0];
   const latestRegistration = player.registrations[0];
   const [record, nextMatch] = selected ? await Promise.all([teamRecord(selected.teamId), nextMatchFor(selected.teamId, selected.team.seasonId)]) : [null, null];
-  const myAnswer = selected && nextMatch ? await myAvailability(selected.id, nextMatch.id) : null;
+  const [myAnswer, captainRequestPending] = await Promise.all([
+    selected && nextMatch ? myAvailability(selected.id, nextMatch.id) : null,
+    selected ? prisma.captainRequest.count({ where: { playerId: player.id, teamId: selected.teamId, status: "PENDING" } }) : 0,
+  ]);
 
   return (
     <>
@@ -237,10 +240,11 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
               </div>
             ) : null}
             <AccessPanel
+              teamId={selected.teamId}
               teamName={selected.team.name}
               isCaptain={selected.isCaptain}
               captainNames={selected.team.roster.map((r) => `${r.player.firstName} ${r.player.lastName}`)}
-              requestPending={selected.captainRequest && !selected.isCaptain}
+              requestPending={captainRequestPending > 0 && !selected.isCaptain}
             />
             {selected.isCaptain ? (
               <ButtonLink href={`/captain/${selected.teamId}`} block>
@@ -269,7 +273,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
               </div>
               <VsRow home={nextMatch.homeTeam} away={nextMatch.awayTeam} onDark />
               <MatchMeta onDark date={nextMatch.date} time={nextMatch.time} field={nextMatch.field} />
-              <AvailabilityButtons initial={myAnswer} />
+              <AvailabilityButtons teamId={selected.teamId} matchId={nextMatch.id} initial={myAnswer} />
               <ButtonLink href={`/matches/${nextMatch.gameNumber}/print`} size="sm" className="!bg-white !text-[#0F3D2E]">
                 <Icon name="print" className="size-4" />
                 Print game roster

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/card";
 import { Screen } from "@/components/shell/layout";
-import { FORMATIONS } from "@/lib/league-data";
+import { FORMATIONS } from "@/lib/formations";
 import { nextMatchSquad, opponentOf, teamAccess } from "@/lib/queries/captain";
 import { LineupClient } from "./lineup-client";
 
@@ -39,6 +39,9 @@ export default async function CaptainLineupPage({ params }: { params: Promise<{ 
 
   return (
     <LineupClient
+      teamId={team.id}
+      matchDbId={m.id}
+      finalized={matchRoster.status === "FINALIZED"}
       matchId={m.gameNumber}
       opponent={opponentOf(m, team.id).name}
       pool={squad}

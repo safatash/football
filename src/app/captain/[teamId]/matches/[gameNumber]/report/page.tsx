@@ -41,6 +41,8 @@ export default async function CaptainMatchReportPage({ params }: { params: Promi
 
   return (
     <ReportClient
+      teamId={team.id}
+      matchDbId={m.id}
       matchId={m.gameNumber}
       meta={`${fmtShort(m.scheduledAt)}${m.field ? ` · ${m.field}` : ""}`}
       home={m.homeTeam}

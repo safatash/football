@@ -22,9 +22,9 @@ export default async function CaptainTeamPage({ params }: { params: Promise<{ te
             {season.length} players · {seasonLabel}
           </div>
         </div>
-        <TeamUpdateButton label="Update" size="sm" info={teamUpdateInfo(team.id, match, squad)} disabled={!canEdit} />
+        <TeamUpdateButton label="Update" size="sm" teamId={team.id} info={teamUpdateInfo(team.id, match, squad)} disabled={!canEdit} />
       </div>
-      <TeamRosterClient roster={season} gameNumber={match?.gameNumber ?? null} canEdit={canEdit} />
+      <TeamRosterClient teamId={team.id} roster={season} gameNumber={match?.gameNumber ?? null} canEdit={canEdit} />
     </Screen>
   );
 }

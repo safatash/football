@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, Notice } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { Dialog, Toast, useToast } from "@/components/ui/controls";
 import { Field, TextArea } from "@/components/ui/field";
 import { Crest, Jersey } from "@/components/league";
 import { ActionBar, Screen } from "@/components/shell/layout";
+import { saveMatchReport } from "@/lib/actions/captain";
 import { firstLast, jerseyLabel } from "../../../roster-helpers";
 
 type Stat = { g: number; a: number };
@@ -24,6 +26,8 @@ type Side = { id: string; name: string; color?: string | null; shortName?: strin
 type ReportPlayer = { id: string; jersey: number | null; name: string };
 
 export function ReportClient({
+  teamId,
+  matchDbId,
   matchId,
   meta,
   home,
@@ -37,6 +41,8 @@ export function ReportClient({
   backHref,
   canEdit,
 }: {
+  teamId: string;
+  matchDbId: string;
   matchId: number;
   meta: string;
   home: Side;
@@ -60,7 +66,32 @@ export function ReportClient({
   const [confirming, setConfirming] = useState(false);
   const [submitted, setSubmitted] = useState(initiallySubmitted);
   const [toast, showToast] = useToast();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const lock = submitted || !canEdit;
+
+  const persist = (submit: boolean) =>
+    startTransition(async () => {
+      const res = await saveMatchReport({
+        teamId,
+        matchId: matchDbId,
+        homeScore: score.home,
+        awayScore: score.away,
+        redCardNote: redNote,
+        stats: players.map((p) => ({ playerId: p.id, goals: stats[p.id]?.g ?? 0, assists: stats[p.id]?.a ?? 0, card: cards[p.id] ?? null })),
+        submit,
+      });
+      if (!res.ok) {
+        setConfirming(false);
+        return showToast(res.error);
+      }
+      if (submit) {
+        setSubmitted(true);
+        setConfirming(false);
+      }
+      showToast(res.message);
+      router.refresh();
+    });
 
   const ours = ourSide === "home" ? home : away;
   const ourScore = score[ourSide];
@@ -91,10 +122,10 @@ export function ReportClient({
     </ButtonLink>
   ) : (
     <>
-      <Button variant="ghost" onClick={() => showToast("Report draft saved")}>
-        Save draft
+      <Button variant="ghost" disabled={pending} onClick={() => persist(false)}>
+        {pending ? "Saving…" : "Save draft"}
       </Button>
-      <Button className="grow" onClick={submit}>
+      <Button className="grow" disabled={pending} onClick={submit}>
         Submit final
       </Button>
     </>
@@ -232,13 +263,7 @@ export function ReportClient({
             <Button variant="ghost" onClick={() => setConfirming(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={() => {
-                setSubmitted(true);
-                setConfirming(false);
-                showToast("Match report submitted");
-              }}
-            >
+            <Button disabled={pending} onClick={() => persist(true)}>
               Submit
             </Button>
           </>

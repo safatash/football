@@ -183,7 +183,7 @@ export default async function CaptainOverviewPage({ params }: { params: Promise<
       </Card>
 
       <div className="lg:col-start-2">
-        <TeamUpdateButton block info={teamUpdateInfo(team.id, m, squad)} disabled={!canEdit} />
+        <TeamUpdateButton block teamId={team.id} info={teamUpdateInfo(team.id, m, squad)} disabled={!canEdit} />
       </div>
     </Screen>
   );
