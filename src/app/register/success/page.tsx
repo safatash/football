@@ -1,60 +1,149 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import type { Metadata } from "next";
+import Stripe from "stripe";
+import { PaymentBadge, RegistrationBadge } from "@/components/ui/badge";
+import { ButtonLink } from "@/components/ui/button";
+import { Card, Notice } from "@/components/ui/card";
+import { Icon } from "@/components/ui/icon";
+import { Logo } from "@/components/league";
+import { AppBar, Screen } from "@/components/shell/layout";
+import prisma from "@/lib/prisma";
 
-export default async function RegistrationSuccessPage() {
-  const session = await getServerSession(authOptions)
+export const metadata: Metadata = { title: "Registration received" };
+
+type Info = {
+  firstName?: string;
+  email?: string;
+  paid: boolean;
+  submittedAt?: Date;
+  preferredTeam?: string;
+  captainRequest: boolean;
+};
+
+async function loadInfo(sessionId?: string, registrationId?: string): Promise<Info> {
+  const fallback: Info = { paid: true, captainRequest: false };
+  try {
+    let regId = registrationId;
+    let stripePaid = false;
+    if (sessionId && process.env.STRIPE_SECRET_KEY) {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2025-02-24.acacia" });
+      const s = await stripe.checkout.sessions.retrieve(sessionId);
+      regId = s.metadata?.registrationId ?? s.client_reference_id ?? undefined;
+      stripePaid = s.payment_status === "paid";
+    }
+    if (!regId) return fallback;
+    const reg = await prisma.registration.findUnique({
+      where: { id: regId },
+      include: { player: { include: { user: { select: { email: true } } } } },
+    });
+    if (!reg) return fallback;
+    let teams: string[] = [];
+    try {
+      teams = JSON.parse(reg.selectedTeams) as string[];
+    } catch {
+      teams = [];
+    }
+    return {
+      firstName: reg.player.firstName,
+      email: reg.player.user.email,
+      paid: stripePaid || reg.paymentStatus === "PAID",
+      submittedAt: reg.submittedAt,
+      preferredTeam: teams[0],
+      captainRequest: Boolean(reg.captainRequests),
+    };
+  } catch (error) {
+    console.error("Could not load registration for success page:", error);
+    return fallback;
+  }
+}
+
+export default async function RegistrationSuccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ session_id?: string; registration?: string }>;
+}) {
+  const { session_id, registration } = await searchParams;
+  const info = await loadInfo(session_id, registration);
+
+  const submitted = info.submittedAt
+    ? info.submittedAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })
+    : "Just now";
+
+  const timeline: [string, string, "done" | "cur" | "next"][] = [
+    ["Submitted", submitted, "done"],
+    ["League office review", "Usually 2–3 days", "cur"],
+    [info.preferredTeam ? `Added to ${info.preferredTeam}` : "Placed on a team", "After approval", "next"],
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+    <>
+      <AppBar>
+        <Logo />
+      </AppBar>
+      <Screen>
+        <div className="flex flex-col items-start gap-4 pt-2.5">
+          <span className="grid size-16 place-items-center rounded-full bg-lime text-lime-ink">
+            <Icon name="check" className="size-[34px] stroke-[3]" />
+          </span>
+          <h1 className="text-[40px]">You’re in the queue{info.firstName ? `, ${info.firstName}` : ""}.</h1>
+          <p className="text-muted">
+            Your Spring 2026 registration is {info.paid ? "paid and " : ""}waiting for the league office.{" "}
+            {info.email ? (
+              <>
+                We’ll email <b className="text-fg">{info.email}</b> when it’s approved.
+              </>
+            ) : (
+              "We’ll email you when it’s approved."
+            )}
+          </p>
         </div>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
-          Registration Complete!
-        </h1>
-        
-        <p className="text-gray-600 mb-6">
-          Thank you for registering with NVASA. Your payment has been processed successfully.
-        </p>
+        <Card className="flex flex-col gap-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <b>Registration</b>
+            <RegistrationBadge status="Pending Review" />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <b>Payment</b>
+            <PaymentBadge status={info.paid ? "PAID" : "PENDING"} />
+          </div>
+          <hr className="border-line" />
+          <ol className="flex flex-col gap-3.5" aria-label="What happens next">
+            {timeline.map(([title, sub, state]) => (
+              <li key={title} className="flex items-center gap-3" aria-current={state === "cur" ? "step" : undefined}>
+                <span
+                  className={`grid size-[22px] shrink-0 place-items-center rounded-full ${
+                    state === "done"
+                      ? "bg-ok text-white"
+                      : state === "cur"
+                        ? "bg-warn-bg text-warn shadow-[inset_0_0_0_2px_var(--warn)]"
+                        : "bg-surface-2 text-faint"
+                  }`}
+                >
+                  {state === "done" ? <Icon name="check" className="size-[13px] stroke-[3]" /> : null}
+                </span>
+                <div className="flex-1">
+                  <b className="text-[13.5px]">{title}</b>
+                  <div className="text-xs text-muted">{sub}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {info.captainRequest ? (
+            <Notice tone="warn" icon="star">
+              Your captain request is included in the review.
+            </Notice>
+          ) : null}
+        </Card>
 
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 text-left">
-          <h3 className="font-semibold text-blue-900 mb-2">What's Next?</h3>
-          <ul className="text-sm text-blue-800 space-y-2">
-            <li>• Your registration is pending admin approval</li>
-            <li>• You'll receive an email confirmation shortly</li>
-            <li>• Once approved, you'll be assigned to a team</li>
-            <li>• Check your portal for updates</li>
-          </ul>
+        <div className="flex flex-col gap-2.5 lg:flex-row lg:justify-end">
+          <ButtonLink href="/portal" variant="primary" block className="lg:w-auto">
+            Go to my portal
+          </ButtonLink>
+          <ButtonLink href="/" variant="ghost" block className="lg:w-auto">
+            Back to NVASA home
+          </ButtonLink>
         </div>
-
-        <div className="space-y-3">
-          {session ? (
-            <Link href="/portal">
-              <Button className="w-full">
-                Go to My Portal
-              </Button>
-            </Link>
-          ) : (
-            <Link href="/login">
-              <Button className="w-full">
-                Login to Your Account
-              </Button>
-            </Link>
-          )}
-          
-          <Link href="/">
-            <Button variant="outline" className="w-full">
-              Back to Home
-            </Button>
-          </Link>
-        </div>
-      </div>
-    </div>
-  )
+      </Screen>
+    </>
+  );
 }

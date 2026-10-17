@@ -1,322 +1,332 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
-import { redirect } from "next/navigation"
-import prisma from "@/lib/prisma"
-import { PrototypeShell, SectionCard, StatCard, StatusBadge } from "@/components/prototype-shell"
-import { Button } from "@/components/ui/button"
+import { Badge, GamePassStatusBadge, PaymentBadge, RegistrationBadge, RoleTag } from "@/components/ui/badge";
+import { ButtonLink } from "@/components/ui/button";
+import { Card, EmptyState, HeroCard, Notice } from "@/components/ui/card";
+import { Segmented } from "@/components/ui/controls";
+import { Icon } from "@/components/ui/icon";
+import { Crest, MatchMeta, VsRow } from "@/components/league";
+import { AppBar, Screen } from "@/components/shell/layout";
+import prisma from "@/lib/prisma";
+import { requireUser } from "@/lib/session";
+import { AccessPanel } from "./access-panel";
+import { fmtDay, fmtTime, money, relativeDay } from "./format";
+import { AvailabilityButtons } from "./portal-client";
 
-export default async function PlayerDashboardPage() {
-  // Get the current session
-  const session = await getServerSession(authOptions)
-  
-  if (!session?.user?.playerId) {
-    redirect("/login")
-  }
+export const metadata = { title: "Dashboard" };
 
-  // Fetch the player with all their data
-  const player = await prisma.player.findUnique({
-    where: { id: session.user.playerId },
-    include: {
-      user: true,
-      teamMemberships: {
-        where: { leftAt: null }, // Only active memberships
-        include: {
-          team: {
-            include: {
-              division: true,
-              season: true,
-            }
-          }
-        },
-        orderBy: { joinedAt: 'asc' }
-      },
-      registrations: {
-        orderBy: { submittedAt: 'desc' },
-        take: 1,
-        include: {
-          season: true
-        }
-      },
-      gamePasses: {
-        include: {
-          match: {
-            include: {
-              homeTeam: true,
-              awayTeam: true,
-            }
-          }
-        },
-        orderBy: { createdAt: 'desc' }
-      }
+const REG_TYPE: Record<string, string> = {
+  NEW_PLAYER: "New player",
+  RETURNING_PLAYER: "Returning player",
+  ADDITIONAL_TEAM: "Additional team",
+};
+
+const span = "lg:[column-span:all]";
+
+async function teamRecord(teamId: string) {
+  try {
+    const [played, players] = await Promise.all([
+      prisma.match.findMany({
+        where: { status: "COMPLETED", homeScore: { not: null }, awayScore: { not: null }, OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }] },
+        select: { homeTeamId: true, homeScore: true, awayScore: true },
+      }),
+      prisma.teamRoster.count({ where: { teamId, leftAt: null, membershipType: "SEASONAL" } }),
+    ]);
+    let w = 0,
+      d = 0,
+      l = 0;
+    for (const m of played) {
+      const [us, them] = m.homeTeamId === teamId ? [m.homeScore!, m.awayScore!] : [m.awayScore!, m.homeScore!];
+      if (us > them) w++;
+      else if (us === them) d++;
+      else l++;
     }
-  })
+    return { w, d, l, points: w * 3 + d, players };
+  } catch {
+    return null;
+  }
+}
+
+async function nextMatchFor(teamId: string) {
+  try {
+    return await prisma.match.findFirst({
+      where: { OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }], scheduledAt: { gte: new Date() }, status: "SCHEDULED" },
+      include: { homeTeam: true, awayTeam: true },
+      orderBy: { scheduledAt: "asc" },
+    });
+  } catch {
+    return null;
+  }
+}
+
+export default async function PlayerDashboardPage({ searchParams }: { searchParams: Promise<{ team?: string; denied?: string }> }) {
+  const { team: teamParam, denied } = await searchParams;
+  const session = await requireUser("/portal");
+  const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" });
+
+  const player = session.user.playerId
+    ? await prisma.player.findUnique({
+        where: { id: session.user.playerId },
+        include: {
+          user: true,
+          teamMemberships: {
+            where: { leftAt: null }, // Only active memberships
+            include: {
+              team: {
+                include: {
+                  division: true,
+                  season: true,
+                  roster: { where: { isCaptain: true, leftAt: null }, include: { player: { select: { firstName: true, lastName: true } } } },
+                },
+              },
+            },
+            orderBy: { joinedAt: "asc" },
+          },
+          registrations: {
+            orderBy: { submittedAt: "desc" },
+            take: 1,
+            include: { season: true },
+          },
+          gamePasses: {
+            include: { match: { include: { homeTeam: true, awayTeam: true } } },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      })
+    : null;
+
+  const firstName = player?.firstName ?? session.user.name?.split(" ")[0] ?? "there";
+  const initials = player ? `${player.firstName[0] ?? ""}${player.lastName[0] ?? ""}` : (session.user.name ?? "P").slice(0, 1);
+
+  const header = (
+    <AppBar dark width="wide">
+      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-lime text-sm font-bold text-lime-ink">{initials.toUpperCase()}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs opacity-80">{today}</div>
+        <div className="truncate font-display text-[22px] font-extrabold">Hi, {firstName}</div>
+      </div>
+    </AppBar>
+  );
+
+  const deniedNotice =
+    denied === "admin" ? (
+      <Notice tone="warn" icon="lock" className={span}>
+        That area is for the league office.
+      </Notice>
+    ) : null;
 
   if (!player) {
-    redirect("/login")
+    return (
+      <>
+        {header}
+        <Screen width="wide">
+          {deniedNotice}
+          <EmptyState
+            icon="user"
+            title="No player profile yet"
+            action={
+              <ButtonLink href="/register/new" variant="accent">
+                Register for the season
+              </ButtonLink>
+            }
+          >
+            Register for a season to create your player profile and join a team.
+          </EmptyState>
+        </Screen>
+      </>
+    );
   }
 
-  // Get the next upcoming match for the player's primary team
-  const nextMatch = player.teamMemberships[0] ? await prisma.match.findFirst({
-    where: {
-      OR: [
-        { homeTeamId: player.teamMemberships[0].teamId },
-        { awayTeamId: player.teamMemberships[0].teamId }
-      ],
-      scheduledAt: { gte: new Date() },
-      status: 'SCHEDULED'
-    },
-    include: {
-      homeTeam: true,
-      awayTeam: true
-    },
-    orderBy: { scheduledAt: 'asc' }
-  }) : null
-
-  const latestRegistration = player.registrations[0]
-  const primaryMembership = player.teamMemberships[0]
-  const activeGamePasses = player.gamePasses.filter(pass => pass.status === 'ACTIVE')
-  const expiredGamePasses = player.gamePasses.filter(pass => pass.status === 'EXPIRED')
-
-  // Format date helper
-  const formatMatchDate = (date: Date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'short',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    }).format(new Date(date))
-  }
+  const memberships = player.teamMemberships.filter((m) => m.membershipType !== "GAME_PASS");
+  const selected = memberships.find((m) => m.id === teamParam) ?? memberships[0];
+  const latestRegistration = player.registrations[0];
+  const [record, nextMatch] = selected ? await Promise.all([teamRecord(selected.teamId), nextMatchFor(selected.teamId)]) : [null, null];
 
   return (
-    <PrototypeShell
-      role="player"
-      title="Player dashboard"
-      subtitle={`Welcome back, ${player.firstName}!`}
-    >
-      <div className="grid gap-4 md:grid-cols-3">
-        <StatCard 
-          label="Current registration" 
-          value={latestRegistration?.status || "None"} 
-          note={latestRegistration?.season.name || ""} 
-        />
-        <StatCard 
-          label="Next match" 
-          value={nextMatch ? formatMatchDate(nextMatch.scheduledAt) : "None scheduled"} 
-          note={nextMatch?.field || ""} 
-        />
-        <StatCard 
-          label="Current team" 
-          value={primaryMembership?.team.name || "No team"} 
-          note={primaryMembership?.team.division.name || ""} 
-        />
-      </div>
+    <>
+      {header}
+      <Screen width="wide" className="lg:block lg:columns-2 lg:gap-6 lg:[&>*]:mb-5 [&>*]:break-inside-avoid">
+        {deniedNotice}
 
-      {latestRegistration && (
-        <div className="mt-6 grid gap-6 xl:grid-cols-2">
-          <SectionCard title="Registration status">
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{latestRegistration.season.name}</p>
-                  <p className="text-sm text-slate-500">
-                    Type: {latestRegistration.registrationType.replace('_', ' ')}
-                  </p>
-                </div>
-                <StatusBadge label={latestRegistration.status} />
+        {latestRegistration ? (
+          <Card className={`flex flex-wrap items-center gap-3 !px-3.5 !py-3 ${span}`}>
+            <Icon name="clip" className="text-ok" />
+            <div className="min-w-[160px] flex-1">
+              <b className="text-sm">{latestRegistration.season.name} registration</b>
+              <div className="text-xs text-muted">
+                {REG_TYPE[latestRegistration.registrationType] ?? "Season"} · {money(latestRegistration.totalAmount)}
               </div>
             </div>
-          </SectionCard>
+            <div className="flex flex-wrap gap-1.5">
+              <RegistrationBadge status={latestRegistration.status} />
+              <PaymentBadge status={latestRegistration.paymentStatus} />
+            </div>
+          </Card>
+        ) : (
+          <div className={span}>
+            <EmptyState
+              icon="clip"
+              title="You’re not registered for this season"
+              action={
+                <ButtonLink href="/register/new" variant="accent" size="sm">
+                  Register now
+                </ButtonLink>
+              }
+            >
+              Register to get placed on a team.
+            </EmptyState>
+          </div>
+        )}
 
-          {nextMatch && (
-            <SectionCard title="Upcoming match">
-              <div className="space-y-2 text-sm">
-                <p className="font-medium">
-                  {nextMatch.homeTeam.name} vs {nextMatch.awayTeam.name}
-                </p>
-                <p className="text-slate-500">{formatMatchDate(nextMatch.scheduledAt)}</p>
-                <p className="text-slate-500">{nextMatch.field || 'Field TBD'}</p>
-              </div>
-            </SectionCard>
-          )}
+        <div className={`flex flex-col gap-2.5 ${span}`}>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-2xl">My teams</h2>
+            <span className="text-sm text-muted">{memberships.length} this season</span>
+          </div>
+          {memberships.length > 1 ? (
+            <Segmented
+              label="Switch team"
+              active={selected?.id ?? ""}
+              items={memberships.map((m) => ({
+                key: m.id,
+                href: `/portal?team=${m.id}`,
+                label: (
+                  <>
+                    {m.team.name} <span className="text-xs opacity-70">· {m.isCaptain ? "Captain" : "Player"}</span>
+                  </>
+                ),
+              }))}
+            />
+          ) : null}
         </div>
-      )}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <SectionCard title="My teams">
-          {player.teamMemberships.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 p-4 text-slate-600">
-              No team memberships yet. Complete your registration to join a team.
+        {selected ? (
+          <Card className="flex flex-col gap-3.5">
+            <div className="flex items-center gap-3">
+              <Crest name={selected.team.name} size="lg" />
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[22px]">{selected.team.name}</h3>
+                <div className="text-sm text-muted">
+                  {selected.team.division.name} · {selected.team.season.name}
+                </div>
+              </div>
+              <RoleTag role={selected.isCaptain ? "Captain" : "Player"} />
             </div>
-          ) : (
-            <div className="space-y-4 text-sm">
-              <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-4">
-                {player.teamMemberships.map((membership, index) => (
-                  <div
-                    key={membership.id}
-                    className={`rounded-t-2xl border px-4 py-2 text-sm font-medium ${
-                      index === 0
-                        ? "border-slate-300 bg-white text-slate-900"
-                        : "border-slate-200 bg-slate-50 text-slate-600"
-                    }`}
-                  >
-                    {membership.team.name}
+            <div className="flex flex-wrap gap-1.5">
+              <Badge tone="info" dot={false}>
+                {selected.id === memberships[0].id ? "Primary team" : "Additional team"}
+              </Badge>
+              <Badge dot={false}>Season roster</Badge>
+              {player.position ? <Badge dot={false}>{player.position}</Badge> : null}
+            </div>
+            {record ? (
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["Record", `${record.w}-${record.d}-${record.l}`],
+                  ["Points", record.points],
+                  ["Players", record.players],
+                ].map(([k, v]) => (
+                  <div key={k} className="rounded-[var(--radius-field)] bg-surface-2 p-2.5">
+                    <div className="text-xs text-muted">{k}</div>
+                    <b className="font-display text-[22px] font-extrabold">{v}</b>
                   </div>
                 ))}
               </div>
+            ) : null}
+            <AccessPanel
+              teamName={selected.team.name}
+              isCaptain={selected.isCaptain}
+              captainNames={selected.team.roster.map((r) => `${r.player.firstName} ${r.player.lastName}`)}
+              requestPending={selected.captainRequest && !selected.isCaptain}
+            />
+            {selected.isCaptain ? (
+              <ButtonLink href="/captain" block>
+                Open captain tools
+                <Icon name="right" className="size-4" />
+              </ButtonLink>
+            ) : (
+              <ButtonLink href={`/portal/team?team=${selected.id}`} variant="ghost" block>
+                View team
+                <Icon name="right" className="size-4" />
+              </ButtonLink>
+            )}
+          </Card>
+        ) : (
+          <EmptyState icon="users" title="You’re not on a team yet">
+            Once the league office places you on a team, it shows up here.
+          </EmptyState>
+        )}
 
-              {primaryMembership && (
-                <div className="rounded-2xl border border-slate-200 p-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-lg font-semibold">{primaryMembership.team.name}</p>
-                      <p className="text-slate-500">Primary team account view</p>
+        {selected ? (
+          nextMatch ? (
+            <HeroCard className="flex flex-col gap-3.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="eyebrow text-white/75">Next match</span>
+                <Badge tone="warn">{relativeDay(nextMatch.scheduledAt)}</Badge>
+              </div>
+              <VsRow home={{ name: nextMatch.homeTeam.name }} away={{ name: nextMatch.awayTeam.name }} onDark />
+              <MatchMeta
+                onDark
+                date={fmtDay(nextMatch.scheduledAt)}
+                time={fmtTime(nextMatch.startTime ?? nextMatch.scheduledAt)}
+                field={[nextMatch.location, nextMatch.field].filter(Boolean).join(" ") || null}
+              />
+              <AvailabilityButtons />
+              <ButtonLink href={`/matches/${nextMatch.id}/print`} size="sm" className="!bg-white !text-[#0F3D2E]">
+                <Icon name="print" className="size-4" />
+                Print game roster
+              </ButtonLink>
+            </HeroCard>
+          ) : (
+            <EmptyState icon="cal" title="No upcoming matches">
+              The next {selected.team.name} match shows up here once the schedule is posted.
+            </EmptyState>
+          )
+        ) : null}
+
+        <section className="flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-2xl">Game passes</h2>
+            <ButtonLink href="/register/game-pass" variant="link" size="sm">
+              Buy a pass
+            </ButtonLink>
+          </div>
+          {player.gamePasses.length ? (
+            <div className="overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface">
+              {player.gamePasses.map((gp) => {
+                const active = gp.status === "ACTIVE";
+                return (
+                  <div
+                    key={gp.id}
+                    className={`flex min-h-[60px] items-center gap-3 border-b border-line px-3.5 py-2.5 last:border-b-0 ${
+                      active ? "bg-[linear-gradient(90deg,var(--pass-bg),transparent_70%)] shadow-[inset_3px_0_0_var(--pass)]" : "opacity-65"
+                    }`}
+                  >
+                    <span
+                      className={`grid h-9 w-[46px] shrink-0 place-items-center rounded-[9px] border-[1.5px] font-display text-sm font-extrabold ${
+                        active ? "border-dashed border-pass text-pass" : "border-line bg-surface-2"
+                      }`}
+                    >
+                      <Icon name="ticket" className="size-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <b className="block text-sm">
+                        {gp.match.homeTeam.name} vs {gp.match.awayTeam.name}
+                      </b>
+                      <span className="text-xs text-muted">
+                        {fmtDay(gp.match.scheduledAt)} · {fmtTime(gp.match.startTime ?? gp.match.scheduledAt)}
+                        {gp.match.field ? ` · ${gp.match.field}` : ""}
+                      </span>
                     </div>
-                    <StatusBadge label={primaryMembership.membershipType} />
+                    <GamePassStatusBadge status={gp.status} />
                   </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-slate-500">Division</p>
-                      <p className="mt-2 font-medium">{primaryMembership.team.division.name}</p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-slate-500">Access level</p>
-                      <p className="mt-2 font-medium">
-                        {primaryMembership.isCaptain ? 'Captain' : 'Player'}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-slate-500">Season</p>
-                      <p className="mt-2 font-medium">{primaryMembership.team.season.name}</p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-slate-500">Membership type</p>
-                      <p className="mt-2 font-medium">{primaryMembership.membershipType}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
-                    <p className="font-medium">Team Status</p>
-                    <p className="mt-2">
-                      Joined: {new Date(primaryMembership.joinedAt).toLocaleDateString()}
-                      {primaryMembership.captainRequest && !primaryMembership.isCaptain && 
-                        " • Captain request pending"}
-                    </p>
-                  </div>
-
-                  {player.teamMemberships.length > 1 && (
-                    <div className="mt-4 space-y-3">
-                      <p className="font-medium text-slate-900">Additional team views</p>
-                      {player.teamMemberships.slice(1).map((membership) => (
-                        <div key={membership.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-slate-700">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="font-medium">{membership.team.name}</p>
-                              <p className="mt-1">
-                                {membership.team.division.name} · {membership.team.season.name}
-                              </p>
-                            </div>
-                            <StatusBadge label={membership.isCaptain ? 'Captain' : 'Player'} />
-                          </div>
-                          <p className="mt-3">
-                            {membership.membershipType} membership
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                );
+              })}
             </div>
+          ) : (
+            <p className="rounded-[var(--radius-card)] border border-dashed border-line-strong px-4 py-5 text-center text-sm text-muted">No game passes yet.</p>
           )}
-        </SectionCard>
-
-        <div className="space-y-6">
-          <SectionCard title="Player permissions">
-            <div className="space-y-4 text-sm">
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-slate-700">
-                <p className="font-medium">Allowed</p>
-                <ul className="mt-2 space-y-2">
-                  <li>Print the current game roster</li>
-                  <li>View personal registration and account details</li>
-                  <li>See active or expired game-pass status</li>
-                </ul>
-              </div>
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-slate-700">
-                <p className="font-medium">Not allowed</p>
-                <ul className="mt-2 space-y-2">
-                  <li>Manage team roster membership</li>
-                  <li>Edit lineup roles</li>
-                  <li>Use captain-only team management tools</li>
-                </ul>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Game roster access">
-            <div className="space-y-3 text-sm">
-              <p className="text-slate-600">
-                Logged-in players can print the game roster, but they should not be able to manage the team.
-              </p>
-              <Button className="w-full">Print game roster</Button>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-600">
-                <p className="font-medium text-slate-900">Player print flow</p>
-                <ol className="mt-2 list-decimal space-y-1 pl-5">
-                  <li>Open the upcoming match roster</li>
-                  <li>Review active team and game-pass eligibility</li>
-                  <li>Print a read-only game roster copy</li>
-                </ol>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-600">
-                Team management stays in the captain experience only.
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Game pass status">
-            <div className="space-y-4 text-sm">
-              {activeGamePasses.length > 0 ? (
-                activeGamePasses.map(gamePass => (
-                  <div key={gamePass.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-slate-700">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-medium">Active game pass</p>
-                        <p className="mt-1">
-                          {gamePass.match.homeTeam.name} vs {gamePass.match.awayTeam.name}
-                        </p>
-                      </div>
-                      <StatusBadge label="ACTIVE" />
-                    </div>
-                    <p className="mt-3 text-sm">
-                      Valid until: {new Date(gamePass.validUntil).toLocaleDateString()}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-slate-200 p-4 text-slate-600">
-                  No active game-pass access right now.
-                </div>
-              )}
-
-              {expiredGamePasses.length > 0 && (
-                <div className="rounded-2xl border border-slate-200 p-4 text-slate-600">
-                  <p className="font-medium text-slate-900">Expired game passes</p>
-                  <ul className="mt-3 space-y-2">
-                    {expiredGamePasses.map((pass) => (
-                      <li key={pass.id} className="flex items-center justify-between gap-3">
-                        <span>
-                          {pass.match.homeTeam.name} vs {pass.match.awayTeam.name}
-                        </span>
-                        <StatusBadge label="EXPIRED" />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </SectionCard>
-        </div>
-      </div>
-    </PrototypeShell>
-  )
+          <p className="text-xs text-muted">A pass covers one match. Expired passes stay in your history but not on any roster.</p>
+        </section>
+      </Screen>
+    </>
+  );
 }

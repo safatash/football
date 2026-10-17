@@ -187,6 +187,118 @@ async function main() {
   })
   console.log(`✅ Created admin user: ${adminUser.email} (password: Admin123!)`)
 
+
+  // ------------------------------------------------------------------
+  // NVASA Spring 2026 league data (divisions, teams, matches) and a demo player
+  // ------------------------------------------------------------------
+  const nvasaDivisions = [
+    { code: 'wp', name: 'Women Premier', fee: 95, order: 10 },
+    { code: 'md1', name: 'Men D1', fee: 105, order: 11 },
+    { code: 'd3', name: 'D3 Coed', fee: 55, order: 12 },
+    { code: 'mc', name: 'Masters Coed', fee: 45, order: 13 },
+    { code: 'cc', name: 'Combination Coed', fee: 60, order: 14 },
+  ]
+  const divIds: Record<string, string> = {}
+  for (const d of nvasaDivisions) {
+    const row = await prisma.division.upsert({
+      where: { seasonId_name: { seasonId: currentSeason.id, name: d.name } },
+      update: { registrationFee: d.fee },
+      create: { seasonId: currentSeason.id, name: d.name, registrationFee: d.fee, displayOrder: d.order },
+    })
+    divIds[d.code] = row.id
+  }
+
+  const nvasaTeams: [string, string, string][] = [
+    ['ffx', 'Fairfax United', 'wp'], ['alx', 'Alexandria FC', 'wp'], ['pot', 'Potomac Valkyries', 'wp'], ['brk', 'Burke Athletic', 'wp'],
+    ['nvs', 'Nova Strikers', 'md1'], ['arl', 'Arlington SC', 'md1'], ['rst', 'Reston Rovers', 'md1'], ['spr', 'Springfield Athletic', 'md1'],
+    ['bld', 'Bloodline', 'd3'], ['hrn', 'Herndon Hustle', 'd3'], ['vie', 'Vienna Athletic', 'cc'], ['shi', 'Shirlington Social', 'cc'],
+    ['mvm', 'Mount Vernon Masters', 'mc'],
+  ]
+  const teamIds: Record<string, string> = {}
+  for (const [code, name, div] of nvasaTeams) {
+    const row = await prisma.team.upsert({
+      where: { seasonId_divisionId_name: { seasonId: currentSeason.id, divisionId: divIds[div], name } },
+      update: {},
+      create: { seasonId: currentSeason.id, divisionId: divIds[div], name, maxPlayers: 22 },
+    })
+    teamIds[code] = row.id
+  }
+  console.log(`✅ NVASA divisions (${nvasaDivisions.length}) and teams (${nvasaTeams.length})`)
+
+  // Matches (no game-number column yet; the field name carries the venue)
+  const nvasaMatches: { home: string; away: string; at: string; field: string; div: string; score?: [number, number] }[] = [
+    { home: 'ffx', away: 'alx', at: '2026-05-17T13:00:00Z', field: 'Wakefield Park 3', div: 'wp' },
+    { home: 'vie', away: 'shi', at: '2026-05-17T17:00:00Z', field: 'Lee District 4', div: 'cc' },
+    { home: 'bld', away: 'hrn', at: '2026-05-17T19:00:00Z', field: 'Wakefield Park 3', div: 'd3' },
+    { home: 'ffx', away: 'pot', at: '2026-05-24T13:00:00Z', field: 'Lee District 2', div: 'wp' },
+    { home: 'nvs', away: 'arl', at: '2026-05-10T15:00:00Z', field: 'Mason District 1', div: 'md1', score: [3, 1] },
+    { home: 'brk', away: 'ffx', at: '2026-05-10T13:00:00Z', field: 'Burke Lake 1', div: 'wp', score: [0, 2] },
+  ]
+  const matchIds: string[] = []
+  for (const m of nvasaMatches) {
+    const existing = await prisma.match.findFirst({ where: { homeTeamId: teamIds[m.home], awayTeamId: teamIds[m.away], scheduledAt: new Date(m.at) } })
+    const row =
+      existing ??
+      (await prisma.match.create({
+        data: {
+          seasonId: currentSeason.id,
+          divisionId: divIds[m.div],
+          homeTeamId: teamIds[m.home],
+          awayTeamId: teamIds[m.away],
+          scheduledAt: new Date(m.at),
+          field: m.field,
+          status: m.score ? 'COMPLETED' : 'SCHEDULED',
+          homeScore: m.score?.[0],
+          awayScore: m.score?.[1],
+        },
+      }))
+    matchIds.push(row.id)
+  }
+  console.log(`✅ NVASA matches (${nvasaMatches.length})`)
+
+  // Demo player: Maya Johnson — captain of Fairfax United, player on Bloodline,
+  // one active and one expired game pass.
+  const mayaPassword = await hashPassword('MayaJohnson26')
+  const maya = await prisma.user.upsert({
+    where: { email: 'maya.johnson@example.com' },
+    update: {},
+    create: {
+      email: 'maya.johnson@example.com',
+      password: mayaPassword,
+      player: {
+        create: {
+          firstName: 'Maya', lastName: 'Johnson', gender: 'FEMALE', dob: new Date('1994-03-12'), phone: '(703) 555-0117',
+          address: '2810 Gallows Rd', city: 'Vienna', state: 'VA', zip: '22180', fairfaxCounty: true,
+          position: 'FWD', tshirtSize: 'Adult M', finalApproval: 'APPROVED', status: 'ACTIVE', contactMe: true, tournaments: true,
+        },
+      },
+    },
+    include: { player: true },
+  })
+  const mayaPlayerId = maya.player!.id
+  const hasRoster = await prisma.teamRoster.count({ where: { playerId: mayaPlayerId } })
+  if (!hasRoster) {
+    await prisma.teamRoster.create({ data: { playerId: mayaPlayerId, teamId: teamIds.ffx, divisionId: divIds.wp, isCaptain: true, captainRequest: true } })
+    await prisma.teamRoster.create({ data: { playerId: mayaPlayerId, teamId: teamIds.bld, divisionId: divIds.d3 } })
+    await prisma.registration.create({
+      data: { playerId: mayaPlayerId, seasonId: currentSeason.id, registrationType: 'RETURNING_PLAYER', selectedTeams: JSON.stringify(['Fairfax United']), totalAmount: 95, status: 'APPROVED', paymentStatus: 'PAID', approvedAt: new Date('2026-03-02') },
+    })
+    // Game passes need a payment each
+    const passes: [number, 'ACTIVE' | 'EXPIRED', string, string][] = [
+      [1, 'ACTIVE', '2026-05-17T04:00:00Z', '2026-05-18T03:59:00Z'],
+      [4, 'EXPIRED', '2026-05-10T04:00:00Z', '2026-05-11T03:59:00Z'],
+    ]
+    for (const [idx, status, from, until] of passes) {
+      const payment = await prisma.payment.create({
+        data: { userId: mayaPlayerId, amount: 15, status: 'PAID', paymentType: 'GAME_PASS', relatedEntityType: 'game_pass', paidAt: new Date(from) },
+      })
+      await prisma.gamePass.create({
+        data: { playerId: mayaPlayerId, matchId: matchIds[idx], paymentId: payment.id, status, validFrom: new Date(from), validUntil: new Date(until) },
+      })
+    }
+  }
+  console.log('✅ Demo player: maya.johnson@example.com (password: MayaJohnson26)')
+
   console.log('✅ Database seeding completed!')
 }
 

@@ -21,12 +21,14 @@ export async function POST(req: NextRequest) {
         signature,
         process.env.STRIPE_WEBHOOK_SECRET
       )
-    } else {
-      // Local development - parse without verification
+    } else if (process.env.NODE_ENV !== 'production') {
+      // Local development only: accept unsigned events (e.g. `stripe trigger`) when no secret is set
       event = JSON.parse(body) as Stripe.Event
+    } else {
+      throw new Error('STRIPE_WEBHOOK_SECRET is not set')
     }
-  } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message)
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err instanceof Error ? err.message : err)
     return NextResponse.json(
       { error: 'Invalid signature' },
       { status: 400 }
@@ -47,30 +49,31 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      // Create payment record
-      await prisma.payment.create({
-        data: {
-          userId: userId,
-          stripePaymentIntentId: session.payment_intent as string,
-          stripeChargeId: session.id,
-          amount: (session.amount_total || 0) / 100, // Convert cents to dollars
-          currency: session.currency || 'usd',
-          status: 'PAID',
-          paymentType: 'REGISTRATION_FEE',
-          relatedEntityType: 'registration',
-          relatedEntityId: registrationId,
-          paidAt: new Date(),
-        }
-      })
-
-      // Update registration payment status
-      await prisma.registration.update({
-        where: { id: registrationId },
-        data: { 
-          paymentStatus: 'PAID',
-          paymentId: session.payment_intent as string,
-        }
-      })
+      // Stripe retries webhooks: skip if this checkout session was already recorded
+      const already = await prisma.payment.findUnique({ where: { stripeChargeId: session.id } })
+      if (!already) {
+        await prisma.$transaction(async (tx) => {
+          const payment = await tx.payment.create({
+            data: {
+              // Payment.userId references players.id in the schema
+              userId: playerId,
+              stripePaymentIntentId: (session.payment_intent as string | null) ?? null,
+              stripeChargeId: session.id,
+              amount: (session.amount_total || 0) / 100, // cents → dollars
+              currency: session.currency || 'usd',
+              status: 'PAID',
+              paymentType: 'REGISTRATION_FEE',
+              relatedEntityType: 'registration',
+              relatedEntityId: registrationId,
+              paidAt: new Date(),
+            },
+          })
+          await tx.registration.update({
+            where: { id: registrationId },
+            data: { paymentStatus: 'PAID', paymentId: payment.id },
+          })
+        })
+      }
 
       console.log('✅ Payment recorded for registration:', registrationId)
     } catch (error) {

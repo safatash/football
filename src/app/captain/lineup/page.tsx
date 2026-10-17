@@ -1,40 +1,22 @@
-import { PrototypeShell, SectionCard } from "@/components/prototype-shell";
-import { captainRoster } from "@/lib/mock-data";
+import { DEFAULT_LINEUP, DEFAULT_MATCH_SELECTION, FORMATIONS, match, matchPool, team } from "@/lib/league-data";
+import { LineupClient } from "./lineup-client";
+
+export const metadata = { title: "Lineup" };
+
+const MATCH_ID = 204;
 
 export default function CaptainLineupPage() {
-  const starters = captainRoster.filter((player) => player.status === "Starter");
-  const bench = captainRoster.filter((player) => player.status !== "Starter");
-
+  const m = match(MATCH_ID)!;
+  const opponent = team(m.home === "ffx" ? m.away : m.home).name;
   return (
-    <PrototypeShell
-      role="captain"
-      title="Lineup builder"
-      subtitle="Low-fi formation setup for validating the match-day workflow."
-    >
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <SectionCard title="Formation: 4-4-2">
-          <div className="grid gap-4 md:grid-cols-2">
-            {starters.map((player, index) => (
-              <div key={player.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Slot {index + 1}</p>
-                <p className="mt-2 font-medium">{player.name}</p>
-                <p className="text-sm text-slate-500">#{player.jersey}</p>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Bench and inactive">
-          <div className="space-y-3">
-            {bench.map((player) => (
-              <div key={player.id} className="rounded-2xl border border-slate-200 p-4 text-sm">
-                <p className="font-medium">{player.name}</p>
-                <p className="text-slate-500">#{player.jersey} · {player.status}</p>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      </div>
-    </PrototypeShell>
+    <LineupClient
+      matchId={m.id}
+      opponent={opponent}
+      pool={matchPool(m.id)}
+      selected={DEFAULT_MATCH_SELECTION}
+      formations={FORMATIONS}
+      initialFormation="4-4-2"
+      initialSlots={DEFAULT_LINEUP}
+    />
   );
 }

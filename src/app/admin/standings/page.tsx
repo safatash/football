@@ -1,55 +1,26 @@
-import Link from "next/link";
-import { PrototypeShell, SectionCard } from "@/components/prototype-shell";
-import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import { standings } from "@/lib/mock-data";
+import { PageHeading } from "@/components/league";
+import { Segmented } from "@/components/ui/controls";
+import { DIVISIONS, type DivisionId } from "@/lib/league-data";
+import { param, seasonFrom, withSeason, type SearchParams } from "../_components/season";
+import { StandingsTable } from "../_components/standings-table";
 
-export default function StandingsPage() {
+export const metadata = { title: "Standings" };
+
+export default async function StandingsPage({ searchParams }: { searchParams: SearchParams }) {
+  const sp = await searchParams;
+  const season = seasonFrom(sp);
+  const active = (DIVISIONS.find((d) => d.id === param(sp.division))?.id ?? DIVISIONS[0].id) as DivisionId;
   return (
-    <PrototypeShell
-      role="admin"
-      title="Division standings"
-      subtitle="A prototype standings view tied to season and division context."
-    >
-      <SectionCard title="Women Premier standings">
-        <TableWrap>
-          <DataTable>
-            <TableHead>
-              <tr>
-                <HeadCell>Rank</HeadCell>
-                <HeadCell>Team</HeadCell>
-                <HeadCell>Pts</HeadCell>
-                <HeadCell>GP</HeadCell>
-                <HeadCell>W</HeadCell>
-                <HeadCell>D</HeadCell>
-                <HeadCell>L</HeadCell>
-                <HeadCell>GF</HeadCell>
-                <HeadCell>GA</HeadCell>
-                <HeadCell>GD</HeadCell>
-              </tr>
-            </TableHead>
-            <TableBody>
-              {standings.map((row) => (
-                <BodyRow key={row.id}>
-                  <BodyCell>{row.rank}</BodyCell>
-                  <BodyCell className="font-medium">
-                    <Link href="/admin/divisions/division-1" className="text-sky-700">
-                      {row.team}
-                    </Link>
-                  </BodyCell>
-                  <BodyCell>{row.pts}</BodyCell>
-                  <BodyCell>{row.gp}</BodyCell>
-                  <BodyCell>{row.w}</BodyCell>
-                  <BodyCell>{row.d}</BodyCell>
-                  <BodyCell>{row.l}</BodyCell>
-                  <BodyCell>{row.gf}</BodyCell>
-                  <BodyCell>{row.ga}</BodyCell>
-                  <BodyCell>{row.gd}</BodyCell>
-                </BodyRow>
-              ))}
-            </TableBody>
-          </DataTable>
-        </TableWrap>
-      </SectionCard>
-    </PrototypeShell>
+    <>
+      <PageHeading title="Standings" sub={`${season} · 3 points for a win, 1 for a draw`} />
+      <Segmented
+        label="Division"
+        active={active}
+        className="lg:max-w-[720px]"
+        items={DIVISIONS.map((d) => ({ key: d.id, label: d.name, href: withSeason(`/admin/standings?division=${d.id}`, season) }))}
+      />
+      <StandingsTable division={active} linkBase="/admin/teams" />
+      <p className="text-[13px] text-muted">Updated after the league office confirms each match report. Ties break on goal difference, then goals scored.</p>
+    </>
   );
 }

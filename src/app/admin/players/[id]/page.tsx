@@ -1,73 +1,104 @@
-import { PrototypeShell, SectionCard, StatCard, StatusBadge } from "@/components/prototype-shell";
-import { captainRoster, matches, players } from "@/lib/mock-data";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Badge, PaymentBadge, RegistrationBadge } from "@/components/ui/badge";
+import { Card, CardHeader, EmptyState, KeyValue } from "@/components/ui/card";
+import { MATCHES, PLAYERS, division, team } from "@/lib/league-data";
+import { ArchivedNotice, Crumbs, isArchived, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
+import { PlayerHeader, TeamAccessTable } from "./player-actions";
 
-export default async function PlayerDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export const metadata = { title: "Player" };
+
+/** Profile details on file. Only the players below have complete profiles in the league records. */
+const PROFILES: Record<string, { born: string; position: string; phone: string; address: string }> = {
+  "maya-johnson": { born: "Mar 12, 1994", position: "FWD · #9", phone: "(703) 555-0117", address: "Vienna, VA 22180" },
+};
+
+export default async function PlayerDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
   const { id } = await params;
-  const player = players.find((item) => item.id === id) ?? players[0];
-  const relatedMatches = matches.filter((match) => match.home === player.team || match.away === player.team);
+  const season = seasonFrom(await searchParams);
+  const p = PLAYERS.find((x) => x.slug === id);
+  if (!p) notFound();
+  const profile = PROFILES[p.slug];
+  const upcoming = MATCHES.filter((m) => m.status === "Scheduled" && p.teams.some(([t]) => m.home === t || m.away === t));
+  const readOnly = isArchived(season);
 
   return (
-    <PrototypeShell
-      role="admin"
-      title={player.name}
-      subtitle="Player detail view for profile, registration state, and active team context."
-    >
-      <div className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Current team" value={player.team} note={player.division} />
-        <StatCard label="Position" value={player.position} note="Primary role" />
-        <StatCard label="Registration" value={player.registration} note="Spring 2025 status" />
-        <StatCard label="Player status" value={player.status} note="Eligibility / admin state" />
+    <>
+      <PlayerHeader
+        name={p.name}
+        email={p.email}
+        status={p.status}
+        note={p.note}
+        readOnly={readOnly}
+        crumbs={<Crumbs items={[["Players", withSeason("/admin/players", season)], [p.name]]} />}
+      />
+      <ArchivedNotice season={season} />
+
+      <div className="grid gap-[18px] md:grid-cols-2 lg:grid-cols-3">
+        <Card>
+          <CardHeader title="Profile" />
+          <KeyValue
+            items={[
+              ["Born", profile?.born ?? "—"],
+              ["Position", profile?.position ?? "—"],
+              ["Phone", profile?.phone ?? "—"],
+              ["Address", profile?.address ?? "—"],
+              ["Player since", p.since],
+            ]}
+          />
+        </Card>
+        <Card>
+          <CardHeader title="Registration" />
+          <KeyValue
+            items={[
+              ["Season", "Spring 2026"],
+              ["Status", <RegistrationBadge key="r" status={p.reg} />],
+              ["Payment", <PaymentBadge key="p" status={p.pay} />],
+              ["Division", p.div ? division(p.div).name : "—"],
+            ]}
+          />
+          {p.slug === "maya-johnson" ? (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-[var(--radius-field)] bg-surface-2 p-3.5 text-[13px]">
+              Game passes: <b>#207</b> <Badge tone="ok">Active</Badge> · <b>#205</b> <Badge tone="bad">Expired</Badge>
+            </div>
+          ) : null}
+        </Card>
+        <Card>
+          <CardHeader title="Upcoming matches" />
+          {upcoming.length ? (
+            <div className="flex flex-col">
+              {upcoming.map((m) => (
+                <Link key={m.id} href={withSeason(`/admin/matches/${m.id}`, season)} className="flex min-h-11 items-center gap-2.5 rounded-[10px] hover:bg-surface-2">
+                  <span className="font-mono text-[13px] text-muted">#{m.id}</span>
+                  <span className="flex-1 text-sm">
+                    <b>
+                      {team(m.home).ab} vs {team(m.away).ab}
+                    </b>{" "}
+                    · {m.date.slice(5)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon="cal" title="No upcoming matches" />
+          )}
+        </Card>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <SectionCard title="Profile summary">
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
-              <span>Email</span>
-              <span className="font-medium">{player.email}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
-              <span>Phone</span>
-              <span className="font-medium">{player.phone}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
-              <span>Status</span>
-              <StatusBadge label={player.status} />
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Team access">
-          <div className="space-y-3 text-sm">
-            {player.teams.map((teamName, index) => (
-              <div key={teamName} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
-                <div>
-                  <p className="font-medium">{teamName}</p>
-                  <p className="text-slate-500">{index === 0 ? "Primary team" : "Additional team"}</p>
-                </div>
-                <StatusBadge label={player.role === "captain" && index === 0 ? "Captain Access" : "Player Access"} />
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      </div>
-
-      <div className="mt-6">
-        <SectionCard title="Upcoming team matches">
-          <div className="space-y-4">
-            {relatedMatches.map((match) => (
-              <div key={match.id} className="rounded-2xl border border-slate-200 p-4 text-sm">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium">Game #{match.gameNumber}</p>
-                  <StatusBadge label={match.status} />
-                </div>
-                <p className="mt-2">{match.home} vs {match.away}</p>
-                <p className="text-slate-500">{match.startsAt} · {match.field}</p>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      </div>
-    </PrototypeShell>
+      <section className="flex flex-col gap-2.5">
+        <h2 className="text-[26px]">Team access</h2>
+        {p.teams.length ? (
+          <TeamAccessTable
+            readOnly={readOnly}
+            teams={p.teams.map(([t, role], i) => ({ id: t, name: team(t).name, division: division(team(t).div).name, membership: i === 0 ? "Primary team" : "Additional team", role }))}
+          />
+        ) : (
+          <EmptyState icon="users" title="No team yet">
+            {p.reg === "Game pass only" ? "Game-pass players aren’t on any season roster." : "Assign a team from the registration."}
+          </EmptyState>
+        )}
+        <p className="text-[13px] text-muted">Access is per team. Captain on one team doesn’t give access to another.</p>
+      </section>
+    </>
   );
 }

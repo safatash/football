@@ -4,6 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import prisma from "@/lib/prisma"
 import { Adapter } from "next-auth/adapters"
+import { isAdminEmail } from "@/lib/admin"
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
@@ -71,11 +72,11 @@ export const authOptions: NextAuthOptions = {
           }
         })
 
+        session.user.isAdmin = isAdminEmail(user?.email)
         if (user?.player) {
           session.user.playerId = user.player.id
           session.user.name = `${user.player.firstName} ${user.player.lastName}`
           session.user.isCaptain = user.player.teamMemberships.length > 0
-          session.user.isAdmin = false
         }
       }
       return session

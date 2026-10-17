@@ -34,3 +34,27 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+## Redesign (branch `redesign/ui`)
+
+Mobile-first UI built from the NVASA design: pitch-green + lime tokens in `src/app/globals.css`,
+shared components in `src/components/{ui,league,shell}`, and a live style sheet at `/design`.
+
+**After pulling:** `npm install` (adds self-hosted fonts), then `npm run db:seed` to load the
+Spring 2026 divisions, teams, matches and a demo player.
+
+| Account | Password | Sees |
+| --- | --- | --- |
+| `maya.johnson@example.com` | `MayaJohnson26` | Player portal (captain of Fairfax United, player on Bloodline, game passes) |
+| `admin@nvasa.org` | `Admin123!` | League office (`/admin`) |
+
+League-office access comes from `ADMIN_EMAILS` (comma-separated, defaults to `admin@nvasa.org`).
+
+**Live on the database:** login, retrieve player info, season registration → Stripe checkout
+(fee from the division, discount codes, free registrations skip Stripe), Stripe webhook,
+player dashboard / registrations / profile (saves), admin registration review with approve / deny.
+
+**Running on sample data (`src/lib/league-data.ts`) until the schema has the tables:** captain tools
+(match roster, lineup, match report), game-pass purchase, placement queue, players/teams/matches/
+standings/divisions in admin, fees & eligibility settings. Their actions update the screen only.

@@ -1,65 +1,125 @@
-import { PrototypeShell, SectionCard } from "@/components/prototype-shell";
+import type { Metadata } from "next";
 import { ButtonLink } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import { registrationFeeTable } from "@/lib/mock-data";
+import { AppBar, Screen } from "@/components/shell/layout";
+import { DIVISIONS, GAME_PASS_FEE, money } from "@/lib/league-data";
 
-export default function RegisterPage() {
+export const metadata: Metadata = { title: "Join NVASA" };
+
+const minFee = Math.min(...DIVISIONS.map((d) => d.fee));
+
+type Path = {
+  eyebrow: string;
+  title: string;
+  price: string;
+  body: string;
+  login: string;
+  find: string;
+  start: string;
+  startLabel: string;
+  accent: boolean;
+};
+
+const PATHS: Path[] = [
+  {
+    eyebrow: "Spring 2026 season",
+    title: "Season registration",
+    price: `${money(minFee)}+`,
+    body: "Join a team for every match this season. Reviewed by the league office.",
+    login: "/login?next=/register/new",
+    find: "/retrieve",
+    start: "/register/new",
+    startLabel: "Start registration",
+    accent: true,
+  },
+  {
+    eyebrow: "One match",
+    title: "Game pass",
+    price: money(GAME_PASS_FEE),
+    body: "Valid for one match on its game day. You won’t join a team roster.",
+    login: "/register/game-pass?mode=login",
+    find: "/register/game-pass?mode=find",
+    start: "/register/game-pass?mode=new",
+    startLabel: "Start game pass",
+    accent: false,
+  },
+];
+
+function PathCard({ p }: { p: Path }) {
   return (
-    <PrototypeShell
-      role="player"
-      title="Register"
-      subtitle="Choose the right path before entering the actual registration flow."
-    >
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <SectionCard title="Register with a team">
-          <div className="space-y-4 text-sm">
-            <p className="text-slate-600">Use this path for standard seasonal registration when the player is joining or returning to a team.</p>
-            <div className="grid gap-3">
-              <ButtonLink href="/register/account" variant="secondary">Returning player</ButtonLink>
-              <ButtonLink href="/login" variant="secondary">Login</ButtonLink>
-              <ButtonLink href="/register/account" variant="secondary">Retrieve player information</ButtonLink>
-              <ButtonLink href="/register/account">New player</ButtonLink>
-            </div>
-          </div>
-        </SectionCard>
-
-        <div className="space-y-6">
-          <SectionCard title="Buy a game pass ($15 per game)">
-            <div className="space-y-4 text-sm">
-              <p className="text-slate-600">Game passes should mirror the regular registration entry pattern, but still stay limited to one specific match and never create lasting roster membership.</p>
-              <div className="grid gap-3">
-                <ButtonLink href="/register/game-pass/returning" variant="secondary">Returning player</ButtonLink>
-                <ButtonLink href="/login" variant="secondary">Login</ButtonLink>
-                <ButtonLink href="/register/game-pass/account" variant="secondary">Retrieve player information</ButtonLink>
-                <ButtonLink href="/register/game-pass/new">New player</ButtonLink>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Division age requirements & fees">
-            <TableWrap>
-              <DataTable>
-                <TableHead>
-                  <tr>
-                    <HeadCell>Division</HeadCell>
-                    <HeadCell>Age Requirement</HeadCell>
-                    <HeadCell>Fee</HeadCell>
-                  </tr>
-                </TableHead>
-                <TableBody>
-                  {registrationFeeTable.map((row) => (
-                    <BodyRow key={row.division}>
-                      <BodyCell className="font-medium">{row.division}</BodyCell>
-                      <BodyCell>{row.ageRule}</BodyCell>
-                      <BodyCell>{row.fee}</BodyCell>
-                    </BodyRow>
-                  ))}
-                </TableBody>
-              </DataTable>
-            </TableWrap>
-          </SectionCard>
+    <section className="flex flex-col gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-4 lg:p-5" aria-label={p.title}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="eyebrow">{p.eyebrow}</span>
+          <h2 className="text-2xl">{p.title}</h2>
+        </div>
+        <span className="font-display text-[30px] leading-none font-extrabold">{p.price}</span>
+      </div>
+      <p className="text-[13.5px] text-muted">{p.body}</p>
+      <div className="flex flex-col gap-2">
+        <span className="text-[13.5px] font-bold">Returning player</span>
+        <div className="grid grid-cols-2 gap-2">
+          <ButtonLink href={p.login} variant="ghost" size="sm" className="min-h-11">
+            Log in
+          </ButtonLink>
+          <ButtonLink href={p.find} variant="ghost" size="sm" className="min-h-11">
+            Retrieve my info
+          </ButtonLink>
         </div>
       </div>
-    </PrototypeShell>
+      <div className="mt-auto flex flex-col gap-2">
+        <span className="text-[13.5px] font-bold">New player</span>
+        <ButtonLink href={p.start} variant={p.accent ? "accent" : "primary"} block>
+          {p.startLabel} <Icon name="right" className="size-[18px]" />
+        </ButtonLink>
+      </div>
+    </section>
+  );
+}
+
+export default function RegisterBranchPage() {
+  return (
+    <>
+      <AppBar title="Join NVASA" backHref="/" />
+      <Screen>
+        <div className="flex flex-col gap-1.5">
+          <h1 className="text-[34px] lg:text-[42px]">How do you want to play?</h1>
+          <p className="text-muted">Both options start the same way. Returning players can log in or look up their old profile.</p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {PATHS.map((p) => (
+            <PathCard key={p.title} p={p} />
+          ))}
+        </div>
+        <TableWrap>
+          <DataTable className="!text-[13.5px]">
+            <TableHead>
+              <tr>
+                <HeadCell>
+                  <span className="sr-only">Compare</span>
+                </HeadCell>
+                <HeadCell>Season</HeadCell>
+                <HeadCell>Game pass</HeadCell>
+              </tr>
+            </TableHead>
+            <TableBody>
+              {[
+                ["Matches", "All season", "One"],
+                ["Team roster", "Yes", "That match only"],
+                ["Review", "League office", "None"],
+                ["Price", `${money(minFee)}+ by division`, money(GAME_PASS_FEE)],
+              ].map(([k, a, b]) => (
+                <BodyRow key={k}>
+                  <BodyCell className="text-muted">{k}</BodyCell>
+                  <BodyCell>{a}</BodyCell>
+                  <BodyCell>{b}</BodyCell>
+                </BodyRow>
+              ))}
+            </TableBody>
+          </DataTable>
+        </TableWrap>
+      </Screen>
+    </>
   );
 }

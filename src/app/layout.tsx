@@ -1,33 +1,35 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import "@fontsource/barlow-condensed/600.css";
+import "@fontsource/barlow-condensed/700.css";
+import "@fontsource/barlow-condensed/800.css";
+import "@fontsource-variable/figtree";
+import "@fontsource/ibm-plex-mono/500.css";
+import "@fontsource/ibm-plex-mono/600.css";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "NVASA Prototype",
-  description: "Clickable prototype for the NVASA rebuild",
+  title: {
+    default: "NVASA · Northern Virginia Adult Soccer",
+    template: "%s · NVASA",
+  },
+  description:
+    "Recreational and competitive adult soccer across Fairfax, Arlington and Alexandria. Register for the season or buy a single-match game pass.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#0f3d2e" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b1410" },
+  ],
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full bg-slate-100 text-slate-900">{children}</body>
+    <html lang="en" className="h-full">
+      <body className="min-h-full bg-bg text-fg">{children}</body>
     </html>
   );
 }

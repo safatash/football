@@ -1,33 +1,198 @@
 @import "tailwindcss";
 
+/*
+  NVASA design tokens.
+  Colors live in CSS variables so light and dark come from one place;
+  @theme maps them to Tailwind utilities (bg-pitch, text-muted, bg-ok-bg, ...).
+*/
 :root {
-  --background: #f1f5f9;
-  --foreground: #0f172a;
+  --pitch: #0f3d2e;
+  --pitch-2: #155a43;
+  --pitch-tint: #e2eee7;
+  --on-pitch: #ffffff;
+  --lime: #c8f04a;
+  --lime-2: #b5df2f;
+  --lime-ink: #13240a;
+  --bg: #f2f4ef;
+  --surface: #ffffff;
+  --surface-2: #eaeee6;
+  --surface-3: #dfe5da;
+  --line: #d6ddd1;
+  --line-strong: #b9c3b3;
+  --fg: #13201a;
+  --muted: #55645b;
+  --faint: #7d8b82;
+  --ok: #17693c;
+  --ok-bg: #dff2e6;
+  --warn: #7a4e00;
+  --warn-bg: #fff0cc;
+  --bad: #b42318;
+  --bad-bg: #fde6e3;
+  --pass: #5536c9;
+  --pass-bg: #ece7ff;
+  --info: #1c5598;
+  --info-bg: #e2ecf9;
+  --neutral-bg: #e8ece5;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pitch: #1b6a4d;
+    --pitch-2: #22805d;
+    --pitch-tint: #173327;
+    --bg: #0b1410;
+    --surface: #111d17;
+    --surface-2: #17261f;
+    --surface-3: #1e3027;
+    --line: #25372d;
+    --line-strong: #35493e;
+    --fg: #e6eee9;
+    --muted: #9fb1a6;
+    --faint: #7c8f84;
+    --ok: #74d69d;
+    --ok-bg: #12301f;
+    --warn: #f5c55b;
+    --warn-bg: #33270a;
+    --bad: #ff8a7d;
+    --bad-bg: #3a1612;
+    --pass: #b5a3ff;
+    --pass-bg: #251c4a;
+    --info: #8cb8f2;
+    --info-bg: #132741;
+    --neutral-bg: #1c2a23;
+    color-scheme: dark;
+  }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-pitch: var(--pitch);
+  --color-pitch-2: var(--pitch-2);
+  --color-pitch-tint: var(--pitch-tint);
+  --color-on-pitch: var(--on-pitch);
+  --color-lime: var(--lime);
+  --color-lime-2: var(--lime-2);
+  --color-lime-ink: var(--lime-ink);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-bad: var(--bad);
+  --color-bad-bg: var(--bad-bg);
+  --color-pass: var(--pass);
+  --color-pass-bg: var(--pass-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-neutral-bg: var(--neutral-bg);
+
+  --font-display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif;
+  --font-sans: "Figtree Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+  --radius-card: 18px;
+  --radius-field: 12px;
 }
 
-* {
-  box-sizing: border-box;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 800;
+    line-height: 1.02;
+    text-wrap: balance;
+  }
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+  :focus-visible {
+    outline: 3px solid var(--lime);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition: none !important;
+      animation: none !important;
+    }
+  }
 }
 
-html {
-  scroll-behavior: smooth;
+@layer components {
+  .eyebrow {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  /* Lineup pitch: grass stripes */
+  .pitch-grass {
+    background: repeating-linear-gradient(180deg, #2f7d4f 0 11%, #2a7448 11% 22%);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+  }
+  .hero-ring {
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-ring::after {
+    content: "";
+    position: absolute;
+    right: -60px;
+    top: -60px;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 0 30px rgba(255, 255, 255, 0.03);
+    pointer-events: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
+/* Print: only the paper sheet, black on white */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+  }
+  @page {
+    size: letter;
+    margin: 0.5in;
+  }
 }
