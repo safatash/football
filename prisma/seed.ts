@@ -160,10 +160,10 @@ async function main() {
   // Create a test admin user
   const adminPassword = await hashPassword('Admin123!')
   const adminUser = await prisma.user.upsert({
-    where: { email: 'admin@nvasa.org' },
+    where: { email: 'safatash@gmail.com' },
     update: {},
     create: {
-      email: 'admin@nvasa.org',
+      email: 'safatash@gmail.com',
       password: adminPassword,
       player: {
         create: {
@@ -185,7 +185,7 @@ async function main() {
       },
     },
   })
-  console.log(`✅ Created admin user: ${adminUser.email} (password: Admin123!)`)
+  console.log(`✅ Created admin user: ${adminUser.email} (password: Admin123! — change it after first login)`)
 
 
   // ------------------------------------------------------------------

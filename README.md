@@ -47,9 +47,9 @@ Spring 2026 divisions, teams, matches and a demo player.
 | Account | Password | Sees |
 | --- | --- | --- |
 | `maya.johnson@example.com` | `MayaJohnson26` | Player portal (captain of Fairfax United, player on Bloodline, game passes) |
-| `admin@nvasa.org` | `Admin123!` | League office (`/admin`) |
+| `safatash@gmail.com` | `Admin123!` | League office (`/admin`) |
 
-League-office access comes from `ADMIN_EMAILS` (comma-separated, defaults to `admin@nvasa.org`).
+League-office access comes from `ADMIN_EMAILS` (comma-separated, defaults to `safatash@gmail.com`).
 
 **Live on the database:** login, retrieve player info, season registration → Stripe checkout
 (fee from the division, discount codes, free registrations skip Stripe), Stripe webhook,
