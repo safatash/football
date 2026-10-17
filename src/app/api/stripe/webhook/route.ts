@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import prisma from "@/lib/prisma";
+import { fulfillGamePass } from "@/lib/game-pass-server";
 import { countDiscountUse } from "@/lib/registration";
 import { stripe } from "@/lib/stripe";
 
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (type === "registration") await registrationPaid(session);
+    else if (type === "game_pass") await fulfillGamePass(session);
     else {
       console.error("Webhook: unknown checkout type", type);
       return NextResponse.json({ error: "Unknown checkout type" }, { status: 400 });

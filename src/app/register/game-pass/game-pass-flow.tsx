@@ -6,33 +6,52 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, GamePassTag } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, Notice } from "@/components/ui/card";
-import { CheckBox, Segmented } from "@/components/ui/controls";
+import { CheckBox, ChoiceGroup, Segmented } from "@/components/ui/controls";
 import { Field, TextInput } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { Stepper } from "@/components/ui/stepper";
 import { MatchMeta, VsRow } from "@/components/league";
 import { ActionBar, AppBar, Screen } from "@/components/shell/layout";
-import { GAME_PASS_FEE, MATCHES, ageOn, division, match as matchById, money, team } from "@/lib/league-data";
+import { ageOn } from "@/lib/eligibility";
+import { money } from "@/lib/format";
 import { PassTicket } from "./ticket";
 
 export type IdentifyMode = "login" | "find" | "new";
+type FlowTeam = { id: string; name: string; color: string | null; shortName: string | null };
+export type FlowMatch = { id: string; gameNumber: number; date: string; time: string; field: string | null; division: string; homeTeam: FlowTeam; awayTeam: FlowTeam };
+type Gender = "Female" | "Male" | "Non-binary";
 
 const STEP_LABELS = ["Who’s playing", "Match", "Pay"];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-type Errors = Partial<Record<"email" | "password" | "dob" | "name" | "phone" | "match" | "form", string>>;
+type Errors = Partial<Record<"email" | "password" | "dob" | "name" | "phone" | "gender" | "match" | "form", string>>;
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
-export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
+export function GamePassFlow({
+  initialMode,
+  matches,
+  fee,
+  signedIn,
+}: {
+  initialMode: IdentifyMode;
+  matches: FlowMatch[];
+  fee: number;
+  /** Signed-in players skip "Who's playing". */
+  signedIn: { name: string } | null;
+}) {
   const router = useRouter();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(signedIn ? 2 : 1);
+  const [gender, setGender] = useState<Gender | "">("");
+  const [teamId, setTeamId] = useState<string>("");
+  const [notice, setNotice] = useState("");
   const [mode, setMode] = useState<IdentifyMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [dob, setDob] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [holder, setHolder] = useState("");
-  const [matchId, setMatchId] = useState<number | null>(null);
+  const [holder, setHolder] = useState(signedIn?.name ?? "");
+  const [matchId, setMatchId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
   const [checkout, setCheckout] = useState(false);
@@ -48,19 +67,30 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
     headingRef.current?.focus({ preventScroll: true });
   }, [step, checkout]);
 
-  useEffect(() => {
-    if (!checkout || !matchId) return;
-    const t = setTimeout(() => {
-      const q = new URLSearchParams({ match: String(matchId) });
-      if (holder) q.set("name", holder);
-      router.push(`/register/game-pass/confirmation?${q.toString()}`);
-    }, 2200);
-    return () => clearTimeout(t);
-  }, [checkout, matchId, holder, router]);
-
-  const upcoming = MATCHES.filter((m) => m.status === "Scheduled");
+  const upcoming = matches;
   const dates = [...new Set(upcoming.map((m) => m.date))];
-  const m = matchId ? matchById(matchId) : undefined;
+  const m = matchId ? matches.find((x) => x.id === matchId) : undefined;
+  const ticketTeam = m && teamId ? (teamId === m.homeTeam.id ? m.homeTeam.name : m.awayTeam.name) : null;
+
+  async function pay() {
+    if (!m) return;
+    setCheckout(true);
+    setErrors({});
+    try {
+      const res = await fetch("/api/game-pass/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId: m.id, teamId: teamId || null }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error || "We couldn’t start checkout. Please try again.");
+      if (data.url.startsWith("/")) router.push(data.url);
+      else window.location.assign(data.url);
+    } catch (err) {
+      setCheckout(false);
+      setErrors({ form: err instanceof Error ? err.message : "We couldn’t start checkout. Please try again." });
+    }
+  }
 
   function clear(k: keyof Errors) {
     setErrors((p) => (p[k] || p.form ? { ...p, [k]: undefined, form: undefined } : p));
@@ -71,13 +101,15 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
     if (!EMAIL_RE.test(email.trim())) e.email = "Enter a valid email address.";
     if (mode === "login" && !password) e.password = "Enter your password.";
     if (mode !== "login") {
-      const age = ageOn(dob);
+      const age = dob ? ageOn(dob, todayIso()) : null;
       if (!dob || age === null) e.dob = "Enter your date of birth.";
       else if (age < 18) e.dob = "Players must be 18 or older.";
     }
     if (mode === "new") {
       if (name.trim().split(/\s+/).length < 2) e.name = "Enter your first and last name.";
       if (phone.replace(/\D/g, "").length < 10) e.phone = "Enter a 10-digit mobile number.";
+      if (!gender) e.gender = "Choose one.";
+      if (password.length < 10) e.password = "Use 10 or more characters, with upper and lowercase letters and a number.";
     }
     if (Object.keys(e).length) {
       setErrors(e);
@@ -94,7 +126,11 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
           return;
         }
         const s = await getSession();
-        setHolder(s?.user?.name ?? email.trim());
+        if (!s?.user?.playerId) {
+          setErrors({ form: "This account doesn’t have a player profile yet. Continue as a new player with another email, or register for a season." });
+          return;
+        }
+        setHolder(s.user.name ?? email.trim());
       } else if (mode === "find") {
         const res = await fetch("/api/retrieve", {
           method: "POST",
@@ -107,10 +143,23 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
           setErrors({ form: "No profile matches those details. Check for a typo, or continue as a new player." });
           return;
         }
-        setHolder(`${data.firstName} ${data.lastInitial}.`);
+        // Found: they still need to sign in to buy a pass on that profile.
+        setMode("login");
+        setNotice(`We found your profile, ${data.firstName}. Log in to buy your pass.`);
+        return;
       } else {
+        const res = await fetch("/api/game-pass/account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim(), email: email.trim(), dob, gender, phone: phone.trim(), password }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(data.error);
+        const r = await signIn("credentials", { email: email.trim(), password, redirect: false });
+        if (!r || r.error) throw new Error("Your profile is ready, but we couldn’t sign you in. Log in to continue.");
         setHolder(name.trim());
       }
+      router.refresh();
       setStep(2);
     } catch (err) {
       setErrors({ form: err instanceof Error && err.message ? err.message : "Something went wrong. Please try again." });
@@ -127,7 +176,7 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
     setStep(3);
   }
 
-  const back = step === 1 ? undefined : () => setStep(step - 1);
+  const back = step === 1 || (step === 2 && signedIn) ? undefined : () => setStep(step - 1);
 
   /* ---------- Checkout handoff ---------- */
   if (checkout && m) {
@@ -144,13 +193,10 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
           </div>
           <Card className="w-full text-left">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[13.5px] text-muted">Game pass · Game #{m.id}</span>
-              <b>{money(GAME_PASS_FEE)}</b>
+              <span className="text-[13.5px] text-muted">Game pass · Game #{m.gameNumber}</span>
+              <b>{money(fee)}</b>
             </div>
           </Card>
-          <Button variant="ghost" size="sm" onClick={() => setCheckout(false)}>
-            Cancel
-          </Button>
         </Screen>
       </>
     );
@@ -170,7 +216,7 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
 
   return (
     <>
-      <AppBar backHref={back ? undefined : "/register"} right={<GamePassTag>{money(GAME_PASS_FEE)}</GamePassTag>} title={back ? undefined : "Game pass"}>
+      <AppBar backHref={back ? undefined : "/register"} right={<GamePassTag>{money(fee)}</GamePassTag>} title={back ? undefined : "Game pass"}>
         {back ? (
           <>
             <button type="button" aria-label="Back" onClick={back} className="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-surface">
@@ -207,7 +253,7 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
                 identify();
               }}
             >
-              {errors.form ? <Notice tone="bad">{errors.form}</Notice> : null}
+              {errors.form ? <Notice tone="bad">{errors.form}</Notice> : notice ? <Notice tone="ok">{notice}</Notice> : null}
 
               {mode === "new" ? (
                 <Field label="Full name" htmlFor="gn" error={errors.name}>
@@ -251,6 +297,32 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
                       <TextInput id="gnp" type="tel" autoComplete="tel" value={phone} onChange={(e) => { setPhone(e.target.value); clear("phone"); }} aria-invalid={errors.phone ? true : undefined} />
                     </Field>
                   </div>
+                  <Field label="Gender" error={errors.gender}>
+                    <ChoiceGroup<Gender>
+                      name="Gender"
+                      columns={3}
+                      value={gender}
+                      onChange={(v) => {
+                        setGender(v);
+                        clear("gender");
+                      }}
+                      options={[
+                        { value: "Female", label: "Female" },
+                        { value: "Male", label: "Male" },
+                        { value: "Non-binary", label: "Non-binary" },
+                      ]}
+                    />
+                  </Field>
+                  <Field label="Password" htmlFor="gnpw" error={errors.password} hint="Use 10 or more characters, with upper and lowercase letters and a number.">
+                    <TextInput
+                      id="gnpw"
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); clear("password"); }}
+                      aria-invalid={errors.password ? true : undefined}
+                    />
+                  </Field>
                   <p className="text-[13.5px] text-muted">That’s all we need for one match. You can add the rest later if you register for a season.</p>
                 </>
               ) : null}
@@ -266,6 +338,7 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
           <>
             {head("Pick one match", "Your pass is good for this game only, on its game day.")}
             {errors.match ? <Notice tone="bad">{errors.match}</Notice> : null}
+            {upcoming.length ? null : <Notice tone="info">No matches are open for game passes right now. Check back when the next match day is scheduled.</Notice>}
             <div role="radiogroup" aria-label="Match" className="flex flex-col gap-5">
               {dates.map((date) => (
                 <div key={date} className="flex flex-col gap-2.5">
@@ -282,6 +355,7 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
                             role="radio"
                             aria-checked={on}
                             onClick={() => {
+                              if (x.id !== matchId) setTeamId("");
                               setMatchId(x.id);
                               clear("match");
                             }}
@@ -290,13 +364,13 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-[13px] text-muted">Game #{x.id}</span>
+                              <span className="font-mono text-[13px] text-muted">Game #{x.gameNumber}</span>
                               <span className="flex items-center gap-2">
-                                <span className="text-xs text-muted">{division(x.div).name}</span>
+                                <span className="text-xs text-muted">{x.division}</span>
                                 <CheckBox checked={on} round />
                               </span>
                             </div>
-                            <VsRow home={{ name: team(x.home).name, color: team(x.home).color, shortName: team(x.home).ab }} away={{ name: team(x.away).name, color: team(x.away).color, shortName: team(x.away).ab }} />
+                            <VsRow home={x.homeTeam} away={x.awayTeam} />
                             <MatchMeta date={x.date} time={x.time} field={x.field} />
                           </button>
                         );
@@ -311,22 +385,35 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
         {/* 3 · Review & pay */}
         {step === 3 && m ? (
           <>
-            {head(`One match. ${money(GAME_PASS_FEE)}.`)}
+            {head(`One match. ${money(fee)}.`)}
+            {errors.form ? <Notice tone="bad">{errors.form}</Notice> : null}
             <Notice tone="pass" icon="ticket" title="This match only." className="!text-[14.5px]">
-              Valid {m.date} for Game #{m.id}. It expires when the match ends and doesn’t add you to {team(m.home).name}’s season roster.
+              Valid {m.date} for Game #{m.gameNumber}. It expires when the match ends and doesn’t add you to {ticketTeam ?? "a team"}’s season roster.
             </Notice>
+            <Field label="Playing for">
+              <ChoiceGroup<string>
+                name="Playing for"
+                value={teamId || "none"}
+                onChange={(v) => setTeamId(v === "none" ? "" : v)}
+                options={[
+                  { value: m.homeTeam.id, label: m.homeTeam.name },
+                  { value: m.awayTeam.id, label: m.awayTeam.name },
+                  { value: "none", label: "Not sure yet", sub: "The captain or league office adds you" },
+                ]}
+              />
+            </Field>
             <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr] lg:items-start">
-              <PassTicket match={m} holder={holder} state={<Badge>Not paid</Badge>} />
+              <PassTicket match={m} holder={holder} teamName={ticketTeam} state={<Badge>Not paid</Badge>} />
               <Card className="flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
                   <span>Game pass · single match</span>
-                  <b>{money(GAME_PASS_FEE)}.00</b>
+                  <b>{money(fee)}</b>
                 </div>
                 <div className="text-[13.5px] text-muted">Discount codes don’t apply to game passes</div>
                 <hr className="border-line" />
                 <div className="flex items-center justify-between">
                   <b>Total</b>
-                  <span className="font-display text-[30px] leading-none font-extrabold">{money(GAME_PASS_FEE)}</span>
+                  <span className="font-display text-[30px] leading-none font-extrabold">{money(fee)}</span>
                 </div>
               </Card>
             </div>
@@ -345,13 +432,13 @@ export function GamePassFlow({ initialMode }: { initialMode: IdentifyMode }) {
         ) : null}
         {step === 2 ? (
           <Button variant="primary" onClick={toReview}>
-            {matchId ? `Review Game #${matchId}` : "Choose a match"} <Icon name="right" className="size-[18px]" />
+            {m ? `Review Game #${m.gameNumber}` : "Choose a match"} <Icon name="right" className="size-[18px]" />
           </Button>
         ) : null}
         {step === 3 ? (
-          <Button variant="accent" onClick={() => setCheckout(true)}>
+          <Button variant="accent" onClick={pay}>
             <Icon name="lock" className="size-[18px]" />
-            Pay {money(GAME_PASS_FEE)} securely
+            Pay {money(fee)} securely
           </Button>
         ) : null}
       </ActionBar>

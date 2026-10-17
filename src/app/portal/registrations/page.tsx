@@ -4,6 +4,8 @@ import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/card";
 import { AppBar, Screen } from "@/components/shell/layout";
 import prisma from "@/lib/prisma";
+import { now } from "@/lib/clock";
+import { passStatus } from "@/lib/game-pass";
 import { requireUser } from "@/lib/session";
 import { fmtDay, fmtShort, money } from "@/lib/format";
 
@@ -108,7 +110,7 @@ export default async function PlayerRegistrationsPage() {
       at: p.createdAt,
       badges: (
         <>
-          <GamePassStatusBadge status={p.status} />
+          <GamePassStatusBadge status={passStatus(p, now())} />
           <PaymentBadge status={p.payment.status} />
           <GamePassTag>This match only</GamePassTag>
         </>

@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/icon";
 import { Crest, MatchMeta, VsRow } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
 import prisma from "@/lib/prisma";
+import { passStatus } from "@/lib/game-pass";
 import { redirect } from "next/navigation";
 import { now } from "@/lib/clock";
 import { TZ, fmtDay, fmtTime, money, relativeDay } from "@/lib/format";
@@ -296,7 +297,8 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
           {player.gamePasses.length ? (
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface">
               {player.gamePasses.map((gp) => {
-                const active = gp.status === "ACTIVE";
+                const status = passStatus(gp, now());
+                const active = status === "ACTIVE";
                 return (
                   <div
                     key={gp.id}
@@ -320,7 +322,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
                         {gp.match.field ? ` · ${gp.match.field}` : ""}
                       </span>
                     </div>
-                    <GamePassStatusBadge status={gp.status} />
+                    <GamePassStatusBadge status={status} />
                   </div>
                 );
               })}
