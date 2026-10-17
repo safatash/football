@@ -43,11 +43,13 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
-export function Icon({ name, className = "size-[18px]", label }: { name: IconName; className?: string; label?: string }) {
+export function Icon({ name, className = "", label }: { name: IconName; className?: string; label?: string }) {
+  // Default to 18px unless the caller sets a size (a color class alone shouldn't drop it)
+  const size = /(^|\s)(!?size-|w-|h-)/.test(className) ? "" : "size-[18px] ";
   return (
     <svg
       viewBox="0 0 24 24"
-      className={`shrink-0 fill-none stroke-current ${className}`}
+      className={`shrink-0 fill-none stroke-current ${size}${className}`}
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"

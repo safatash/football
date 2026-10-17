@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Notice } from "@/components/ui/card";
-import { Toast, useToast } from "@/components/ui/controls";
 import { Field, TextInput } from "@/components/ui/field";
 import { Screen } from "@/components/shell/layout";
 
@@ -20,7 +19,6 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [toast, showToast] = useToast(4000);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -66,9 +64,9 @@ export function LoginForm() {
             <label htmlFor="lp" className="text-[13.5px] font-bold">
               Password
             </label>
-            <Button variant="link" className="text-[13.5px]" onClick={() => showToast("To reset your password, email office@nvasa.org.")}>
+            <Link href="/login/forgot" className="text-[13.5px] font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
               Forgot password?
-            </Button>
+            </Link>
           </div>
           <TextInput
             id="lp"
@@ -101,7 +99,6 @@ export function LoginForm() {
           Create an account
         </Link>
       </p>
-      <Toast message={toast} />
     </Screen>
   );
 }

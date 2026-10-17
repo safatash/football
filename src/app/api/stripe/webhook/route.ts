@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import prisma from "@/lib/prisma";
 import { fulfillGamePass } from "@/lib/game-pass-server";
+import { regNumber } from "@/lib/format";
+import { sendMail } from "@/lib/mail";
+import { registrationReceivedEmail } from "@/lib/mail-templates";
 import { countDiscountUse } from "@/lib/registration";
 import { stripe } from "@/lib/stripe";
 
@@ -17,9 +20,9 @@ function readEvent(body: string, signature: string | null): Stripe.Event {
 async function registrationPaid(session: Stripe.Checkout.Session) {
   const registrationId = session.metadata?.registrationId;
   if (!registrationId) throw new Error("Missing registrationId");
-  await prisma.$transaction(async (tx) => {
+  const recorded = await prisma.$transaction(async (tx) => {
     // Stripe retries webhooks: the checkout session id is stored on the payment
-    if (await tx.payment.findUnique({ where: { stripeChargeId: session.id } })) return;
+    if (await tx.payment.findUnique({ where: { stripeChargeId: session.id } })) return false;
     const reg = await tx.registration.findUnique({ where: { id: registrationId } });
     if (!reg) throw new Error(`Registration ${registrationId} not found`);
     const payment = await tx.payment.create({
@@ -41,6 +44,16 @@ async function registrationPaid(session: Stripe.Checkout.Session) {
       data: { paymentStatus: "PAID", paymentId: payment.id, ...(reg.status === "SUBMITTED" ? { status: "PENDING" } : {}) },
     });
     if (reg.discountCodeId) await countDiscountUse(tx, reg.discountCodeId);
+    return true;
+  });
+  if (!recorded) return;
+  const reg = await prisma.registration.findUniqueOrThrow({
+    where: { id: registrationId },
+    include: { season: true, division: true, player: { select: { firstName: true, user: { select: { email: true } } } } },
+  });
+  await sendMail({
+    to: reg.player.user.email,
+    ...registrationReceivedEmail({ firstName: reg.player.firstName, seasonName: reg.season.name, divisionName: reg.division?.name ?? "the league", number: regNumber(reg.number), paid: true }),
   });
 }
 

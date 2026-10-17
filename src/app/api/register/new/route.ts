@@ -8,6 +8,9 @@ import { blocklistHit } from "@/lib/queries/registrations";
 import { priceWithCode, countDiscountUse } from "@/lib/registration";
 import { getSession } from "@/lib/session";
 import { appUrl, stripe } from "@/lib/stripe";
+import { regNumber } from "@/lib/format";
+import { sendMail } from "@/lib/mail";
+import { registrationReceivedEmail } from "@/lib/mail-templates";
 
 const text = (max: number) => z.string().trim().max(max);
 const GENDER = { Female: "FEMALE", Male: "MALE", "Non-binary": "NON_BINARY", FEMALE: "FEMALE", MALE: "MALE", NON_BINARY: "NON_BINARY" } as const;
@@ -189,6 +192,16 @@ export async function POST(req: NextRequest) {
     });
 
     if (free) {
+      await sendMail({
+        to: email,
+        ...registrationReceivedEmail({
+          firstName: player?.firstName ?? np!.firstName,
+          seasonName: season.name,
+          divisionName: division.name,
+          number: regNumber(registration.number),
+          paid: true,
+        }),
+      });
       return NextResponse.json({ success: true, checkoutUrl: `/register/success?registration=${registration.id}` });
     }
 

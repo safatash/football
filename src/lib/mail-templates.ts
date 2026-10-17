@@ -66,3 +66,50 @@ export function reportReminderEmail(opts: { firstName: string; teamName: string;
   const link = `${appUrl()}/captain/${opts.teamId}/matches/${opts.gameNumber}/report`;
   return { subject, text: `${body}\n\n${link}${footer}`, html: layout({ title: subject, body: paras(body), cta: { label: "Submit the report", href: link } }) };
 }
+
+export function loginLinkEmail(opts: { firstName: string; url: string }) {
+  const subject = "Your NVASA login link";
+  const body = `Hi ${opts.firstName},\n\nUse this link to log in to NVASA. It works once and expires in 30 minutes.\n\nIf you didn’t ask for it, you can ignore this email.`;
+  return { subject, text: `${body}\n\n${opts.url}${footer}`, html: layout({ title: subject, body: paras(body), cta: { label: "Log in to NVASA", href: opts.url } }) };
+}
+
+export function passwordResetEmail(opts: { firstName: string; url: string }) {
+  const subject = "Reset your NVASA password";
+  const body = `Hi ${opts.firstName},\n\nSomeone (hopefully you) asked to reset your NVASA password. Use this link to choose a new one. It works once and expires in 30 minutes.\n\nIf you didn’t ask, you can ignore this email; your password won’t change.`;
+  return { subject, text: `${body}\n\n${opts.url}${footer}`, html: layout({ title: subject, body: paras(body), cta: { label: "Choose a new password", href: opts.url } }) };
+}
+
+export function registrationReceivedEmail(opts: { firstName: string; seasonName: string; divisionName: string; number: string; paid: boolean }) {
+  const subject = `We got your ${opts.seasonName} registration (${opts.number})`;
+  const body = `Hi ${opts.firstName},\n\nThanks for registering for ${opts.divisionName}. ${
+    opts.paid
+      ? "Your payment is in, and the league office will review your registration."
+      : "Once your payment goes through, the league office will review your registration."
+  } We’ll email you when it’s approved.`;
+  const link = `${appUrl()}/portal/registrations`;
+  return { subject, text: `${body}\n\n${link}${footer}`, html: layout({ title: "Registration received", body: paras(body), cta: { label: "See my registration", href: link } }) };
+}
+
+export function registrationApprovedEmail(opts: { firstName: string; seasonName: string; teamName: string | null; captain: boolean }) {
+  const subject = `You’re approved for ${opts.seasonName}`;
+  const body = opts.teamName
+    ? `Hi ${opts.firstName},\n\nYour registration is approved and you’re on ${opts.teamName}.${opts.captain ? ` You’re also a captain, so you can set match rosters, lineups and match reports.` : ""}`
+    : `Hi ${opts.firstName},\n\nYour registration is approved. The league office is placing you on a team and will email you when it’s done.`;
+  const link = `${appUrl()}/portal`;
+  return { subject, text: `${body}\n\n${link}${footer}`, html: layout({ title: subject, body: paras(body), cta: { label: "Go to my portal", href: link } }) };
+}
+
+export function registrationDeniedEmail(opts: { firstName: string; seasonName: string; message: string | null }) {
+  const subject = `Your ${opts.seasonName} registration`;
+  const body = `Hi ${opts.firstName},\n\nWe weren’t able to approve your ${opts.seasonName} registration.${opts.message ? `\n\n${opts.message}` : ""}\n\nIf you paid, we’ll refund you. Reply to this email with any questions.`;
+  return { subject, text: `${body}${footer}`, html: layout({ title: "About your registration", body: paras(body) }) };
+}
+
+export function gamePassReceiptEmail(opts: { firstName: string; gameNumber: number; matchLine: string; when: string; field: string | null; teamName: string | null; amount: string; passId: string }) {
+  const subject = `Game pass for Game #${opts.gameNumber}`;
+  const body = `Hi ${opts.firstName},\n\nYou’re in for Game #${opts.gameNumber}: ${opts.matchLine}, ${opts.when}${opts.field ? ` at ${opts.field}` : ""}.${
+    opts.teamName ? ` You’re playing for ${opts.teamName}.` : " The captain or league office will add you to a team."
+  }\n\nPaid: ${opts.amount}. The pass covers this match only and expires after it. Arrive 20 minutes early and check in with the referee.`;
+  const link = `${appUrl()}/register/game-pass/confirmation?pass=${opts.passId}`;
+  return { subject, text: `${body}\n\n${link}${footer}`, html: layout({ title: "Game pass confirmed", body: paras(body), cta: { label: "See my pass", href: link } }) };
+}

@@ -1,0 +1,25 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { z } from "zod";
+import prisma from "@/lib/prisma";
+import { sendMail } from "@/lib/mail";
+import { loginLinkEmail } from "@/lib/mail-templates";
+import { appUrl } from "@/lib/stripe";
+import { createToken } from "@/lib/tokens";
+
+const Body = z.object({ email: z.string().trim().email().max(254), dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
+
+/**
+ * "Email me a login link" from Find my player info. Needs the same email + date of birth as the
+ * lookup, and answers the same way whether or not they match.
+ */
+export async function POST(req: NextRequest) {
+  const parsed = Body.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Enter your email and date of birth." }, { status: 400 });
+  const { email, dob } = parsed.data;
+  const user = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, include: { player: true } });
+  if (user?.player && user.player.dob.toISOString().slice(0, 10) === dob && user.player.status !== "INACTIVE") {
+    const token = await createToken("login", user.id);
+    await sendMail({ to: user.email, ...loginLinkEmail({ firstName: user.player.firstName, url: `${appUrl()}/login/link?token=${token}` }) });
+  }
+  return NextResponse.json({ ok: true });
+}

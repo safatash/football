@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs"
 import prisma from "@/lib/prisma"
 import { Adapter } from "next-auth/adapters"
 import { isAdminUser } from "@/lib/admin"
+import { consumeToken } from "@/lib/tokens"
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
@@ -48,7 +49,20 @@ export const authOptions: NextAuthOptions = {
           name: user.player ? `${user.player.firstName} ${user.player.lastName}` : user.email,
         }
       }
-    })
+    }),
+    // "Email me a login link": a single-use token from /login/link signs the user in
+    CredentialsProvider({
+      id: "login-link",
+      name: "login link",
+      credentials: { token: { label: "Token", type: "text" } },
+      async authorize(credentials) {
+        const userId = await consumeToken("login", credentials?.token ?? "")
+        if (!userId) throw new Error("This login link has expired or was already used.")
+        const user = await prisma.user.findUnique({ where: { id: userId }, include: { player: true } })
+        if (!user || user.player?.status === "INACTIVE") throw new Error("This account isn’t active.")
+        return { id: user.id, email: user.email, name: user.player ? `${user.player.firstName} ${user.player.lastName}` : user.email }
+      },
+    }),
   ],
   callbacks: {
     async session({ session, token }) {

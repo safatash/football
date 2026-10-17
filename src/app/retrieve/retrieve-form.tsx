@@ -18,6 +18,7 @@ export function RetrieveForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [toast, showToast] = useToast(3200);
+  const [sending, setSending] = useState(false);
 
   async function lookup(e: FormEvent) {
     e.preventDefault();
@@ -97,7 +98,20 @@ export function RetrieveForm() {
                 <b>{result.lastTeam}</b>
               </div>
             ) : null}
-            <Button variant="primary" block onClick={() => showToast(`Login link sent to ${result.maskedEmail}`)}>
+            <Button
+              variant="primary"
+              block
+              disabled={sending}
+              onClick={async () => {
+                setSending(true);
+                try {
+                  const res = await fetch("/api/account/login-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, dob }) });
+                  showToast(res.ok ? `Login link sent to ${result.maskedEmail}` : "We couldn’t send the link. Try again in a minute.");
+                } finally {
+                  setSending(false);
+                }
+              }}
+            >
               <Icon name="mail" className="size-[18px]" />
               Email me a login link
             </Button>

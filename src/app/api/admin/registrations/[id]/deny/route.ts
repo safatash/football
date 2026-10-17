@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { sendMail } from "@/lib/mail";
+import { registrationDeniedEmail } from "@/lib/mail-templates";
 import { SeasonReadOnlyError, assertSeasonWritable } from "@/lib/queries/season";
 
 const Body = z.object({
@@ -39,6 +41,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       await tx.captainRequest.updateMany({ where: { registrationId: id, status: "PENDING" }, data: { status: "DENIED", decidedById: session.user.id, decidedAt: new Date() } });
     });
 
+    const done = await prisma.registration.findUniqueOrThrow({
+      where: { id },
+      include: { season: { select: { name: true } }, player: { select: { firstName: true, user: { select: { email: true } } } } },
+    });
+    await sendMail({ to: done.player.user.email, ...registrationDeniedEmail({ firstName: done.player.firstName, seasonName: done.season.name, message: parsed.data.message || null }) });
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof ConflictError) return NextResponse.json({ error: "This registration was already decided." }, { status: 409 });

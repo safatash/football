@@ -3,6 +3,9 @@ import prisma from "@/lib/prisma";
 import { now } from "@/lib/clock";
 import { checkEligibility } from "@/lib/eligibility";
 import { passWindow } from "@/lib/game-pass";
+import { fmtDay, fmtTime, money } from "@/lib/format";
+import { sendMail } from "@/lib/mail";
+import { gamePassReceiptEmail } from "@/lib/mail-templates";
 import { blocklistHit } from "@/lib/queries/registrations";
 import { getSettings } from "@/lib/queries/season";
 
@@ -65,7 +68,8 @@ export async function fulfillGamePass(session: Pick<Stripe.Checkout.Session, "id
   const teamId = session.metadata?.teamId || null;
   if (!matchId || !playerId) throw new Error("Game pass checkout is missing matchId/playerId");
 
-  return prisma.$transaction(async (tx) => {
+  let created = false;
+  const pass = await prisma.$transaction(async (tx) => {
     const paid = await tx.payment.findUnique({ where: { stripeChargeId: session.id }, include: { gamePass: true } });
     if (paid?.gamePass) return paid.gamePass;
 
@@ -106,7 +110,35 @@ export async function fulfillGamePass(session: Pick<Stripe.Checkout.Session, "id
         create: { playerId, teamId, divisionId: team.divisionId, membershipType: "GAME_PASS", gamePassId: pass.id, matchId, joinedAt: validFrom },
       });
     }
+    created = true;
     return pass;
+  });
+  if (created) await sendGamePassReceipt(pass.id);
+  return pass;
+}
+
+async function sendGamePassReceipt(passId: string) {
+  const p = await prisma.gamePass.findUniqueOrThrow({
+    where: { id: passId },
+    include: {
+      payment: true,
+      team: { select: { name: true } },
+      player: { select: { firstName: true, user: { select: { email: true } } } },
+      match: { select: { gameNumber: true, scheduledAt: true, field: true, homeTeam: { select: { name: true } }, awayTeam: { select: { name: true } } } },
+    },
+  });
+  await sendMail({
+    to: p.player.user.email,
+    ...gamePassReceiptEmail({
+      firstName: p.player.firstName,
+      gameNumber: p.match.gameNumber,
+      matchLine: `${p.match.homeTeam.name} vs ${p.match.awayTeam.name}`,
+      when: `${fmtDay(p.match.scheduledAt)}, ${fmtTime(p.match.scheduledAt)}`,
+      field: p.match.field,
+      teamName: p.team?.name ?? null,
+      amount: money(p.payment.amount),
+      passId: p.id,
+    }),
   });
 }
 
