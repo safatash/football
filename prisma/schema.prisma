@@ -104,8 +104,12 @@ model Player {
   tshirtSize String
 
   // Photo
-  photoId String?
-  photo   String? // File path or URL
+  photoId  String?
+  photo    String? // File path or URL
+  photoUrl String? // shown publicly only when `social` is true
+
+  /// Stable key from the old site (email, or legacy id when there's no email)
+  legacyKey String? @unique
 
   // Registration Status
   finalApproval ApprovalStatus @default(NEEDS_REVIEW)
@@ -162,11 +166,14 @@ enum PlayerStatus {
 // ============================================
 
 model Season {
-  id        String   @id @default(cuid())
-  name      String   @unique // e.g., "Fall 2024"
-  startDate DateTime
-  endDate   DateTime
-  isActive  Boolean  @default(false) // Only one season should be active
+  id               String   @id @default(cuid())
+  name             String   @unique // e.g., "Fall 2024"
+  slug             String   @unique // URL form, e.g. "spring-2026"
+  /// The old site's per-season MySQL database name, e.g. "spring2026"
+  legacyDatasource String?  @unique
+  startDate        DateTime
+  endDate          DateTime
+  isActive         Boolean  @default(false) // Only one season should be active
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -201,7 +208,8 @@ model Division {
   femaleBornOnOrBefore DateTime?  @db.Date
   minAge               Int        @default(18)
 
-  displayOrder Int @default(0)
+  displayOrder Int  @default(0)
+  legacyId     Int? // divisions.id in the old site's season database
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -214,6 +222,7 @@ model Division {
 
   @@unique([seasonId, name])
   @@unique([seasonId, code])
+  @@unique([seasonId, legacyId])
   @@map("divisions")
 }
 
@@ -237,6 +246,16 @@ model Team {
   homeField String?
   status    TeamStatus @default(ACTIVE)
 
+  // Public team page
+  logoUrl    String?
+  photoUrl   String?
+  homeShirt  String? // kit colors, hex
+  homeShorts String?
+  awayShirt  String?
+  awayShorts String?
+  formation  String?
+  legacyId   Int? // teamdiv.id in the old site's season database
+
   // Team paid in full code
   paidInFullCode String? @unique // pf code for free registration
 
@@ -259,6 +278,7 @@ model Team {
 
   @@unique([seasonId, divisionId, name])
   @@unique([seasonId, code])
+  @@unique([seasonId, legacyId])
   @@index([divisionId])
   @@map("teams")
 }
@@ -494,6 +514,9 @@ model Match {
 
   field    String?
   location String?
+  fieldId  String?
+  venue    Field?  @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  legacyId Int? // schedule.id in the old site's season database
 
   // Scores
   homeScore Int?
@@ -520,7 +543,9 @@ model Match {
   reports      MatchReport[]
 
   @@unique([seasonId, gameNumber])
+  @@unique([seasonId, legacyId])
   @@index([seasonId, scheduledAt])
+  @@index([fieldId])
   @@index([homeTeamId])
   @@index([awayTeamId])
   @@map("matches")
@@ -623,19 +648,48 @@ model MatchReport {
 }
 
 model PlayerMatchStat {
-  id       String      @id @default(cuid())
-  reportId String
-  report   MatchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  playerId String
-  player   Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  goals    Int         @default(0)
-  assists  Int         @default(0)
-  yellow   Int         @default(0)
-  red      Int         @default(0)
+  id           String      @id @default(cuid())
+  reportId     String
+  report       MatchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  playerId     String
+  player       Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  goals        Int         @default(0)
+  assists      Int         @default(0)
+  yellow       Int         @default(0)
+  secondYellow Int         @default(0)
+  red          Int         @default(0)
+  inGame       InGame      @default(IN)
+  note         String?
 
   @@unique([reportId, playerId])
   @@index([playerId])
   @@map("player_match_stats")
+}
+
+enum InGame {
+  IN // started
+  OUT // came on as a sub
+  DNP // didn't play
+}
+
+/// A playing field. Matches point here for directions on public pages.
+model Field {
+  id       String  @id @default(cuid())
+  complex  String // e.g. "Wakefield Park"
+  name     String // field within the complex, e.g. "3"
+  address  String?
+  city     String?
+  state    String?
+  zip      String?
+  legacyId Int?    @unique // fields.id in the old site (shared across seasons)
+
+  matches Match[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([complex, name])
+  @@map("fields")
 }
 
 // ============================================

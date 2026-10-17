@@ -164,6 +164,13 @@ const SCORING: Record<string, number> = {
   'Chris Alvarez': 4, 'Diego Ruiz': 3, 'Kevin Osei': 1, 'Dee Washington': 3, 'Marco Bellini': 2,
 }
 
+/** Towns for the parks we play at (used for directions). */
+const FIELD_CITIES: Record<string, string> = {
+  'Wakefield Park': 'Annandale', 'Chinquapin Park': 'Alexandria', 'Lee District': 'Alexandria', 'Burke Lake': 'Fairfax Station',
+  'Mason District': 'Annandale', 'Long Bridge Park': 'Arlington', 'Baron Cameron': 'Reston', 'Lake Accotink': 'Springfield',
+  'Bready Park': 'Herndon', 'Grist Mill Park': 'Alexandria',
+}
+
 const REFS = ['Daniel Kim', 'Lucia Fernandes', 'Omar Haddad', 'Sam Okoye', 'Irene Park', 'Luis Mejía', 'Paul Grant', 'Ana Silva', 'Tara Boone', 'Hugo Bell']
 
 type FixedMatch = { game: number; date: string; time: string; home: string; away: string; field: string; refs: [string, string, string]; score?: [number, number] }
@@ -284,13 +291,14 @@ async function main() {
   console.log('✅ Admin: safatash@gmail.com (password: Admin123! — change it after first login)')
 
   // Seasons --------------------------------------------------------------
+  const seasonKeys = (name: string) => ({ slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), legacyDatasource: name.toLowerCase().replace(/[^a-z0-9]/g, '') })
   const season = await prisma.season.upsert({
     where: { name: 'Spring 2026' },
-    update: { startDate: day(OPENING_DAY), endDate: day('2026-06-28'), isActive: true },
-    create: { name: 'Spring 2026', startDate: day(OPENING_DAY), endDate: day('2026-06-28'), isActive: true },
+    update: { startDate: day(OPENING_DAY), endDate: day('2026-06-28'), isActive: true, ...seasonKeys('Spring 2026') },
+    create: { name: 'Spring 2026', startDate: day(OPENING_DAY), endDate: day('2026-06-28'), isActive: true, ...seasonKeys('Spring 2026') },
   })
   for (const [name, start, end] of [['Fall 2025', '2025-08-31', '2025-11-23'], ['Spring 2025', '2025-03-30', '2025-06-29']]) {
-    await prisma.season.upsert({ where: { name }, update: {}, create: { name, startDate: day(start), endDate: day(end), isActive: false } })
+    await prisma.season.upsert({ where: { name }, update: seasonKeys(name), create: { name, startDate: day(start), endDate: day(end), isActive: false, ...seasonKeys(name) } })
   }
   await prisma.season.updateMany({ where: { isActive: true, id: { not: season.id } }, data: { isActive: false } })
   await prisma.leagueSettings.upsert({
@@ -330,7 +338,21 @@ async function main() {
   // Teams --------------------------------------------------------------
   const teamIds: Record<string, string> = {}
   for (const t of TEAMS) {
-    const data = { code: t.code, name: t.name, divisionId: divIds[t.div], shortName: t.short, color: t.color, homeField: t.home, maxPlayers: 22 }
+    const data = {
+      code: t.code,
+      name: t.name,
+      divisionId: divIds[t.div],
+      shortName: t.short,
+      color: t.color,
+      homeField: t.home,
+      maxPlayers: 22,
+      // Kits: club color at home, white away
+      homeShirt: t.color,
+      homeShorts: '#FFFFFF',
+      awayShirt: '#FFFFFF',
+      awayShorts: t.color,
+      formation: t.code === 'ffx' ? '4-4-2' : t.code === 'alx' ? '4-3-3' : null,
+    }
     const existing = await prisma.team.findFirst({ where: { seasonId: season.id, OR: [{ code: t.code }, { name: t.name }] } })
     const row = existing
       ? await prisma.team.update({ where: { id: existing.id }, data })
@@ -555,6 +577,19 @@ async function main() {
     planned.push({ ...m, score, div: teamByCode[m.home].div })
   }
 
+  // Fields: "Wakefield Park 3" → complex "Wakefield Park", field "3"
+  const fieldIds: Record<string, string> = {}
+  for (const label of [...new Set(planned.map((m) => m.field))]) {
+    const [, complex, name] = label.match(/^(.*?)\s+(\S+)$/) ?? [label, label, '1']
+    const city = FIELD_CITIES[complex] ?? null
+    const row = await prisma.field.upsert({
+      where: { complex_name: { complex, name } },
+      update: { city, state: 'VA' },
+      create: { complex, name, city, state: 'VA' },
+    })
+    fieldIds[label] = row.id
+  }
+
   const matchIds: Record<number, string> = {}
   const ffxRoster = Object.keys(rosterIds.ffx)
   for (const m of planned) {
@@ -569,6 +604,7 @@ async function main() {
       endTime: new Date(scheduledAt.getTime() + 105 * 60_000),
       field: m.field,
       location: m.field.replace(/ \d+$/, ''),
+      fieldId: fieldIds[m.field],
       ref1: m.refs[0] || null,
       ref2: m.refs[1] || null,
       ref3: m.refs[2] || null,

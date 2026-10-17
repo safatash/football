@@ -12,9 +12,9 @@ import { requireUser } from "@/lib/session";
 import { getTeamAccess } from "@/lib/team-access";
 import { PrintButton } from "./print-button";
 
-export async function generateMetadata({ params }: { params: Promise<{ gameNumber: string }> }) {
-  const { gameNumber } = await params;
-  return { title: `Game roster · Game #${gameNumber}` };
+export async function generateMetadata({ params }: { params: Promise<{ matchId: string }> }) {
+  const { matchId } = await params;
+  return { title: /^\d+$/.test(matchId) ? `Game roster · Game #${matchId}` : "Game roster" };
 }
 
 type SheetRow = { jersey?: number | string; name: string; captain?: boolean; gamePass?: boolean; pos: string; status: string };
@@ -111,8 +111,8 @@ function TeamTable({ title, team }: { title: string; team: SheetTeam }) {
   );
 }
 
-export default async function PrintRosterPage({ params }: { params: Promise<{ gameNumber: string }> }) {
-  const { gameNumber } = await params;
+export default async function PrintRosterPage({ params }: { params: Promise<{ matchId: string }> }) {
+  const { matchId: gameNumber } = await params;
   await requireUser(`/matches/${gameNumber}/print`);
   const season = await getActiveSeason();
   const m = season ? await findMatch(gameNumber, season.id) : null;
