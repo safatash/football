@@ -4,7 +4,7 @@ import prisma from "@/lib/prisma";
 
 /* ---------- Divisions ---------- */
 
-const divisionSelect = {
+export const divisionSelect = {
   id: true,
   code: true,
   name: true,

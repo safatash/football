@@ -32,6 +32,12 @@ export function TopNav({ teamHref, initials, season }: { teamHref: string; initi
           {it.label}
         </Link>
       ))}
+      <Link
+        href="/standings"
+        className={`rounded-full px-3.5 py-2 text-[14.5px] font-bold ${LEAGUE_LINKS.some((l) => isOnLeague(path, l.href)) ? "bg-pitch-tint text-fg" : "text-muted hover:bg-surface-2 hover:text-fg"}`}
+      >
+        League
+      </Link>
       <span className="flex-1" />
       <span className="mr-2 text-sm text-muted">{season}</span>
       <Link href="/portal/profile" aria-label="Your profile" className="grid size-[34px] place-items-center rounded-full bg-lime text-[13px] font-bold text-lime-ink">
@@ -62,10 +68,33 @@ export function BottomTabs({ teamHref }: { teamHref: string }) {
 }
 
 /** Public pages: desktop top bar with sign-in actions. */
+/** Public league pages, in nav order. */
+export const LEAGUE_LINKS = [
+  { href: "/standings", label: "Standings" },
+  { href: "/results", label: "Results" },
+  { href: "/schedule", label: "Schedule" },
+  { href: "/teams", label: "Teams" },
+] as const;
+
+const isOnLeague = (path: string, href: string) => path === href || path.startsWith(`${href}/`);
+
 export function PublicTopNav() {
+  const path = usePathname();
   return (
     <nav aria-label="NVASA" className="sticky top-0 z-30 hidden min-h-[60px] items-center gap-1.5 border-b border-line bg-surface px-[max(16px,calc((100%-1120px)/2))] lg:flex">
       <Logo />
+      <span className="ml-4 flex items-center gap-1">
+        {LEAGUE_LINKS.map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            aria-current={isOnLeague(path, l.href) ? "page" : undefined}
+            className={`rounded-full px-3.5 py-2 text-[14.5px] font-bold ${isOnLeague(path, l.href) ? "bg-pitch-tint text-fg" : "text-muted hover:bg-surface-2 hover:text-fg"}`}
+          >
+            {l.label}
+          </Link>
+        ))}
+      </span>
       <span className="flex-1" />
       <Link href="/#fees" className="rounded-full px-3.5 py-2 text-[14.5px] font-bold text-muted hover:bg-surface-2 hover:text-fg">
         Divisions & fees
@@ -77,6 +106,37 @@ export function PublicTopNav() {
         Register
       </Link>
     </nav>
+  );
+}
+
+/** Phones: logo row plus a horizontal scroller of the league pages. Hidden from lg. */
+export function PublicMobileNav() {
+  const path = usePathname();
+  return (
+    <div className="sticky top-0 z-30 border-b border-line bg-surface lg:hidden">
+      <div className="flex min-h-[54px] items-center gap-2 px-4">
+        <Logo />
+        <span className="flex-1" />
+        <Link href="/login" className="rounded-full px-3 py-2 text-[13.5px] font-bold text-muted hover:text-fg">
+          Log in
+        </Link>
+        <Link href="/register" className="inline-flex min-h-9 items-center rounded-full bg-lime px-3.5 text-[13.5px] font-bold text-lime-ink">
+          Register
+        </Link>
+      </div>
+      <nav aria-label="League" className="no-scrollbar flex gap-1 overflow-x-auto px-3 pb-2">
+        {LEAGUE_LINKS.map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            aria-current={isOnLeague(path, l.href) ? "page" : undefined}
+            className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13.5px] font-bold ${isOnLeague(path, l.href) ? "bg-fg text-bg" : "text-muted hover:text-fg"}`}
+          >
+            {l.label}
+          </Link>
+        ))}
+      </nav>
+    </div>
   );
 }
 

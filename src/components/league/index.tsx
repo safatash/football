@@ -13,12 +13,23 @@ export function Logo({ href = "/", className = "", tone = "default" }: { href?: 
   );
 }
 
-export type CrestTeam = { name: string; color?: string | null; shortName?: string | null };
+export type CrestTeam = { name: string; color?: string | null; shortName?: string | null; logoUrl?: string | null };
 
 /** Team crest: colored tile with the team's short code. Pass `team` or the parts. */
 export function Crest({ team, name, color, ab, size = "md" }: { team?: CrestTeam; name?: string; color?: string | null; ab?: string | null; size?: "md" | "lg" }) {
   const bg = color ?? team?.color ?? "#0F3D2E";
   const code = (ab ?? team?.shortName ?? (name ?? team?.name ?? "").split(" ").map((w) => w[0]).join("")).slice(0, 3);
+  if (team?.logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- team logos are small static files
+      <img
+        src={team.logoUrl}
+        alt=""
+        aria-hidden
+        className={`shrink-0 bg-surface object-contain ${size === "lg" ? "size-[52px] rounded-[14px]" : "size-9 rounded-[10px]"}`}
+      />
+    );
+  }
   return (
     <span
       aria-hidden
