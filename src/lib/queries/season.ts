@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { DEFAULT_GAME_PASS_FEE, DEFAULT_MAX_MATCH_ROSTER } from "@/lib/league-data";
 import prisma from "@/lib/prisma";
 
 export type SeasonRef = { id: string; name: string; isActive: boolean; startDate: Date; endDate: Date };
@@ -26,8 +27,8 @@ export async function resolveSeason(name?: string | null): Promise<ResolvedSeaso
 export const getSettings = cache(async (seasonId: string) => {
   const s = await prisma.leagueSettings.findUnique({ where: { seasonId } });
   return {
-    gamePassFee: s ? Number(s.gamePassFee) : 15,
-    maxMatchRoster: s?.maxMatchRoster ?? 18,
+    gamePassFee: s ? Number(s.gamePassFee) : DEFAULT_GAME_PASS_FEE,
+    maxMatchRoster: s?.maxMatchRoster ?? DEFAULT_MAX_MATCH_ROSTER,
     fairfaxCountyAllowed: s?.fairfaxCountyAllowed ?? true,
   };
 });
