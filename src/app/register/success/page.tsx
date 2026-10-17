@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Stripe from "stripe";
 import { PaymentBadge, RegistrationBadge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Card, Notice } from "@/components/ui/card";
@@ -7,6 +6,7 @@ import { Icon } from "@/components/ui/icon";
 import { Logo } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
 import prisma from "@/lib/prisma";
+import { stripe } from "@/lib/stripe";
 
 export const metadata: Metadata = { title: "Registration received" };
 
@@ -25,15 +25,18 @@ async function loadInfo(sessionId?: string, registrationId?: string): Promise<In
     let regId = registrationId;
     let stripePaid = false;
     if (sessionId && process.env.STRIPE_SECRET_KEY) {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2025-02-24.acacia" });
-      const s = await stripe.checkout.sessions.retrieve(sessionId);
+      const s = await stripe().checkout.sessions.retrieve(sessionId);
       regId = s.metadata?.registrationId ?? s.client_reference_id ?? undefined;
       stripePaid = s.payment_status === "paid";
     }
     if (!regId) return fallback;
     const reg = await prisma.registration.findUnique({
       where: { id: regId },
-      include: { player: { include: { user: { select: { email: true } } } } },
+      include: {
+        player: { include: { user: { select: { email: true } } } },
+        preferredTeam: { select: { name: true } },
+        _count: { select: { captainRequestRows: true } },
+      },
     });
     if (!reg) return fallback;
     let teams: string[] = [];
@@ -47,8 +50,8 @@ async function loadInfo(sessionId?: string, registrationId?: string): Promise<In
       email: reg.player.user.email,
       paid: stripePaid || reg.paymentStatus === "PAID",
       submittedAt: reg.submittedAt,
-      preferredTeam: teams[0],
-      captainRequest: Boolean(reg.captainRequests),
+      preferredTeam: reg.preferredTeam?.name ?? teams[0],
+      captainRequest: reg._count.captainRequestRows > 0 || Boolean(reg.captainRequests),
     };
   } catch (error) {
     console.error("Could not load registration for success page:", error);

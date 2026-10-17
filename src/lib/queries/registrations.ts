@@ -163,7 +163,7 @@ export type Check = [ok: boolean, text: string];
 const GENDER: Record<string, string> = { FEMALE: "Female", MALE: "Male", NON_BINARY: "Non-binary" };
 
 /** Exact email, the bare domain, or *@domain. */
-async function blocklistHit(email: string) {
+export async function blocklistHit(email: string) {
   const e = email.trim().toLowerCase();
   const domain = e.split("@")[1] ?? "";
   return prisma.blocklist.findFirst({

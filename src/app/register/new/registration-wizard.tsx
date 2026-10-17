@@ -10,21 +10,47 @@ import { Field, SelectInput, TextArea, TextInput } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { Stepper } from "@/components/ui/stepper";
 import { ActionBar, AppBar, Screen } from "@/components/shell/layout";
-import {
-  TEAMS,
-  ageOn,
-  discountFor,
-  division,
-  eligibleDivisions,
-  looksEligibleZip,
-  money,
-  type DivisionId,
-  type Gender,
-} from "@/lib/league-data";
+import { ageOn, checkEligibility, type GenderValue } from "@/lib/eligibility";
+import { money } from "@/lib/format";
 
 const STEPS = ["Account", "Player details", "Contact", "Playing background", "Team preferences", "Captain & updates", "Fees & review"];
 const SHIRTS = ["Youth S", "Youth M", "Youth L", "Adult XS", "Adult S", "Adult M", "Adult L", "Adult XL", "Adult 2XL", "Adult 3XL"];
-const NON_BINARY_MSG = "Non-binary registration is handled by the league office — email office@nvasa.org";
+
+type Gender = "Female" | "Male" | "Non-binary";
+type DivisionId = string;
+const GENDER_VALUE: Record<Gender, GenderValue> = { Female: "FEMALE", Male: "MALE", "Non-binary": "NON_BINARY" };
+
+export type WizardDivision = {
+  id: string;
+  name: string;
+  fee: number;
+  age: string;
+  genderRule: "WOMEN" | "MEN" | "COED";
+  maleBornOnOrBefore: string | null;
+  femaleBornOnOrBefore: string | null;
+  minAge: number;
+};
+export type WizardTeam = { id: string; name: string; div: string; size: number };
+/** A signed-in player's profile: they get the shorter returning-player path. */
+export type WizardProfile = { first: string; last: string; email: string; dob: string; gender: Gender; pos: string; shirt: string };
+type Ctx = { openingDay: string; openingLabel: string; minAge: number; returning: boolean };
+
+function eligibleDivisions(divisions: WizardDivision[], dob: string, gender: Gender | "", openingDay: string) {
+  if (ageOn(dob, openingDay) === null) return null;
+  return divisions.map((d) => {
+    const rule = {
+      ...d,
+      maleBornOnOrBefore: d.maleBornOnOrBefore ? new Date(`${d.maleBornOnOrBefore}T00:00:00Z`) : null,
+      femaleBornOnOrBefore: d.femaleBornOnOrBefore ? new Date(`${d.femaleBornOnOrBefore}T00:00:00Z`) : null,
+    };
+    // Before a gender is picked, show what the date of birth alone allows
+    const genders: GenderValue[] = gender ? [GENDER_VALUE[gender]] : ["FEMALE", "MALE"];
+    const results = genders.map((g) => checkEligibility(rule, { dob, gender: g }, openingDay));
+    const ok = gender ? results[0].ok : results.some((r) => r.ok);
+    const failed = results.find((r) => !r.ok);
+    return { ...d, ok, why: ok ? "" : failed && !failed.ok ? failed.reason : "" };
+  });
+}
 
 type Pos = "GK" | "DEF" | "MID" | "FWD";
 type Form = {
@@ -103,9 +129,9 @@ function passwordProblems(pw: string) {
   return out;
 }
 
-function validate(step: number, f: Form): Errors {
+function validate(step: number, f: Form, ctx: Ctx): Errors {
   const e: Errors = {};
-  if (step === 1) {
+  if (step === 1 && !ctx.returning) {
     if (!f.first.trim()) e.first = "Enter your first name.";
     if (!f.last.trim()) e.last = "Enter your last name.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) e.email = "Enter a valid email address.";
@@ -113,16 +139,15 @@ function validate(step: number, f: Form): Errors {
     if (p.length) e.pw = `Password needs ${p.join(", ")}.`;
   }
   if (step === 2) {
-    const age = ageOn(f.dob);
+    const age = f.dob ? ageOn(f.dob, ctx.openingDay) : null;
     if (!f.dob || age === null) e.dob = "Enter your date of birth.";
-    else if (age < 18) e.dob = "Players must be 18 or older on opening day, March 29, 2026.";
+    else if (age < ctx.minAge) e.dob = `Players must be ${ctx.minAge} or older on opening day, ${ctx.openingLabel}.`;
     if (!f.gender) e.gender = "Choose one.";
-    else if (f.gender === "Non-binary") e.gender = NON_BINARY_MSG;
     if (!e.dob && !e.gender && !f.div) e.div = "Choose a division you’re eligible for.";
     if (!f.pos) e.pos = "Choose a position.";
     if (!f.shirt) e.shirt = "Choose a size.";
   }
-  if (step === 3) {
+  if (step === 3 && !ctx.returning) {
     if (f.phone.replace(/\D/g, "").length < 10) e.phone = "Enter a 10-digit phone number.";
     if (!f.street.trim()) e.street = "Enter your street address.";
     if (!f.city.trim()) e.city = "Enter your city.";
@@ -141,9 +166,32 @@ function validate(step: number, f: Form): Errors {
   return e;
 }
 
-export function RegistrationWizard() {
-  const [step, setStep] = useState(1);
-  const [f, setF] = useState<Form>(EMPTY);
+export function RegistrationWizard({
+  season,
+  divisions,
+  teams,
+  eligibleZips,
+  profile,
+}: {
+  season: { name: string; openingDay: string; openingLabel: string };
+  divisions: WizardDivision[];
+  teams: WizardTeam[];
+  eligibleZips: string[];
+  profile: WizardProfile | null;
+}) {
+  const returning = !!profile;
+  // Returning players skip account and contact details: those carry over from their profile.
+  const order = returning ? [2, 4, 5, 6, 7] : [1, 2, 3, 4, 5, 6, 7];
+  const ctx: Ctx = { openingDay: season.openingDay, openingLabel: season.openingLabel, minAge: Math.min(...divisions.map((d) => d.minAge), 18), returning };
+  const [step, setStep] = useState(order[0]);
+  const [f, setF] = useState<Form>(() =>
+    profile
+      ? { ...EMPTY, first: profile.first, last: profile.last, email: profile.email, dob: profile.dob, gender: profile.gender, pos: (profile.pos as Pos) || "", shirt: profile.shirt, background: "Returning" }
+      : EMPTY,
+  );
+  const [checkingCode, setCheckingCode] = useState(false);
+  // A code is checked for one division and preferred team; changing either means checking it again.
+  const [checked, setChecked] = useState({ key: "", discount: 0 });
   const [errors, setErrors] = useState<Errors>({});
   const [codeErr, setCodeErr] = useState("");
   const [submitError, setSubmitError] = useState("");
@@ -168,26 +216,32 @@ export function RegistrationWizard() {
   };
 
   // Eligibility: keep the chosen division valid as DOB / gender change.
-  const elig = useMemo(() => (f.dob ? eligibleDivisions(f.dob, f.gender) : null), [f.dob, f.gender]);
+  const elig = useMemo(() => (f.dob ? eligibleDivisions(divisions, f.dob, f.gender, season.openingDay) : null), [divisions, f.dob, f.gender, season.openingDay]);
   const okDivs = useMemo(() => elig?.filter((d) => d.ok) ?? [], [elig]);
   function updateEligibility(next: Partial<Form>) {
     setF((prev) => {
       const merged = { ...prev, ...next };
-      const el = merged.dob ? eligibleDivisions(merged.dob, merged.gender) : null;
+      const el = merged.dob ? eligibleDivisions(divisions, merged.dob, merged.gender, season.openingDay) : null;
       const ok = el?.filter((d) => d.ok) ?? [];
       const div = ok.find((d) => d.id === merged.div) ? merged.div : (ok[0]?.id ?? "");
-      const teamsOk = (id: string) => !id || TEAMS.find((t) => t.id === id)?.div === div;
+      const teamsOk = (id: string) => !id || teams.find((t) => t.id === id)?.div === div;
       return { ...merged, div, pref: teamsOk(merged.pref) ? merged.pref : "", backup: teamsOk(merged.backup) ? merged.backup : "" };
     });
     setErrors((prev) => ({ ...prev, dob: undefined, gender: undefined, div: undefined }));
   }
 
-  const d = f.div ? division(f.div) : null;
+  const d = f.div ? (divisions.find((x) => x.id === f.div) ?? null) : null;
   const fee = d?.fee ?? 0;
-  const discount = f.codeApplied ? discountFor(f.codeApplied, fee).amount : 0;
+  const codeKey = `${f.div}|${f.pref}`;
+  const appliedCode = f.codeApplied && checked.key === codeKey ? f.codeApplied : "";
+  const discount = appliedCode ? checked.discount : 0;
   const total = Math.max(0, fee - discount);
-  const divTeams = TEAMS.filter((t) => t.div === f.div);
-  const teamName = (id: string) => TEAMS.find((t) => t.id === id)?.name ?? "";
+  const divTeams = teams.filter((t) => t.div === f.div);
+  const teamName = (id: string) => teams.find((t) => t.id === id)?.name ?? "";
+  const position = order.indexOf(step);
+  const prevStep = order[position - 1];
+  const isFirst = position === 0;
+
 
   function goTo(n: number) {
     setErrors({});
@@ -202,36 +256,50 @@ export function RegistrationWizard() {
   }
 
   function next() {
-    const e = validate(step, f);
+    const e = validate(step, f, ctx);
     if (Object.values(e).some(Boolean)) {
       setErrors(e);
       requestAnimationFrame(() => document.querySelector<HTMLElement>("[aria-invalid=true], [data-error=true]")?.focus());
       return;
     }
-    goTo(fromReview ? 7 : step + 1);
+    goTo(fromReview ? 7 : order[position + 1]);
   }
 
-  function applyCode() {
-    const r = discountFor(f.code, fee);
-    if (r.ok) {
-      setF((p) => ({ ...p, codeApplied: p.code.trim().toUpperCase() }));
-      setCodeErr("");
-      showToast("Code applied");
-    } else {
-      setF((p) => ({ ...p, codeApplied: "" }));
-      setCodeErr(r.message ?? "That code isn’t valid.");
+  async function applyCode() {
+    if (!f.code.trim()) return setCodeErr("Enter a code first.");
+    setCheckingCode(true);
+    try {
+      const res = await fetch("/api/register/discount", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: f.code, divisionCode: f.div, preferredTeamId: f.pref || null }),
+      });
+      const r = (await res.json().catch(() => ({}))) as { ok?: boolean; discount?: number; message?: string };
+      if (r.ok) {
+        setF((p) => ({ ...p, codeApplied: p.code.trim().toUpperCase() }));
+        setChecked({ key: codeKey, discount: r.discount ?? 0 });
+        setCodeErr("");
+        showToast("Code applied");
+      } else {
+        setF((p) => ({ ...p, codeApplied: "" }));
+        setCodeErr(r.message ?? "That code isn’t valid.");
+      }
+    } catch {
+      setCodeErr("We couldn’t check that code. Try again.");
+    } finally {
+      setCheckingCode(false);
     }
   }
 
   async function pay() {
-    const e = validate(7, f);
+    const e = validate(7, f, ctx);
     if (e.agree) {
       setErrors(e);
       return;
     }
     // Catch anything missed in earlier steps before handing off.
-    for (let s = 1; s <= 6; s++) {
-      const se = validate(s, f);
+    for (const s of order.slice(0, -1)) {
+      const se = validate(s, f, ctx);
       if (Object.values(se).some(Boolean)) {
         setStep(s);
         setErrors(se);
@@ -262,15 +330,13 @@ export function RegistrationWizard() {
           social: f.optSocial,
           tournaments: f.optTourney,
           divisionCode: f.div,
-          divisionName: d?.name,
-          fee,
-          preferredTeam: teamName(f.pref),
-          backupTeam: teamName(f.backup),
+          preferredTeamId: f.pref || null,
+          backupTeamId: f.backup || null,
           background: f.background,
           level: f.level,
           captainRequest: f.captain,
           captainNote: f.captain ? f.capNote.trim() : "",
-          discountCode: f.codeApplied,
+          discountCode: appliedCode,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -297,7 +363,7 @@ export function RegistrationWizard() {
           </div>
           <Card className="w-full text-left">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[13.5px] text-muted">Spring 2026 · {d?.name}</span>
+              <span className="text-[13.5px] text-muted">{season.name} · {d?.name}</span>
               <b>{money(total)}</b>
             </div>
           </Card>
@@ -308,7 +374,7 @@ export function RegistrationWizard() {
 
   const head = (title: string, sub?: ReactNode) => (
     <>
-      <Stepper current={step} total={7} label={STEPS[step - 1]} />
+      <Stepper current={position + 1} total={order.length} label={STEPS[step - 1]} />
       <div className="flex flex-col gap-1.5">
         <h1 ref={headingRef} tabIndex={-1} className="text-[34px] outline-none lg:text-[42px]">
           {title}
@@ -325,14 +391,14 @@ export function RegistrationWizard() {
     <>
       <AppBar
         title="Season registration"
-        backHref={step === 1 ? "/register" : undefined}
+        backHref={isFirst ? "/register" : undefined}
       >
-        {step > 1 ? (
+        {!isFirst ? (
           <>
             <button
               type="button"
               aria-label="Back"
-              onClick={() => goTo(step - 1)}
+              onClick={() => goTo(prevStep)}
               className="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-surface"
             >
               <Icon name="left" />
@@ -371,10 +437,14 @@ export function RegistrationWizard() {
             </Field>
             <p className="text-[13.5px] text-muted">
               Played with us before?{" "}
-              <Link href="/retrieve" className="font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
-                Find your old profile
+              <Link href="/login?next=/register/new" className="font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
+                Log in
               </Link>{" "}
-              so your history carries over.
+              to register in fewer steps, or{" "}
+              <Link href="/retrieve" className="font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
+                find your old profile
+              </Link>
+              .
             </p>
           </>
         ) : null}
@@ -384,15 +454,20 @@ export function RegistrationWizard() {
           <>
             {head("About you", "Your date of birth decides which divisions you can play in.")}
             <Field label="Date of birth" htmlFor="dob" error={err("dob")}>
-              <TextInput id="dob" type="date" autoComplete="bday" value={f.dob} onChange={(e) => updateEligibility({ dob: e.target.value })} aria-invalid={inv("dob")} />
+              <TextInput id="dob" type="date" autoComplete="bday" value={f.dob} disabled={returning} onChange={(e) => updateEligibility({ dob: e.target.value })} aria-invalid={inv("dob")} />
             </Field>
-            <Field label="Gender" error={f.gender === "Non-binary" ? undefined : err("gender")}>
+            {returning ? (
+              <Notice tone="info" title={`Registering as ${f.first} ${f.last}`}>
+                Your details carry over from your profile. To change your date of birth or gender, contact the league office.
+              </Notice>
+            ) : null}
+            <Field label="Gender" error={err("gender")}>
               <div data-error={err("gender") ? true : undefined} tabIndex={err("gender") ? -1 : undefined}>
                 <ChoiceGroup<Gender>
                   name="Gender"
                   columns={3}
                   value={f.gender}
-                  onChange={(v) => updateEligibility({ gender: v })}
+                  onChange={(v) => !returning && updateEligibility({ gender: v })}
                   options={[
                     { value: "Female", label: "Female" },
                     { value: "Male", label: "Male" },
@@ -402,12 +477,8 @@ export function RegistrationWizard() {
               </div>
             </Field>
             {f.gender === "Non-binary" ? (
-              <Notice tone="bad" title="Registration for non-binary players goes through the league office.">
-                Email{" "}
-                <a href="mailto:office@nvasa.org" className="font-bold underline">
-                  office@nvasa.org
-                </a>{" "}
-                and we’ll get you set up in the right division.
+              <Notice tone="info" title="Non-binary players can join any coed division.">
+                Eligibility uses the men’s birth-date cutoff for that division.
               </Notice>
             ) : null}
 
@@ -415,7 +486,7 @@ export function RegistrationWizard() {
               <Card className="flex flex-col gap-3">
                 <div aria-live="polite" className="flex items-center justify-between gap-3">
                   <b>You can play in</b>
-                  <span className="text-[13.5px] text-muted">Age {ageOn(f.dob)} on opening day</span>
+                  <span className="text-[13.5px] text-muted">Age {ageOn(f.dob, season.openingDay)} on opening day</span>
                 </div>
                 <div role="radiogroup" aria-label="Division" className="flex flex-col gap-1" data-error={err("div") ? true : undefined} tabIndex={err("div") ? -1 : undefined}>
                   {elig.map((x) => {
@@ -517,7 +588,7 @@ export function RegistrationWizard() {
             </div>
             <div aria-live="polite">
               {f.zip.length === 5 ? (
-                looksEligibleZip(f.zip) ? (
+                eligibleZips.includes(f.zip) ? (
                   <Notice tone="ok" title="You’re in our playing area.">
                     {f.zip} is an eligible ZIP code.
                   </Notice>
@@ -655,7 +726,7 @@ export function RegistrationWizard() {
             <div className="grid gap-4 lg:grid-cols-[1fr_1fr] lg:items-start">
               <Card className="flex flex-col gap-3 lg:sticky lg:top-[140px] lg:order-2">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="eyebrow">Spring 2026 fee</span>
+                  <span className="eyebrow">{season.name} fee</span>
                   <Badge tone="info" dot={false}>
                     {d.name}
                   </Badge>
@@ -664,9 +735,9 @@ export function RegistrationWizard() {
                   <span>Division fee</span>
                   <b>{money(fee)}</b>
                 </div>
-                {f.codeApplied ? (
+                {appliedCode ? (
                   <div className="flex items-center justify-between text-ok">
-                    <span>Code {f.codeApplied}</span>
+                    <span>Code {appliedCode}</span>
                     <b>−{money(discount)}</b>
                   </div>
                 ) : null}
@@ -694,15 +765,15 @@ export function RegistrationWizard() {
                       }}
                       aria-invalid={codeErr ? true : undefined}
                     />
-                    <Button variant="ghost" className="min-h-12" onClick={applyCode}>
-                      Apply
+                    <Button variant="ghost" className="min-h-12" onClick={applyCode} disabled={checkingCode}>
+                      {checkingCode ? "Checking…" : "Apply"}
                     </Button>
                   </div>
                 </Field>
               </Card>
 
               <div className="flex flex-col gap-3 lg:order-1">
-                <Summary title="Account" onEdit={() => edit(1)} rows={[["Name", `${f.first} ${f.last}`], ["Email", f.email]]} />
+                <Summary title="Account" onEdit={returning ? undefined : () => edit(1)} rows={[["Name", `${f.first} ${f.last}`], ["Email", f.email]]} />
                 <Summary
                   title="Player"
                   onEdit={() => edit(2)}
@@ -714,7 +785,7 @@ export function RegistrationWizard() {
                     ["Division", d.name],
                   ]}
                 />
-                <Summary title="Contact" onEdit={() => edit(3)} rows={[["Phone", f.phone], ["Address", `${f.street}, ${f.city}, ${f.state} ${f.zip}`]]} />
+                {returning ? null : <Summary title="Contact" onEdit={() => edit(3)} rows={[["Phone", f.phone], ["Address", `${f.street}, ${f.city}, ${f.state} ${f.zip}`]]} />}
                 <Summary title="Background" onEdit={() => edit(4)} rows={[["NVASA", f.background], ["Level", LEVEL_LABEL[f.level] ?? f.level]]} />
                 <Summary
                   title="Team"
@@ -745,8 +816,8 @@ export function RegistrationWizard() {
       </Screen>
 
       <ActionBar>
-        {step > 1 ? (
-          <Button variant="ghost" className="!flex-none" onClick={() => goTo(step - 1)}>
+        {!isFirst ? (
+          <Button variant="ghost" className="!flex-none" onClick={() => goTo(prevStep)}>
             Back
           </Button>
         ) : null}
@@ -766,14 +837,16 @@ export function RegistrationWizard() {
   );
 }
 
-function Summary({ title, onEdit, rows }: { title: string; onEdit: () => void; rows: [string, ReactNode][] }) {
+function Summary({ title, onEdit, rows }: { title: string; onEdit?: () => void; rows: [string, ReactNode][] }) {
   return (
     <Card className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <b>{title}</b>
-        <Button variant="link" className="text-[13.5px]" onClick={onEdit} aria-label={`Edit ${title.toLowerCase()}`}>
-          Edit
-        </Button>
+        {onEdit ? (
+          <Button variant="link" className="text-[13.5px]" onClick={onEdit} aria-label={`Edit ${title.toLowerCase()}`}>
+            Edit
+          </Button>
+        ) : null}
       </div>
       {rows.map(([k, v]) => (
         <div key={k} className="flex justify-between gap-4 text-[13.5px]">
