@@ -71,6 +71,62 @@ shared components in `src/components/{ui,league,shell}`, and a live style sheet 
 - **Email** for registration received / approved / denied, placement questions, captain
   decisions, game pass receipts, team updates, report reminders, login links and password resets.
 
+### Public league pages (no login)
+
+| Route | What it shows |
+| --- | --- |
+| `/standings` | Every division's table (3/1/0, then goal difference, then goals for) and top-3 goal leaders |
+| `/results`, `/schedule` | Played games (newest first) and upcoming games; filter by season, division, team, or search |
+| `/teams` | Every team by division with record and points |
+| `/teams/[teamId]` | Team info and kits, scores & schedule with **Add to calendar** (`/teams/[teamId]/calendar.ics`), roster with season stats, standings, leaders |
+| `/players/[playerId]` | Name, position, current team, team history with stats |
+| `/divisions/[code]` | Teams, standings, leaders, paginated player stats, schedule |
+| `/matches/[matchId]` | Game report: officials, score, each team's player lines (also accepts a game number) |
+
+All of them use `?season=<slug>` (e.g. `spring-2026`) and default to the active season. They never
+show emails, phones, addresses, dates of birth or ages; photos only appear for players who allow
+it (`social`), and suspensions only show to signed-in users (loaded from `/api/public/viewer`, so
+the cached pages stay public). Standings and player stats count matches the league office has
+confirmed. `/sitemap.xml` lists the pages, and team and match pages include JSON-LD.
+
+### Old site links
+
+The old ColdFusion URLs answer with a **301** to the new pages. Ids are looked up by the season's
+legacy datasource (`Season.legacyDatasource`) plus the legacy id; a missing or `0` season means the
+active one. When nothing matches, the link lands on the list page with a short notice.
+
+| Old URL | New page |
+| --- | --- |
+| `/results.cfm?season=` | `/results?season=` |
+| `/team.cfm?id=&season=` | `/teams/[teamId]` |
+| `/player.cfm?id=&season=` | `/players/[playerId]` |
+| `/divisions.cfm?season=` | `/standings?season=` |
+| `/division.cfm?id=` | `/divisions/[code]` |
+| `/gamereport/index.cfm?gid=` | `/matches/[matchId]` |
+| `/export.cfm?id=` | `/teams/[teamId]/calendar.ics` |
+| `/register.cfm` | `/register` |
+| `/login.cfm`, `/forgotNew.cfm` | `/login` |
+| `/?home=1` | `/` |
+
+### Importing a season from the old site
+
+`scripts/import-legacy.ts` reads one season's MySQL database and upserts it by legacy id, in order:
+season → divisions → fields → teams (kit colors, formation, logo/photo) → players and roster
+(jerseys, captains, approval; old status 2 becomes a suspension for that season) → matches (game
+numbers, Eastern kickoff times, scores, fields, referees) → confirmed reports and player stats.
+Re-running it updates the same rows. It never imports passwords: players get an unusable password
+and sign in through **Find my player info** or a password reset. Importing never changes which
+season is active.
+
+```bash
+LEGACY_MYSQL_URL="mysql://user:pass@host:3306" npm run import:legacy -- --season spring2024 --dry-run
+```
+
+The dry run prints counts and the first five mapping problems (missing teams, repeated game
+numbers, unknown dates) without writing anything. Without `--dry-run` it writes to whatever
+`DATABASE_URL` points at, so check that first. Add `--images` to copy referenced logos, team photos
+and player photos from `LEGACY_WWWROOT` (default `~/Documents/nvasa/wwwroot`) into `public/legacy/`.
+
 ### Environment
 
 See `.env.example`. Beyond the database, NextAuth and Stripe keys:
@@ -86,8 +142,8 @@ See `.env.example`. Beyond the database, NextAuth and Stripe keys:
 
 ### Database, migrations and seed
 
-Migrations live in `prisma/migrations`: `0_init` (the original schema), `admin_role` and
-`league_core`. A database that was created earlier with `db push` already has the `0_init` tables,
+Migrations live in `prisma/migrations`: `0_init` (the original schema), `admin_role`,
+`league_core` and `public_pages`. A database that was created earlier with `db push` already has the `0_init` tables,
 so mark it applied once, then deploy (nothing is dropped; `league_core` moves the old division
 fields and legacy team picks into the new columns, and stops if it finds data it can't map):
 
