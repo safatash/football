@@ -115,6 +115,12 @@ export default async function MatchDetailPage({ params, searchParams }: { params
           actions={
             <>
               <MatchStatusBadge status={m.status} />
+              {readOnly ? null : (
+                <ButtonLink href={withSeason(`/admin/matches/${m.gameNumber}/edit`, season)} variant="primary" size="sm">
+                  <Icon name="edit" className="size-4" />
+                  Edit match
+                </ButtonLink>
+              )}
               <ButtonLink href={`/matches/${m.gameNumber}/print`} variant="ghost" size="sm">
                 <Icon name="print" className="size-4" />
                 Print roster

@@ -277,6 +277,7 @@ model Team {
   backupRegistrations    Registration[]   @relation("BackupTeam")
 
   @@unique([seasonId, divisionId, name])
+  @@unique([seasonId, name]) // team names are unique within a season
   @@unique([seasonId, code])
   @@unique([seasonId, legacyId])
   @@index([divisionId])

@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
-import { isAdminUser } from "@/lib/admin";
 import { now } from "@/lib/clock";
 import { fullName } from "@/lib/format";
 import { normalizeCode } from "@/lib/fees";
@@ -18,22 +17,12 @@ import { createToken } from "@/lib/tokens";
 import { isAdminEmail } from "@/lib/admin";
 import { assertSeasonWritable } from "@/lib/queries/season";
 import { syncMatchReportStatus } from "@/lib/reports";
-import { getSession } from "@/lib/session";
-import { ForbiddenError, UnauthorizedError } from "@/lib/team-access";
 import { ActionError, runAction, type ActionResult } from "./result";
+import { assertJerseyFree, requireAdminUser, teamForRoster } from "./admin-guard";
 
 const Id = z.string().trim().min(1).max(64);
 const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a full date.");
-
-/** Every admin action re-checks access on the server: role ADMIN or an ADMIN_EMAILS address. */
-async function requireAdminUser() {
-  const session = await getSession();
-  if (!session?.user) throw new UnauthorizedError("Sign in to continue.");
-  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, email: true, role: true } });
-  if (!isAdminUser(user)) throw new ForbiddenError("Only the league office can do that.");
-  return user!;
-}
 
 const refreshAdmin = () => revalidatePath("/admin", "layout");
 
@@ -560,23 +549,6 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
       data: { playerId: user.player!.id },
     };
   });
-}
-
-/** A team in the active season, for roster changes. */
-async function teamForRoster(teamId: string) {
-  const team = await prisma.team.findUnique({ where: { id: teamId }, include: { division: true, season: true } });
-  if (!team) throw new ActionError("Team not found.", 404);
-  await assertSeasonWritable(team.seasonId);
-  return team;
-}
-
-async function assertJerseyFree(teamId: string, jersey: number | null, exceptPlayerId?: string) {
-  if (jersey == null) return;
-  const taken = await prisma.teamRoster.findFirst({
-    where: { teamId, jerseyNumber: jersey, leftAt: null, membershipType: "SEASONAL", ...(exceptPlayerId ? { playerId: { not: exceptPlayerId } } : {}) },
-    select: { player: { select: { firstName: true, lastName: true } } },
-  });
-  if (taken) throw new ActionError(`#${jersey} is already ${fullName(taken.player)}’s number on this team.`, 409);
 }
 
 const RosterAddInput = z.object({ playerId: Id, teamId: Id, jerseyNumber: z.number().int().min(0).max(99).nullish() });

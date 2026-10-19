@@ -29,7 +29,7 @@ export default async function PlayersPage({ searchParams }: { searchParams: Sear
     const p = new URLSearchParams();
     if (key !== "all") p.set("status", key);
     if (q) p.set("q", q);
-    if (season.archived) p.set("season", season.name);
+    if (!season.isActive) p.set("season", season.name);
     return `/admin/players${p.size ? `?${p}` : ""}`;
   };
 
@@ -55,7 +55,7 @@ export default async function PlayersPage({ searchParams }: { searchParams: Sear
         ))}
         <form action="/admin/players" role="search" className="relative min-w-[180px] max-w-[320px] flex-1">
           {filter[0] !== "all" ? <input type="hidden" name="status" value={filter[0]} /> : null}
-          {season.archived ? <input type="hidden" name="season" value={season.name} /> : null}
+          {!season.isActive ? <input type="hidden" name="season" value={season.name} /> : null}
           <Icon name="search" className="absolute top-2.5 left-3.5 size-[18px] text-muted" />
           <input
             name="q"

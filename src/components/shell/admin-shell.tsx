@@ -15,6 +15,7 @@ export function AdminShell({
   counts,
   seasons,
   activeSeason,
+  closedSeasons = [],
   divisionsHref,
 }: {
   children: ReactNode;
@@ -22,6 +23,8 @@ export function AdminShell({
   counts: { registrations: number; placement: number };
   seasons: string[];
   activeSeason: string;
+  /** Seasons that are over (read-only). Others besides the active one are upcoming. */
+  closedSeasons?: string[];
   divisionsHref: string;
 }) {
   const path = usePathname();
@@ -49,7 +52,13 @@ export function AdminShell({
         { href: divisionsHref, label: "Divisions", icon: "list" },
       ],
     ],
-    ["Settings", [{ href: "/admin/settings", label: "Fees & eligibility", icon: "card" }]],
+    [
+      "Settings",
+      [
+        { href: "/admin/seasons", label: "Seasons", icon: "cal" },
+        { href: "/admin/settings", label: "Fees & eligibility", icon: "card" },
+      ],
+    ],
   ];
   const isOn = (href: string) => (href === "/admin" ? path === "/admin" : path.startsWith(href.startsWith("/admin/divisions") ? "/admin/divisions" : href));
 
@@ -112,7 +121,7 @@ export function AdminShell({
               ))}
             </select>
           </label>
-          {season === activeSeason ? <Badge tone="ok">Active season</Badge> : <Badge tone="info">Archived · read only</Badge>}
+          {season === activeSeason ? <Badge tone="ok">Active season</Badge> : closedSeasons.includes(season) ? <Badge tone="info">Archived · read only</Badge> : <Badge tone="info">Upcoming season</Badge>}
           <form action="/admin/players" className="relative ml-auto min-w-[180px] max-w-[320px] flex-1">
             <Icon name="search" className="absolute top-2.5 left-3.5 size-[18px] text-muted" />
             <input

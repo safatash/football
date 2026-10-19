@@ -39,7 +39,14 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
           }
           sub={[t.division.name, season.name, t.homeField ? `home field ${t.homeField}` : null].filter(Boolean).join(" · ")}
           actions={
-            capEmails.length && !season.archived ? (
+            <>
+            {season.archived ? null : (
+              <ButtonLink href={withSeason(`/admin/teams/${t.code ?? t.id}/edit`, season)} variant="primary" size="sm">
+                <Icon name="edit" className="size-4" />
+                Edit team & roster
+              </ButtonLink>
+            )}
+            {capEmails.length && !season.archived ? (
               <ButtonLink href={`mailto:${capEmails.join(",")}?subject=${encodeURIComponent(`${t.name} · NVASA league office`)}`} variant="ghost" size="sm">
                 <Icon name="mail" className="size-4" />
                 Message captains
@@ -49,7 +56,8 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
                 <Icon name="mail" className="size-4" />
                 Message captains
               </Button>
-            )
+            )}
+            </>
           }
         />
       </div>

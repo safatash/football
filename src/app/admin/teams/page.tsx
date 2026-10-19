@@ -3,18 +3,36 @@ import { BodyCell, BodyRow, DataTable, HeadCell, RowLink, TableBody, TableHead, 
 import { listDivisions } from "@/lib/queries/admin-league";
 import { loadStandings } from "@/lib/queries/standings";
 import { listTeams } from "@/lib/queries/teams";
-import { seasonFrom, withSeason, type SearchParams } from "../_components/season";
+import { ButtonLink } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
+import { ArchivedNotice, param, seasonFrom, withSeason, type SearchParams } from "../_components/season";
+import { DoneNotice } from "../_components/done-notice";
 
 export const metadata = { title: "Teams" };
 
 export default async function TeamsPage({ searchParams }: { searchParams: SearchParams }) {
-  const season = await seasonFrom(await searchParams);
+  const sp = await searchParams;
+  const season = await seasonFrom(sp);
   const [teams, divisions] = await Promise.all([listTeams(season.id), listDivisions(season.id)]);
   const tables = await Promise.all(divisions.map((d) => loadStandings(season.id, d.id)));
   const record = new Map(tables.flat().map((r) => [r.team.id, r]));
   return (
     <>
-      <PageHeading title="Teams" sub={`${teams.length} teams in ${divisions.length} divisions`} />
+      <PageHeading
+        title="Teams"
+        sub={`${teams.length} teams in ${divisions.length} divisions`}
+        actions={
+          season.archived ? null : (
+            <ButtonLink href={withSeason("/admin/teams/new", season)} variant="primary" size="sm">
+              <Icon name="plus" className="size-4" />
+              New team
+            </ButtonLink>
+          )
+        }
+      />
+      <ArchivedNotice season={season} />
+      <DoneNotice done={param(sp.done)} what={param(sp.what)} />
       <TableWrap>
         <DataTable>
           <TableHead>
@@ -36,6 +54,7 @@ export default async function TeamsPage({ searchParams }: { searchParams: Search
                     <span className="flex items-center gap-2.5 whitespace-nowrap">
                       <Crest team={t} />
                       <RowLink href={withSeason(`/admin/teams/${t.code ?? t.id}`, season)}>{t.name}</RowLink>
+                      {t.status === "INACTIVE" ? <Badge dot={false}>Inactive</Badge> : null}
                     </span>
                   </BodyCell>
                   <BodyCell className="whitespace-nowrap">{t.division.name}</BodyCell>

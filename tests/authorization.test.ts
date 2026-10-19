@@ -39,6 +39,7 @@ vi.mock("@/lib/prisma", () => ({ default: db.client }));
 
 const captain = await import("@/lib/actions/captain");
 const admin = await import("@/lib/actions/admin");
+const structure = await import("@/lib/actions/admin-structure");
 const approve = await import("@/app/api/admin/registrations/[id]/approve/route");
 const deny = await import("@/app/api/admin/registrations/[id]/deny/route");
 
@@ -106,6 +107,17 @@ describe("admin actions and API routes", () => {
       admin.addPlayerToTeam({ playerId: "p2", teamId: "team-ffx" }),
       admin.removePlayerFromTeam({ playerId: "p2", teamId: "team-ffx" }),
       admin.setLeagueOfficeAccess({ email: "player@example.com", admin: true }),
+      structure.createSeason({ name: "Fall 2026", startDate: "2026-09-06", endDate: "2026-11-22" }),
+      structure.updateSeason({ id: "s26", name: "Spring 2026", startDate: "2026-03-29", endDate: "2026-06-28", makeActive: true }),
+      structure.createDivision({ seasonId: "s26", name: "New", fee: 50, genderRule: "COED", minAge: 18 }),
+      structure.updateDivision({ id: "d", seasonId: "s26", name: "New", fee: 50, genderRule: "COED", minAge: 18 }),
+      structure.createTeam({ seasonId: "s26", divisionId: "d", name: "Itest FC", status: "ACTIVE" }),
+      structure.updateTeam({ id: "team-ffx", divisionId: "d", name: "Fairfax United", status: "ACTIVE" }),
+      structure.deleteTeam({ id: "team-ffx" }),
+      structure.setJerseyNumber({ playerId: "p2", teamId: "team-ffx", jerseyNumber: 7 }),
+      structure.createMatch({ seasonId: "s26", divisionId: "d", homeTeamId: "a", awayTeamId: "b", date: "2026-05-31", time: "09:00", status: "SCHEDULED" }),
+      structure.updateMatch({ id: "m1", seasonId: "s26", divisionId: "d", homeTeamId: "a", awayTeamId: "b", date: "2026-05-31", time: "09:00", status: "SCHEDULED" }),
+      structure.deleteMatch({ id: "m1" }),
     ]);
     for (const r of results) expect(r).toMatchObject({ ok: false, status: 403 });
   });

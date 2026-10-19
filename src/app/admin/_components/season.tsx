@@ -18,9 +18,9 @@ export async function seasonFrom(sp: Record<string, string | string[] | undefine
   return season;
 }
 
-/** Keeps an archived season selected when following an admin link. */
+/** Keeps a non-active (archived or upcoming) season selected when following an admin link. */
 export function withSeason(href: string, season: AdminSeason) {
-  if (!season.archived) return href;
+  if (season.isActive) return href;
   return `${href}${href.includes("?") ? "&" : "?"}season=${encodeURIComponent(season.name)}`;
 }
 
@@ -29,7 +29,7 @@ export function ArchivedNotice({ season }: { season: AdminSeason }) {
   if (!season.archived) return null;
   return (
     <Notice tone="info">
-      You’re viewing <b>{season.name}</b>. It’s closed, so changes are turned off. Switch to {season.activeName} to make changes.
+      You’re viewing <b>{season.name}</b>. It’s over, so changes are turned off. Switch to {season.activeName} to make changes.
     </Notice>
   );
 }
