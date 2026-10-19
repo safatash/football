@@ -12,11 +12,13 @@
  *   - nested writes and includes (composite foreign keys reject cross-league links; nested
  *     includes follow the parent, which is scoped; filter a user's `players` by organizationId)
  *   - raw SQL ($queryRaw): add `"organizationId" = ${orgId}` yourself
+ *
+ * With `DB_RLS=on`, Postgres row-level security backs all of this up (rlsScopedClient below).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { headers } from "next/headers";
-import prisma from "./prisma";
+import prisma, { appPrisma, rlsEnabled } from "./prisma";
 import { ORG_ID_HEADER } from "@/lib/tenant";
 
 /** Models that belong to a league. */
@@ -37,6 +39,23 @@ function withOrg(data: unknown, orgId: string): Data {
   return { ...d, organizationId: orgId };
 }
 
+/** Adds the league to a query's arguments (see the top of this file). */
+function scopeArgs(operation: string, args: unknown, orgId: string) {
+  const a = { ...((args ?? {}) as Data) };
+  if (WHERE_OPS.has(operation)) {
+    a.where = { ...((a.where as Data) ?? {}), organizationId: orgId };
+    if ((a.data as Data | undefined)?.organizationId !== undefined && (a.data as Data).organizationId !== orgId) throw new Error("Refusing to move a row to another league.");
+  } else if (operation === "create") {
+    a.data = withOrg(a.data, orgId);
+  } else if (operation === "createMany" || operation === "createManyAndReturn") {
+    a.data = Array.isArray(a.data) ? a.data.map((d) => withOrg(d, orgId)) : withOrg(a.data, orgId);
+  } else if (operation === "upsert") {
+    a.where = { ...((a.where as Data) ?? {}), organizationId: orgId };
+    a.create = withOrg(a.create, orgId);
+  }
+  return a;
+}
+
 function scopedClient(orgId: string) {
   return prisma.$extends({
     name: "league-scope",
@@ -44,19 +63,7 @@ function scopedClient(orgId: string) {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
           if (!ORG_MODELS.has(model)) return query(args);
-          const a = { ...((args ?? {}) as Data) };
-          if (WHERE_OPS.has(operation)) {
-            a.where = { ...((a.where as Data) ?? {}), organizationId: orgId };
-            if ((a.data as Data | undefined)?.organizationId !== undefined && (a.data as Data).organizationId !== orgId) throw new Error("Refusing to move a row to another league.");
-          } else if (operation === "create") {
-            a.data = withOrg(a.data, orgId);
-          } else if (operation === "createMany" || operation === "createManyAndReturn") {
-            a.data = Array.isArray(a.data) ? a.data.map((d) => withOrg(d, orgId)) : withOrg(a.data, orgId);
-          } else if (operation === "upsert") {
-            a.where = { ...((a.where as Data) ?? {}), organizationId: orgId };
-            a.create = withOrg(a.create, orgId);
-          }
-          return query(a as typeof args);
+          return query(scopeArgs(operation, args, orgId) as typeof args);
         },
       },
     },
@@ -64,17 +71,67 @@ function scopedClient(orgId: string) {
 }
 export type ScopedClient = ReturnType<typeof scopedClient>;
 
+/** Set while a `$transaction` callback of the RLS client runs: the transaction already has the league. */
+const rlsTx = new AsyncLocalStorage<string>();
+
+/**
+ * With `DB_RLS=on` (docs/rls.md): the same scoping, on the app role's connection, and every query
+ * runs in a transaction that first sets `app.org_id`, the setting the Postgres policies check.
+ * `set_config(…, true)` is SET LOCAL, so it ends with the transaction (pgbouncer transaction
+ * mode on Neon's pooler hands the connection to someone else afterwards).
+ *   - single queries (models and raw SQL): `$transaction([set_config, query])`, one batch;
+ *   - `$transaction(fn)`: an interactive transaction that sets it first, then runs `fn`.
+ */
+function rlsScopedClient(orgId: string): ScopedClient {
+  const base = appPrisma();
+  const setOrg = (c: { $executeRaw: PrismaClient["$executeRaw"] }) => c.$executeRaw`SELECT set_config('app.org_id', ${orgId}, true)`;
+  const client = base.$extends({
+    name: "league-scope-rls",
+    query: {
+      async $allOperations({ model, operation, args, query }) {
+        const a = (model && ORG_MODELS.has(model) ? scopeArgs(operation, args, orgId) : args) as typeof args;
+        if (rlsTx.getStore() === orgId) return query(a);
+        const [, result] = await base.$transaction([setOrg(base), query(a) as Prisma.PrismaPromise<unknown>]);
+        return result;
+      },
+    },
+  });
+  return new Proxy(client, {
+    get(target, prop) {
+      if (prop !== "$transaction") return Reflect.get(target, prop);
+      return (fn: unknown, opts?: Parameters<PrismaClient["$transaction"]>[1]) => {
+        if (typeof fn !== "function") throw new Error("$transaction needs a callback (the array form isn't supported).");
+        return target.$transaction(
+          (tx) =>
+            rlsTx.run(orgId, async () => {
+              await setOrg(tx as unknown as PrismaClient);
+              return (fn as (t: typeof tx) => Promise<unknown>)(tx);
+            }),
+          opts,
+        );
+      };
+    },
+  }) as unknown as ScopedClient;
+}
+
 const clients = new Map<string, ScopedClient>();
 const forOrg = (orgId: string) => {
-  let c = clients.get(orgId);
-  if (!c) clients.set(orgId, (c = scopedClient(orgId)));
+  const key = rlsEnabled() ? `rls:${orgId}` : orgId;
+  let c = clients.get(key);
+  if (!c) clients.set(key, (c = rlsEnabled() ? rlsScopedClient(orgId) : scopedClient(orgId)));
   return c;
 };
 
+const ownerClients = new Map<string, ScopedClient>();
 const fixedOrg = new AsyncLocalStorage<string>();
 
 /** The scoped client for one league, for scripts and the seed (app code uses `db` / `getDb()`). */
-export const clientForOrg = (orgId: string) => forOrg(orgId);
+export const clientForOrg = (orgId: string) => {
+  // The owner's connection even with DB_RLS=on: scripts and the seed are platform code
+  let c = ownerClients.get(orgId);
+  if (!c) ownerClients.set(orgId, (c = scopedClient(orgId)));
+  return c;
+};
 
 /** Runs `fn` as league `orgId` (webhooks, cron jobs, scripts, tests). */
 export function runWithOrg<T>(orgId: string, fn: () => T): T {

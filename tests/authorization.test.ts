@@ -38,7 +38,7 @@ const db = vi.hoisted(() => {
     },
   };
 });
-vi.mock("@/platform/prisma", () => ({ default: db.client }));
+vi.mock("@/platform/prisma", () => ({ default: db.client, rlsEnabled: () => false, appPrisma: () => db.client }));
 
 const captain = await import("@/lib/actions/captain");
 const admin = await import("@/lib/actions/admin");

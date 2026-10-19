@@ -42,3 +42,11 @@ jobs:
       # Includes tests/integration/isolation.test.ts (NVASA vs the Demo League) and the raw-client guards
       - run: npm test
       - run: npm run build
+      # Phase 2b: the same tests with Postgres row-level security on (docs/rls.md)
+      - run: npm run db:rls
+        env:
+          DATABASE_APP_URL: postgresql://nvasa_app:nvasa_app_ci@localhost:5432/nvasa_test
+      - run: npx vitest run tests/integration
+        env:
+          DB_RLS: "on"
+          DATABASE_APP_URL: postgresql://nvasa_app:nvasa_app_ci@localhost:5432/nvasa_test

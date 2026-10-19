@@ -208,3 +208,66 @@ describe.skipIf(!hasDb)("league isolation (database)", async () => {
     expect(await nvasaFingerprint()).toEqual(before);
   });
 });
+
+/**
+ * Row-level security (DB_RLS=on, docs/rls.md): the database itself refuses other leagues' rows,
+ * even to queries that skip the scoped client's filters. Needs a real Postgres with
+ * prisma/rls/rls.sql applied (`npm run db:rls`); PGlite's superuser ignores RLS.
+ */
+describe.skipIf(!hasDb || process.env.DB_RLS !== "on")("row-level security (database)", async () => {
+  const { default: raw, appPrisma } = await import("@/platform/prisma");
+  const { db, runWithOrg } = await import("@/lib/db");
+  const app = appPrisma();
+
+  it("every league table has RLS on with the league policy", async () => {
+    const rows = await raw.$queryRaw<{ table_name: string; rls: boolean; policies: bigint }[]>`
+      SELECT c.table_name, cl.relrowsecurity AS rls, (SELECT count(*) FROM pg_policies p WHERE p.tablename = c.table_name AND p.policyname = 'league_isolation') AS policies
+      FROM information_schema.columns c JOIN pg_class cl ON cl.relname = c.table_name AND cl.relkind = 'r'
+      WHERE c.table_schema = 'public' AND c.column_name = 'organizationId'`;
+    expect(rows.length).toBeGreaterThan(20);
+    for (const r of rows) expect({ table: r.table_name, rls: r.rls, policies: Number(r.policies) }).toEqual({ table: r.table_name, rls: true, policies: 1 });
+  });
+
+  it("the scoped client connects as the app role, which can't bypass RLS", async () => {
+    const [me] = await runWithOrg(DEMO, () => db.$queryRaw<{ user: string; superuser: boolean; bypass: boolean }[]>`
+      SELECT current_user AS user, r.rolsuper AS superuser, r.rolbypassrls AS bypass FROM pg_roles r WHERE r.rolname = current_user`);
+    expect(me).toMatchObject({ superuser: false, bypass: false });
+    expect(me.user).not.toBe((await raw.$queryRaw<{ u: string }[]>`SELECT current_user AS u`)[0].u);
+  });
+
+  it("a raw query without app.org_id returns nothing and can't write", async () => {
+    expect(await raw.player.count()).toBeGreaterThan(0);
+    const [{ n }] = await app.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM players`;
+    expect(Number(n)).toBe(0);
+    expect(await app.team.findMany()).toEqual([]);
+    expect(await app.payment.findMany({ where: { organizationId: NVASA } })).toEqual([]);
+    await expect(app.referee.create({ data: { name: "No league", organizationId: NVASA } })).rejects.toThrow();
+    expect((await app.team.updateMany({ data: { name: "Hacked" } })).count).toBe(0);
+  });
+
+  it("with app.org_id set, unfiltered raw SQL sees only that league", async () => {
+    const [, rows] = await app.$transaction([
+      app.$executeRaw`SELECT set_config('app.org_id', ${DEMO}, true)`,
+      app.$queryRaw<{ organizationId: string }[]>`SELECT DISTINCT "organizationId" FROM players`,
+    ]);
+    expect(rows).toEqual([{ organizationId: DEMO }]);
+    // SET LOCAL ends with the transaction: the next query on the pool sees nothing again
+    expect(Number((await app.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM players`)[0].n)).toBe(0);
+  });
+
+  it("a write naming another league fails the policy check, inside a league transaction", async () => {
+    await expect(
+      app.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.org_id', ${DEMO}, true)`;
+        await tx.$executeRaw`INSERT INTO referees (id, "organizationId", name, "updatedAt") VALUES ('itest_rls_ref', ${NVASA}, 'Sneaky', now())`;
+      }),
+    ).rejects.toThrow(/row-level security/);
+    expect(await raw.referee.findUnique({ where: { id: "itest_rls_ref" } })).toBeNull();
+  });
+
+  it("db.$transaction carries the league into every query of the callback", async () => {
+    const teams = await runWithOrg(DEMO, () => db.$transaction(async (tx) => [await tx.team.count(), await tx.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM teams`]));
+    expect(teams[0]).toBeGreaterThan(0);
+    expect(Number((teams[1] as { n: bigint }[])[0].n)).toBe(teams[0]);
+  });
+});

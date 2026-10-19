@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
+    "db:rls": "tsx scripts/rls-local.ts",
     "admin:grant": "tsx scripts/admin-grant.ts",
     "test": "vitest run",
     "postinstall": "prisma generate"

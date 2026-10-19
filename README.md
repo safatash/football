@@ -233,6 +233,13 @@ Guard tests (run in CI, `.github/workflows/ci.yml`):
 - `tests/raw-client.test.ts`: no raw client outside `src/platform/`, and every raw SQL query
   filters by `organizationId`.
 
+**Row-level security (Phase 2b, prototype, off by default).** With `DB_RLS=on`, the scoped client
+connects as a non-owner role (`DATABASE_APP_URL`) and sets `app.org_id` per transaction (`SET
+LOCAL`, so it's safe behind Neon's pgbouncer pooler). Postgres policies on every league table then
+hide other leagues' rows even from unfiltered queries. Platform code keeps the owner connection.
+It's local only for now (`npm run db:rls` refuses non-local hosts). See `docs/rls.md` for the
+design, latency numbers and recommendation.
+
 **League branding (Phase 3).** Nothing in the app names a league. Names, logo, colors, contact
 emails, social links, timezone and waiver come from the organization (`src/lib/branding.ts`:
 `getBrand()` on the server, `useBrand()` in client components, set once by the root layout).
