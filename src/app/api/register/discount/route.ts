@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const season = await getActiveSeason();
   if (!season) return NextResponse.json({ ok: false, message: "Registration isn’t open right now." }, { status: 409 });
   const division = await prisma.division.findUnique({ where: { seasonId_code: { seasonId: season.id, code: parsed.data.divisionCode } } });
-  if (!division) return NextResponse.json({ ok: false, message: "Choose a division first." }, { status: 400 });
+  if (!division || division.status !== "ACTIVE") return NextResponse.json({ ok: false, message: "Choose a division first." }, { status: 400 });
   const res = await priceWithCode({ fee: Number(division.registrationFee), code: parsed.data.code, season, teamId: parsed.data.preferredTeamId ?? null });
   if (!res.ok) return NextResponse.json({ ok: false, message: res.message });
   return NextResponse.json({ ok: true, discount: res.discount, total: res.total });

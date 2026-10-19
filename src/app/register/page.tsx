@@ -84,7 +84,7 @@ function PathCard({ p }: { p: Path }) {
 export default async function RegisterBranchPage() {
   const season = await getActiveSeason();
   const [fee, settings] = season
-    ? await Promise.all([prisma.division.aggregate({ where: { seasonId: season.id }, _min: { registrationFee: true } }), getSettings(season.id)])
+    ? await Promise.all([prisma.division.aggregate({ where: { seasonId: season.id, status: "ACTIVE" }, _min: { registrationFee: true } }), getSettings(season.id)])
     : [null, null];
   const minFee = Number(fee?._min.registrationFee ?? 0);
   const gamePassFee = settings?.gamePassFee ?? 15;

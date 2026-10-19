@@ -38,6 +38,7 @@ export async function checkGamePassPurchase(playerId: string, matchId: string, t
   if (!match) throw new GamePassError("That match doesn’t exist.", 404);
   if (match.status !== "SCHEDULED" || match.scheduledAt <= now()) throw new GamePassError(`Game #${match.gameNumber} isn’t open for game passes.`, 409);
   if (!match.season.isActive) throw new GamePassError(`${match.season.name} is closed.`, 409);
+  if (match.division?.status === "INACTIVE") throw new GamePassError(`Game #${match.gameNumber} isn’t open for game passes.`, 409);
   if (teamId && teamId !== match.homeTeamId && teamId !== match.awayTeamId) throw new GamePassError("Pick one of the two teams in this match.");
 
   if (player.status === "SUSPENDED" || player.suspensions.length) throw new GamePassError("You’re suspended, so you can’t buy a game pass right now.", 403);
@@ -54,8 +55,10 @@ export async function checkGamePassPurchase(playerId: string, matchId: string, t
   const existing = await prisma.gamePass.findUnique({ where: { playerId_matchId: { playerId, matchId } } });
   if (existing && existing.status !== "CANCELLED") throw new GamePassError(`You already have a game pass for Game #${match.gameNumber}.`, 409);
 
+  // A division can override the league-wide game-pass fee
   const { gamePassFee } = await getSettings(match.seasonId);
-  return { player, match, fee: gamePassFee, existing };
+  const fee = match.division?.gamePassFee != null ? Number(match.division.gamePassFee) : gamePassFee;
+  return { player, match, fee, existing };
 }
 
 /**

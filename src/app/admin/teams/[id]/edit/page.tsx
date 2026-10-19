@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { PageHeading } from "@/components/league";
+import { Notice } from "@/components/ui/card";
+import { rosterWarning } from "@/lib/division-rules";
 import { getTeam, teamRoster } from "@/lib/queries/teams";
 import { editableSeasons, formDivisions, pickablePlayers } from "@/lib/queries/admin-structure";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../../_components/season";
@@ -14,6 +16,7 @@ export default async function EditTeamPage({ params, searchParams }: { params: P
   if (!team) notFound();
   const [seasons, roster, players] = await Promise.all([editableSeasons(), teamRoster(team.id), pickablePlayers(season.id)]);
   const divisions = await formDivisions([team.seasonId]);
+  const warning = rosterWarning(roster.length, team.division);
   const back = withSeason("/admin/teams", season);
   const seasonQuery = season.isActive ? "" : `season=${encodeURIComponent(season.name)}`;
   return (
@@ -43,6 +46,7 @@ export default async function EditTeamPage({ params, searchParams }: { params: P
               homeField: team.homeField ?? "",
             }}
           />
+          {warning ? <Notice tone="warn">Roster size: {warning}.</Notice> : null}
           <RosterManager
             teamId={team.id}
             players={players}

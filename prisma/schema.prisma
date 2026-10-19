@@ -198,7 +198,13 @@ model Division {
   name            String
   description     String?
   level           String? // e.g. "Competitive", "Recreational"
-  registrationFee Decimal @default(0) @db.Decimal(10, 2)
+  registrationFee Decimal        @default(0) @db.Decimal(10, 2)
+  gamePassFee     Decimal?       @db.Decimal(10, 2) // overrides LeagueSettings.gamePassFee when set
+  status          DivisionStatus @default(ACTIVE) // inactive divisions are hidden from registration and game passes
+
+  maxTeams  Int? // creating teams past this is refused
+  rosterMin Int? // roster sizes outside min/max show as warnings
+  rosterMax Int?
 
   // Eligibility. Everyone must be at least minAge on the season's opening day (Season.startDate)
   // and born on or before the cutoff for their gender. Non-binary players use the male cutoff
@@ -282,6 +288,11 @@ model Team {
   @@unique([seasonId, legacyId])
   @@index([divisionId])
   @@map("teams")
+}
+
+enum DivisionStatus {
+  ACTIVE
+  INACTIVE
 }
 
 enum TeamStatus {

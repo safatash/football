@@ -10,6 +10,7 @@ import { getTeam, teamRoster } from "@/lib/queries/teams";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { rosterLimitLabel, rosterWarning } from "@/lib/division-rules";
 
 export const metadata = { title: "Team" };
 
@@ -66,7 +67,7 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
       <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
         <StatCard label="Record W-D-L" value={`${w}-${d}-${l}`} note={`${pts} points`} />
         <StatCard label="Goals for / against" value={gf} suffix={` / ${ga}`} note={`GD ${gd > 0 ? "+" : ""}${gd}`} />
-        <StatCard label="Roster size" value={roster.length} note={`Max ${t.maxPlayers}`} />
+        <StatCard label="Roster size" value={roster.length} note={rosterWarning(roster.length, t.division) ?? `Division: ${rosterLimitLabel(t.division)}`} />
         <StatCard
           label="Captains"
           value={

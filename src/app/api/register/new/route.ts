@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     // Division and eligibility (server-side, from Division columns)
     const division = await prisma.division.findUnique({ where: { seasonId_code: { seasonId: season.id, code: data.divisionCode } } });
-    if (!division) return bad("Please choose a division.");
+    if (!division || division.status !== "ACTIVE") return bad("Please choose a division.");
     const elig = checkEligibility(division, { dob, gender }, season.startDate);
     if (!elig.ok) return bad(`You can’t register for ${division.name}: ${elig.reason}.`);
 

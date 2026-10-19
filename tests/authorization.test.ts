@@ -111,6 +111,8 @@ describe("admin actions and API routes", () => {
       structure.updateSeason({ id: "s26", name: "Spring 2026", startDate: "2026-03-29", endDate: "2026-06-28", makeActive: true }),
       structure.createDivision({ seasonId: "s26", name: "New", fee: 50, genderRule: "COED", minAge: 18 }),
       structure.updateDivision({ id: "d", seasonId: "s26", name: "New", fee: 50, genderRule: "COED", minAge: 18 }),
+      structure.deleteDivision({ id: "d" }),
+      structure.copyDivisions({ fromSeasonId: "s25", toSeasonId: "s26" }),
       structure.createTeam({ seasonId: "s26", divisionId: "d", name: "Itest FC", status: "ACTIVE" }),
       structure.updateTeam({ id: "team-ffx", divisionId: "d", name: "Fairfax United", status: "ACTIVE" }),
       structure.deleteTeam({ id: "team-ffx" }),

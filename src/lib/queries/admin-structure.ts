@@ -10,7 +10,7 @@ export async function editableSeasons() {
 }
 
 export async function formDivisions(seasonIds: string[]) {
-  return prisma.division.findMany({ where: { seasonId: { in: seasonIds } }, select: { id: true, name: true, seasonId: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] });
+  return prisma.division.findMany({ where: { seasonId: { in: seasonIds } }, select: { id: true, code: true, name: true, seasonId: true, status: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] });
 }
 
 export async function formTeams(seasonIds: string[]) {

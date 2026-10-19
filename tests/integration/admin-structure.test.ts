@@ -5,6 +5,7 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
   const { default: prisma } = await import("@/lib/prisma");
   const s = await import("@/lib/actions/admin-structure");
   const { loadStandings } = await import("@/lib/queries/standings");
+  const { listOpenDivisions } = await import("@/lib/queries/admin-league");
 
   const ids = {} as Record<string, string>;
   let admin: TestUser = null;
@@ -163,6 +164,72 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
       expect(await s.deleteMatch({ id: ids.clash })).toMatchObject({ ok: true });
       expect(await s.deleteTeam({ id: ids.rovers })).toMatchObject({ ok: true });
       expect(await prisma.team.count({ where: { id: ids.rovers } })).toBe(0);
+    });
+  });
+
+  describe("division management", () => {
+    it("copies divisions from another season, carrying age rules over", async () => {
+      as(admin);
+      const ymd = (d: Date | null) => d?.toISOString().slice(0, 10);
+      // Same year: fixed cutoffs stay, "18 on opening day" follows Itest Fall 2026's opening day (Sep 6)
+      const same = await s.copyDivisions({ fromSeasonId: ids.season, toSeasonId: ids.fall });
+      expect(same).toMatchObject({ ok: true, data: { copied: ["Women Premier", "Men D1", "D3 Coed", "Masters Coed", "Combination Coed"], skipped: [] } });
+      const mc = await prisma.division.findFirstOrThrow({ where: { seasonId: ids.fall, code: "mc" } });
+      expect(ymd(mc.maleBornOnOrBefore)).toBe("1991-12-31");
+      const wp = await prisma.division.findFirstOrThrow({ where: { seasonId: ids.fall, code: "wp" } });
+      expect(ymd(wp.femaleBornOnOrBefore)).toBe("2008-09-06");
+      expect(wp.description).toBeNull(); // "…opening day (Mar 29, 2026)" no longer fits
+      // Copying again skips what's already there
+      expect(await s.copyDivisions({ fromSeasonId: ids.season, toSeasonId: ids.fall })).toMatchObject({ ok: false, status: 409 });
+
+      // A year later: cutoffs move a year, rule text naming the old year is dropped
+      expect(await s.createSeason({ name: "Itest Spring 2027", startDate: "2027-03-28", endDate: "2027-06-27" })).toMatchObject({ ok: true });
+      const next = await prisma.season.findFirstOrThrow({ where: { name: "Itest Spring 2027" } });
+      expect(await s.copyDivisions({ fromSeasonId: ids.season, toSeasonId: next.id })).toMatchObject({ ok: true });
+      const mc27 = await prisma.division.findFirstOrThrow({ where: { seasonId: next.id, code: "mc" } });
+      expect(ymd(mc27.maleBornOnOrBefore)).toBe("1992-12-31");
+      expect(ymd(mc27.femaleBornOnOrBefore)).toBe("1997-12-31");
+      expect(mc27.description).toBeNull();
+      expect(ymd((await prisma.division.findFirstOrThrow({ where: { seasonId: next.id, code: "md1" } })).maleBornOnOrBefore)).toBe("2009-03-28");
+      expect(Number(mc27.registrationFee)).toBe(Number(mc.registrationFee));
+
+      // Not into a season that's over, not from itself
+      const over = await prisma.season.findFirstOrThrow({ where: { name: "Fall 2025" } });
+      expect(await s.copyDivisions({ fromSeasonId: ids.season, toSeasonId: over.id })).toMatchObject({ ok: false, status: 409 });
+      expect(await s.copyDivisions({ fromSeasonId: ids.season, toSeasonId: ids.season })).toMatchObject({ ok: false, status: 400 });
+    });
+
+    it("saves status, limits and a game-pass override; inactive divisions are hidden from registration", async () => {
+      as(admin);
+      const div = await prisma.division.findFirstOrThrow({ where: { seasonId: ids.fall, code: "d3" } });
+      const base = { id: div.id, seasonId: ids.fall, name: div.name, fee: 55, genderRule: "COED" as const, minAge: 18 };
+      expect(await s.updateDivision({ ...base, rosterMin: 20, rosterMax: 12 })).toMatchObject({ ok: false, status: 400, error: expect.stringMatching(/minimum/) });
+      expect(await s.updateDivision({ ...base, fee: NaN })).toMatchObject({ ok: false, status: 400, error: "Enter the registration fee." });
+      expect(await s.updateDivision({ ...base, status: "INACTIVE", gamePassFee: 20, maxTeams: 8, rosterMin: 12, rosterMax: 20, level: "Recreational" })).toMatchObject({ ok: true });
+      expect(await prisma.division.findUniqueOrThrow({ where: { id: div.id } })).toMatchObject({ status: "INACTIVE", maxTeams: 8, rosterMin: 12, rosterMax: 20, level: "Recreational" });
+      expect(Number((await prisma.division.findUniqueOrThrow({ where: { id: div.id } })).gamePassFee)).toBe(20);
+      const open = (await listOpenDivisions(ids.fall)).map((d) => d.code);
+      expect(open).not.toContain("d3");
+      expect(open).toContain("wp");
+    });
+
+    it("refuses new teams past max teams", async () => {
+      as(admin);
+      // Itest Women Open has one team (Itest Rovers)
+      const div = await prisma.division.findUniqueOrThrow({ where: { id: ids.fallDiv } });
+      const base = { id: div.id, seasonId: ids.fall, name: div.name, fee: 80, genderRule: "WOMEN" as const, minAge: 18 };
+      expect(await s.updateDivision({ ...base, maxTeams: 0 })).toMatchObject({ ok: false, status: 409 });
+      expect(await s.updateDivision({ ...base, maxTeams: 1 })).toMatchObject({ ok: true });
+      expect(await s.createTeam({ seasonId: ids.fall, divisionId: ids.fallDiv, name: "Itest Overflow", status: "ACTIVE" })).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/is full/) });
+    });
+
+    it("deletes unused divisions only", async () => {
+      as(admin);
+      expect(await s.deleteDivision({ id: ids.wp })).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/Set it to inactive instead/) });
+      expect(await s.deleteDivision({ id: ids.fallDiv })).toMatchObject({ ok: false, status: 409 });
+      const unused = await prisma.division.findFirstOrThrow({ where: { seasonId: ids.fall, code: "cc" } });
+      expect(await s.deleteDivision({ id: unused.id })).toMatchObject({ ok: true });
+      expect(await prisma.division.findUnique({ where: { id: unused.id } })).toBeNull();
     });
   });
 });

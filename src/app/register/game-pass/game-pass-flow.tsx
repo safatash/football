@@ -18,7 +18,7 @@ import { PassTicket } from "./ticket";
 
 export type IdentifyMode = "login" | "find" | "new";
 type FlowTeam = { id: string; name: string; color: string | null; shortName: string | null };
-export type FlowMatch = { id: string; gameNumber: number; date: string; time: string; field: string | null; division: string; homeTeam: FlowTeam; awayTeam: FlowTeam };
+export type FlowMatch = { id: string; gameNumber: number; date: string; time: string; field: string | null; division: string; /** Set when the division overrides the league game-pass fee. */ fee?: number; homeTeam: FlowTeam; awayTeam: FlowTeam };
 type Gender = "Female" | "Male" | "Non-binary";
 
 const STEP_LABELS = ["Who’s playing", "Match", "Pay"];
@@ -57,6 +57,7 @@ export function GamePassFlow({
   const [checkout, setCheckout] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const mounted = useRef(false);
+  const price = matches.find((m) => m.id === matchId)?.fee ?? fee;
 
   useEffect(() => {
     if (!mounted.current) {
@@ -194,7 +195,7 @@ export function GamePassFlow({
           <Card className="w-full text-left">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[13.5px] text-muted">Game pass · Game #{m.gameNumber}</span>
-              <b>{money(fee)}</b>
+              <b>{money(price)}</b>
             </div>
           </Card>
         </Screen>
@@ -216,7 +217,7 @@ export function GamePassFlow({
 
   return (
     <>
-      <AppBar backHref={back ? undefined : "/register"} right={<GamePassTag>{money(fee)}</GamePassTag>} title={back ? undefined : "Game pass"}>
+      <AppBar backHref={back ? undefined : "/register"} right={<GamePassTag>{money(price)}</GamePassTag>} title={back ? undefined : "Game pass"}>
         {back ? (
           <>
             <button type="button" aria-label="Back" onClick={back} className="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-surface">
@@ -366,7 +367,10 @@ export function GamePassFlow({
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-mono text-[13px] text-muted">Game #{x.gameNumber}</span>
                               <span className="flex items-center gap-2">
-                                <span className="text-xs text-muted">{x.division}</span>
+                                <span className="text-xs text-muted">
+                                  {x.division}
+                                  {x.fee != null && x.fee !== fee ? ` · ${money(x.fee)}` : ""}
+                                </span>
                                 <CheckBox checked={on} round />
                               </span>
                             </div>
@@ -385,7 +389,7 @@ export function GamePassFlow({
         {/* 3 · Review & pay */}
         {step === 3 && m ? (
           <>
-            {head(`One match. ${money(fee)}.`)}
+            {head(`One match. ${money(price)}.`)}
             {errors.form ? <Notice tone="bad">{errors.form}</Notice> : null}
             <Notice tone="pass" icon="ticket" title="This match only." className="!text-[14.5px]">
               Valid {m.date} for Game #{m.gameNumber}. It expires when the match ends and doesn’t add you to {ticketTeam ?? "a team"}’s season roster.
@@ -407,13 +411,13 @@ export function GamePassFlow({
               <Card className="flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
                   <span>Game pass · single match</span>
-                  <b>{money(fee)}</b>
+                  <b>{money(price)}</b>
                 </div>
                 <div className="text-[13.5px] text-muted">Discount codes don’t apply to game passes</div>
                 <hr className="border-line" />
                 <div className="flex items-center justify-between">
                   <b>Total</b>
-                  <span className="font-display text-[30px] leading-none font-extrabold">{money(fee)}</span>
+                  <span className="font-display text-[30px] leading-none font-extrabold">{money(price)}</span>
                 </div>
               </Card>
             </div>
@@ -438,7 +442,7 @@ export function GamePassFlow({
         {step === 3 ? (
           <Button variant="accent" onClick={pay}>
             <Icon name="lock" className="size-[18px]" />
-            Pay {money(fee)} securely
+            Pay {money(price)} securely
           </Button>
         ) : null}
       </ActionBar>

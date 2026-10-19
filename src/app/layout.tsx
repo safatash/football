@@ -29,7 +29,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="h-full">
-      <body className="min-h-full bg-bg text-fg">{children}</body>
+      {/* Browser extensions (e.g. ColorZilla) add attributes to <body> before React loads */}
+      <body className="min-h-full bg-bg text-fg" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }

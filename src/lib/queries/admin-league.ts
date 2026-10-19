@@ -11,6 +11,11 @@ export const divisionSelect = {
   description: true,
   level: true,
   registrationFee: true,
+  gamePassFee: true,
+  status: true,
+  maxTeams: true,
+  rosterMin: true,
+  rosterMax: true,
   genderRule: true,
   maleBornOnOrBefore: true,
   femaleBornOnOrBefore: true,
@@ -21,6 +26,11 @@ export type DivisionRow = Prisma.DivisionGetPayload<{ select: typeof divisionSel
 
 export const listDivisions = cache(async (seasonId: string): Promise<DivisionRow[]> =>
   prisma.division.findMany({ where: { seasonId }, select: divisionSelect, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] }),
+);
+
+/** Divisions players can register for (inactive ones are hidden outside the office). */
+export const listOpenDivisions = cache(async (seasonId: string): Promise<DivisionRow[]> =>
+  prisma.division.findMany({ where: { seasonId, status: "ACTIVE" }, select: divisionSelect, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] }),
 );
 
 export async function getDivisionByCode(seasonId: string, code: string) {

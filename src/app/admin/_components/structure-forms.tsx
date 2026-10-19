@@ -11,7 +11,9 @@ import {
   createDivision,
   createMatch,
   createSeason,
+  copyDivisions,
   createTeam,
+  deleteDivision,
   deleteMatch,
   deleteTeam,
   setJerseyNumber,
@@ -20,6 +22,7 @@ import {
   updateSeason,
   updateTeam,
 } from "@/lib/actions/admin-structure";
+import { money } from "@/lib/format";
 import { addPlayerToTeam, removePlayerFromTeam, setCaptain } from "@/lib/actions/admin";
 import type { ActionResult } from "@/lib/actions/result";
 
@@ -188,16 +191,27 @@ export type DivisionFormValues = {
   level: string;
   description: string;
   fee: number;
+  gamePassFee: number | null;
+  status: "ACTIVE" | "INACTIVE";
   genderRule: "WOMEN" | "MEN" | "COED";
   minAge: number;
   maleCutoff: string;
   femaleCutoff: string;
   displayOrder: number;
+  maxTeams: number | null;
+  rosterMin: number | null;
+  rosterMax: number | null;
 };
 
-export function DivisionForm({ seasonId, seasonQuery, division }: { seasonId: string; seasonQuery: string; division?: DivisionFormValues }) {
+export const DIVISION_LEVELS = ["Competitive", "Intermediate", "Recreational", "Social"];
+
+export function DivisionForm({ seasonId, seasonQuery, division, leagueGamePassFee }: { seasonId: string; seasonQuery: string; division?: DivisionFormValues; leagueGamePassFee: number }) {
   const { pending, error, errors, run } = useSave();
   const [gender, setGender] = useState<DivisionFormValues["genderRule"]>(division?.genderRule ?? "COED");
+  const [status, setStatus] = useState<DivisionFormValues["status"]>(division?.status ?? "ACTIVE");
+  const back = `/admin/divisions${seasonQuery ? `?${seasonQuery}` : ""}`;
+  // Keep a level from before the dropdown (e.g. "Social to intermediate") selectable
+  const levels = division?.level && !DIVISION_LEVELS.includes(division.level) ? [...DIVISION_LEVELS, division.level] : DIVISION_LEVELS;
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
@@ -207,18 +221,24 @@ export function DivisionForm({ seasonId, seasonQuery, division }: { seasonId: st
       code: str(f, "code"),
       level: str(f, "level"),
       description: str(f, "description"),
-      fee: num(f, "fee") ?? 0,
+      fee: num(f, "fee") ?? NaN, // required: an empty box is an error, not $0
+      gamePassFee: num(f, "gamePassFee"),
+      status,
       genderRule: gender,
       minAge: num(f, "minAge") ?? 18,
       maleCutoff: str(f, "maleCutoff") || null,
       femaleCutoff: str(f, "femaleCutoff") || null,
       displayOrder: num(f, "displayOrder") ?? 0,
+      maxTeams: num(f, "maxTeams"),
+      rosterMin: num(f, "rosterMin"),
+      rosterMax: num(f, "rosterMax"),
     };
     run(
       () => (division?.id ? updateDivision({ ...input, id: division.id }) : createDivision(input)),
-      () => `/admin/divisions?done=${division?.id ? "division-saved" : "division-created"}&what=${encodeURIComponent(input.name)}${seasonQuery ? `&${seasonQuery}` : ""}`,
+      () => `${back}${back.includes("?") ? "&" : "?"}done=${division?.id ? "division-saved" : "division-created"}&what=${encodeURIComponent(input.name)}`,
     );
   }
+  const count = (v: number | null | undefined) => (v == null ? "" : String(v));
   return (
     <form onSubmit={submit} noValidate className="flex max-w-[720px] flex-col gap-4">
       <Errors error={error} list={errors} />
@@ -228,33 +248,56 @@ export function DivisionForm({ seasonId, seasonQuery, division }: { seasonId: st
             <TextInput id="d-name" name="name" defaultValue={division?.name} required />
           </Field>
           <Field label="Code" htmlFor="d-code" hint="Used in links; optional">
-            <TextInput id="d-code" name="code" defaultValue={division?.code} placeholder="auto" />
+            <TextInput id="d-code" name="code" defaultValue={division?.code} />
           </Field>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Level" htmlFor="d-level" hint="Optional">
-            <TextInput id="d-level" name="level" defaultValue={division?.level} placeholder="Competitive" />
+          <Field label="Level" htmlFor="d-level">
+            <SelectInput id="d-level" name="level" defaultValue={division?.level ?? ""}>
+              <option value="">Not set</option>
+              {levels.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </SelectInput>
           </Field>
-          <Field label="Registration fee" htmlFor="d-fee">
-            <TextInput id="d-fee" name="fee" inputMode="decimal" defaultValue={division ? String(division.fee) : ""} placeholder="60" />
+          <Field label="Registration fee" htmlFor="d-fee" hint="Season fee, in dollars">
+            <TextInput id="d-fee" name="fee" inputMode="decimal" defaultValue={division ? String(division.fee) : ""} required />
           </Field>
           <Field label="Display order" htmlFor="d-order">
             <TextInput id="d-order" name="displayOrder" inputMode="numeric" defaultValue={String(division?.displayOrder ?? 0)} />
           </Field>
         </div>
-        <Field label="Who can play">
-          <ChoiceGroup<DivisionFormValues["genderRule"]>
-            name="Who can play"
-            columns={3}
-            value={gender}
-            onChange={setGender}
+        <Field label="Game-pass fee" htmlFor="d-gp" hint={`Leave empty to use the league fee from Fees & eligibility (${money(leagueGamePassFee)})`}>
+          <TextInput id="d-gp" name="gamePassFee" inputMode="decimal" className="sm:max-w-[200px]" defaultValue={division?.gamePassFee == null ? "" : String(division.gamePassFee)} />
+        </Field>
+        <Field label="Status">
+          <ChoiceGroup<DivisionFormValues["status"]>
+            name="Status"
+            columns={2}
+            value={status}
+            onChange={setStatus}
             options={[
-              { value: "WOMEN", label: "Women" },
-              { value: "MEN", label: "Men" },
-              { value: "COED", label: "Coed" },
+              { value: "ACTIVE", label: "Active", sub: "Open for registration and game passes" },
+              { value: "INACTIVE", label: "Inactive", sub: "Hidden from players; admins still see it" },
             ]}
           />
         </Field>
+      </Card>
+      <Card className="flex flex-col gap-4">
+        <h2 className="text-xl">Who can play</h2>
+        <ChoiceGroup<DivisionFormValues["genderRule"]>
+          name="Who can play"
+          columns={3}
+          value={gender}
+          onChange={setGender}
+          options={[
+            { value: "WOMEN", label: "Women" },
+            { value: "MEN", label: "Men" },
+            { value: "COED", label: "Coed" },
+          ]}
+        />
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Minimum age" htmlFor="d-age" hint="On opening day">
             <TextInput id="d-age" name="minAge" inputMode="numeric" defaultValue={String(division?.minAge ?? 18)} />
@@ -270,12 +313,118 @@ export function DivisionForm({ seasonId, seasonQuery, division }: { seasonId: st
             </Field>
           ) : null}
         </div>
-        <Field label="Rule text" htmlFor="d-desc" hint="Shown to players, e.g. “Women, 18 or older on opening day”">
+        <Field label="Rule text" htmlFor="d-desc" hint="Shown to players. Leave empty to build it from the rules above.">
           <TextInput id="d-desc" name="description" defaultValue={division?.description} />
         </Field>
       </Card>
-      <FormActions pending={pending} label={division?.id ? "Save division" : "Create division"} cancelHref={`/admin/divisions${seasonQuery ? `?${seasonQuery}` : ""}`} />
+      <Card className="flex flex-col gap-4">
+        <h2 className="text-xl">Teams and rosters</h2>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Max teams" htmlFor="d-max" hint="Optional. New teams are refused past this.">
+            <TextInput id="d-max" name="maxTeams" inputMode="numeric" defaultValue={count(division?.maxTeams)} />
+          </Field>
+          <Field label="Roster minimum" htmlFor="d-rmin" hint="Optional. Shown as a warning.">
+            <TextInput id="d-rmin" name="rosterMin" inputMode="numeric" defaultValue={count(division?.rosterMin)} />
+          </Field>
+          <Field label="Roster maximum" htmlFor="d-rmax" hint="Optional. Shown as a warning.">
+            <TextInput id="d-rmax" name="rosterMax" inputMode="numeric" defaultValue={count(division?.rosterMax)} />
+          </Field>
+        </div>
+      </Card>
+      <FormActions
+        pending={pending}
+        label={division?.id ? "Save division" : "Create division"}
+        cancelHref={back}
+        extra={
+          division?.id ? (
+            <DeleteButton
+              label="Delete division"
+              title={`Delete ${division.name}?`}
+              body="This removes the division. It can’t be undone. Divisions with teams or registrations can’t be deleted; set them to inactive instead."
+              action={() => deleteDivision({ id: division.id! })}
+              doneHref={`${back}${back.includes("?") ? "&" : "?"}done=division-deleted&what=${encodeURIComponent(division.name)}`}
+            />
+          ) : null
+        }
+      />
     </form>
+  );
+}
+
+/** "Copy from another season" for the divisions list and its empty state. */
+export function CopyDivisionsButton({
+  toSeasonId,
+  toSeasonName,
+  sources,
+  seasonQuery,
+  primary,
+}: {
+  toSeasonId: string;
+  toSeasonName: string;
+  sources: { id: string; name: string; divisions: string[] }[];
+  seasonQuery: string;
+  primary?: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState(sources[0]?.id ?? "");
+  const [problem, setProblem] = useState("");
+  const [pending, start] = useTransition();
+  const source = sources.find((x) => x.id === from);
+  if (!sources.length) return null;
+  return (
+    <>
+      <Button variant={primary ? "primary" : "ghost"} size="sm" onClick={() => (setProblem(""), setOpen(true))}>
+        <Icon name="list" className="size-4" />
+        Copy from another season
+      </Button>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`Copy divisions into ${toSeasonName}`}
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={pending || !source}
+              onClick={() =>
+                start(async () => {
+                  setProblem("");
+                  const res = await copyDivisions({ fromSeasonId: from, toSeasonId });
+                  if (!res.ok) return setProblem(res.error);
+                  setOpen(false);
+                  router.push(`/admin/divisions?done=divisions-copied&what=${encodeURIComponent(res.message)}${seasonQuery ? `&${seasonQuery}` : ""}`);
+                  router.refresh();
+                })
+              }
+            >
+              {pending ? "Copying…" : `Copy ${source?.divisions.length ?? 0} divisions`}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {problem ? <Notice tone="warn">{problem}</Notice> : null}
+          <Field label="Copy from" htmlFor="copy-from">
+            <SelectInput id="copy-from" value={from} onChange={(e) => setFrom(e.target.value)}>
+              {sources.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name} ({x.divisions.length})
+                </option>
+              ))}
+            </SelectInput>
+          </Field>
+          {source ? <p className="text-[13.5px] text-muted">{source.divisions.join(", ")}</p> : null}
+          <p className="text-[13.5px] text-muted">
+            Copies name, level, fees, age rules, who can play and limits. “18 on opening day” rules follow {toSeasonName}’s opening day, and fixed birth dates move by the years between the
+            seasons. Any division {toSeasonName} already has is skipped. Teams aren’t copied.
+          </p>
+        </div>
+      </Dialog>
+    </>
   );
 }
 
@@ -340,19 +489,39 @@ export function PlayerPicker({ players, selected, onChange, max = 4, label, excl
 /* Team                                                                */
 /* ------------------------------------------------------------------ */
 
-type DivisionOption = { id: string; name: string; seasonId: string };
+type DivisionOption = { id: string; name: string; seasonId: string; status?: "ACTIVE" | "INACTIVE" };
 type SeasonOption = { id: string; name: string };
 
 export type TeamFormValues = { id: string; seasonId: string; divisionId: string; name: string; status: "ACTIVE" | "INACTIVE"; shortName: string; color: string; homeField: string };
 
-export function TeamForm({ seasons, divisions, players, team, seasonId: initialSeason, seasonQuery }: { seasons: SeasonOption[]; divisions: DivisionOption[]; players: PickablePlayer[]; team?: TeamFormValues; seasonId: string; seasonQuery: string }) {
+export function TeamForm({
+  seasons,
+  divisions,
+  players,
+  team,
+  seasonId: initialSeason,
+  seasonQuery,
+  divisionId: initialDivision,
+  backHref,
+}: {
+  seasons: SeasonOption[];
+  divisions: DivisionOption[];
+  players: PickablePlayer[];
+  team?: TeamFormValues;
+  seasonId: string;
+  seasonQuery: string;
+  /** Pre-selected division (e.g. "Add team" on a division page). */
+  divisionId?: string;
+  /** Where Cancel and a successful save go; defaults to the teams list. */
+  backHref?: string;
+}) {
   const { pending, error, errors, run } = useSave();
   const [seasonId, setSeasonId] = useState(team?.seasonId ?? initialSeason);
   const options = divisions.filter((d) => d.seasonId === seasonId);
-  const [divisionId, setDivisionId] = useState(team?.divisionId ?? options[0]?.id ?? "");
+  const [divisionId, setDivisionId] = useState(team?.divisionId ?? (options.some((d) => d.id === initialDivision) ? initialDivision! : (options[0]?.id ?? "")));
   const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">(team?.status ?? "ACTIVE");
   const [captains, setCaptains] = useState<string[]>([]);
-  const back = `/admin/teams${seasonQuery ? `?${seasonQuery}` : ""}`;
+  const back = backHref ?? `/admin/teams${seasonQuery ? `?${seasonQuery}` : ""}`;
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -401,6 +570,7 @@ export function TeamForm({ seasons, divisions, players, team, seasonId: initialS
               {options.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
+                  {d.status === "INACTIVE" ? " (inactive)" : ""}
                 </option>
               ))}
             </SelectInput>
@@ -613,6 +783,8 @@ export function MatchForm({
   match,
   seasonId: initialSeason,
   seasonQuery,
+  divisionId: initialDivision,
+  backHref,
 }: {
   seasons: SeasonOption[];
   divisions: DivisionOption[];
@@ -621,11 +793,15 @@ export function MatchForm({
   match?: MatchFormValues;
   seasonId: string;
   seasonQuery: string;
+  /** Pre-selected division (e.g. "Add match" on a division page). */
+  divisionId?: string;
+  /** Where Cancel and a successful save go; defaults to the matches list. */
+  backHref?: string;
 }) {
   const { pending, error, errors, run } = useSave();
   const [seasonId, setSeasonId] = useState(match?.seasonId ?? initialSeason);
   const divs = divisions.filter((d) => d.seasonId === seasonId);
-  const [divisionId, setDivisionId] = useState(match?.divisionId ?? divs[0]?.id ?? "");
+  const [divisionId, setDivisionId] = useState(match?.divisionId ?? (divs.some((d) => d.id === initialDivision) ? initialDivision! : (divs[0]?.id ?? "")));
   const inDiv = teams.filter((t) => t.seasonId === seasonId && t.divisionId === divisionId);
   const [home, setHome] = useState(match?.homeTeamId ?? "");
   const [away, setAway] = useState(match?.awayTeamId ?? "");
@@ -633,7 +809,7 @@ export function MatchForm({
   const [fieldId, setFieldId] = useState(match?.fieldId ?? "");
   const [warnings, setWarnings] = useState<string[] | null>(null);
   const [pendingInput, setPendingInput] = useState<Parameters<typeof createMatch>[0] | null>(null);
-  const back = `/admin/matches${seasonQuery ? `?${seasonQuery}` : ""}`;
+  const back = backHref ?? `/admin/matches${seasonQuery ? `?${seasonQuery}` : ""}`;
 
   const save = (input: Parameters<typeof createMatch>[0]) =>
     run(
@@ -727,6 +903,7 @@ export function MatchForm({
               {divs.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
+                  {d.status === "INACTIVE" ? " (inactive)" : ""}
                 </option>
               ))}
             </SelectInput>

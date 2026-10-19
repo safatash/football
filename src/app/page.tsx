@@ -52,7 +52,7 @@ async function loadLanding() {
   if (!season) return null;
   const [divisions, teams, fields, settings, matches] = await Promise.all([
     prisma.division.findMany({
-      where: { seasonId: season.id },
+      where: { seasonId: season.id, status: "ACTIVE" },
       select: { id: true, name: true, level: true, registrationFee: true, genderRule: true, maleBornOnOrBefore: true, femaleBornOnOrBefore: true, minAge: true },
       orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     }),

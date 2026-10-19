@@ -14,7 +14,7 @@ export const teamSelect = {
   maxPlayers: true,
   status: true,
   seasonId: true,
-  division: { select: { id: true, code: true, name: true } },
+  division: { select: { id: true, code: true, name: true, rosterMin: true, rosterMax: true } },
 } satisfies Prisma.TeamSelect;
 export type TeamRef = Prisma.TeamGetPayload<{ select: typeof teamSelect }>;
 

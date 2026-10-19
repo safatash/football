@@ -16,20 +16,21 @@ export default async function GamePassPage({ searchParams }: { searchParams: Pro
   const [rows, settings] = season
     ? await Promise.all([
         prisma.match.findMany({
-          where: { seasonId: season.id, status: "SCHEDULED", scheduledAt: { gt: now() } },
-          select: matchSelect,
+          where: { seasonId: season.id, status: "SCHEDULED", scheduledAt: { gt: now() }, OR: [{ divisionId: null }, { division: { status: "ACTIVE" } }] },
+          select: { ...matchSelect, division: { select: { ...matchSelect.division.select, gamePassFee: true } } },
           orderBy: [{ scheduledAt: "asc" }, { gameNumber: "asc" }],
         }),
         getSettings(season.id),
       ])
     : [[], { gamePassFee: 15 }];
-  const matches: FlowMatch[] = rows.map(toMatchView).map((m) => ({
+  const matches: FlowMatch[] = rows.map(toMatchView).map((m, i) => ({
     id: m.id,
     gameNumber: m.gameNumber,
     date: m.date,
     time: m.time,
     field: m.field,
     division: m.division?.name ?? "",
+    fee: rows[i].division?.gamePassFee != null ? Number(rows[i].division!.gamePassFee) : undefined,
     homeTeam: { id: m.homeTeam.id, name: m.homeTeam.name, color: m.homeTeam.color, shortName: m.homeTeam.shortName },
     awayTeam: { id: m.awayTeam.id, name: m.awayTeam.name, color: m.awayTeam.color, shortName: m.awayTeam.shortName },
   }));

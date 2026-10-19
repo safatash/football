@@ -99,25 +99,34 @@ export async function updateSeason(input: z.input<typeof SeasonInput> & { id: st
 /* Divisions                                                           */
 /* ------------------------------------------------------------------ */
 
-const DivisionInput = z.object({
-  seasonId: Id,
-  name: z.string().trim().min(2, "Name the division.").max(60),
-  code: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9-]{1,20}$/, "Codes use letters, numbers and dashes (shown in URLs).")
-    .optional()
-    .or(z.literal("")),
-  level: z.string().trim().max(60).optional(),
-  description: z.string().trim().max(200).optional(),
-  fee: z.number().min(0).max(10_000),
-  genderRule: z.enum(["WOMEN", "MEN", "COED"]),
-  minAge: z.number().int().min(0).max(99),
-  maleCutoff: IsoDate.nullish(),
-  femaleCutoff: IsoDate.nullish(),
-  displayOrder: z.number().int().min(0).max(999).default(0),
-});
+const OptionalCount = z.number().int().min(0).max(999).nullish();
+
+const DivisionInput = z
+  .object({
+    seasonId: Id,
+    name: z.string().trim().min(2, "Name the division.").max(60),
+    code: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z0-9-]{1,20}$/, "Codes use letters, numbers and dashes (shown in URLs).")
+      .optional()
+      .or(z.literal("")),
+    level: z.string().trim().max(60).optional(),
+    description: z.string().trim().max(200).optional(),
+    fee: z.number({ invalid_type_error: "Enter the registration fee." }).min(0).max(10_000),
+    gamePassFee: z.number().min(0).max(10_000).nullish(),
+    status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
+    genderRule: z.enum(["WOMEN", "MEN", "COED"]),
+    minAge: z.number().int().min(0).max(99),
+    maleCutoff: IsoDate.nullish(),
+    femaleCutoff: IsoDate.nullish(),
+    displayOrder: z.number().int().min(0).max(999).default(0),
+    maxTeams: OptionalCount,
+    rosterMin: OptionalCount,
+    rosterMax: OptionalCount,
+  })
+  .refine((d) => d.rosterMin == null || d.rosterMax == null || d.rosterMin <= d.rosterMax, { message: "Roster minimum can’t be more than the maximum.", path: ["rosterMin"] });
 
 async function uniqueDivisionCode(seasonId: string, wanted: string, exceptId?: string) {
   const base = wanted || "division";
@@ -132,9 +141,14 @@ function divisionData(d: z.infer<typeof DivisionInput>) {
     level: d.level || null,
     description: d.description || null,
     registrationFee: d.fee,
+    gamePassFee: d.gamePassFee ?? null,
+    status: d.status,
     genderRule: d.genderRule,
     minAge: d.minAge,
     displayOrder: d.displayOrder,
+    maxTeams: d.maxTeams ?? null,
+    rosterMin: d.rosterMin ?? null,
+    rosterMax: d.rosterMax ?? null,
     maleBornOnOrBefore: d.genderRule === "WOMEN" || !d.maleCutoff ? null : day(d.maleCutoff),
     femaleBornOnOrBefore: d.genderRule === "MEN" || !d.femaleCutoff ? null : day(d.femaleCutoff),
   };
@@ -160,16 +174,122 @@ export async function updateDivision(input: z.input<typeof DivisionInput> & { id
     const data = DivisionInput.parse(input);
     const id = Id.parse(input.id);
     await requireAdminUser();
-    const div = await prisma.division.findUnique({ where: { id } });
+    const div = await prisma.division.findUnique({ where: { id }, include: { _count: { select: { teams: true } } } });
     if (!div || div.seasonId !== data.seasonId) throw new ActionError("Division not found.", 404);
     await assertSeasonWritable(div.seasonId);
     if (await prisma.division.findFirst({ where: { seasonId: div.seasonId, id: { not: id }, name: { equals: data.name, mode: "insensitive" } } })) {
       throw new ActionError(`This season already has a division called ${data.name}.`, 409);
     }
+    if (data.maxTeams != null && data.maxTeams < div._count.teams) {
+      throw new ActionError(`${div.name} already has ${div._count.teams} teams, so max teams can’t be lower than that.`, 409);
+    }
     const code = data.code && data.code !== div.code ? await uniqueDivisionCode(div.seasonId, data.code, id) : div.code;
     await prisma.division.update({ where: { id }, data: { ...divisionData(data), code } });
     refreshAll();
     return { ok: true, message: `${data.name} saved`, data: { code } };
+  });
+}
+
+/** Deletes an unused division. One with teams or registrations has to be set to inactive instead. */
+export async function deleteDivision(input: { id: string }): Promise<ActionResult> {
+  return runAction(async () => {
+    const id = Id.parse(input.id);
+    await requireAdminUser();
+    const div = await prisma.division.findUnique({ where: { id }, include: { _count: { select: { teams: true, registrations: true, matches: true } } } });
+    if (!div) throw new ActionError("Division not found.", 404);
+    await assertSeasonWritable(div.seasonId);
+    const { teams, registrations, matches } = div._count;
+    if (teams || registrations || matches) {
+      const used = [
+        teams && `${teams} team${teams === 1 ? "" : "s"}`,
+        registrations && `${registrations} registration${registrations === 1 ? "" : "s"}`,
+        !teams && matches && `${matches} match${matches === 1 ? "" : "es"}`,
+      ]
+        .filter(Boolean)
+        .join(" and ");
+      throw new ActionError(`${div.name} has ${used}, so it can’t be deleted. Set it to inactive instead.`, 409);
+    }
+    await prisma.division.delete({ where: { id } });
+    refreshAll();
+    return { ok: true, message: `${div.name} deleted` };
+  });
+}
+
+/** `years` before `d`, as a date-only value. */
+const yearsBefore = (d: Date, years: number) => new Date(Date.UTC(d.getUTCFullYear() - years, d.getUTCMonth(), d.getUTCDate()));
+
+/**
+ * A birth-date cutoff for the new season. "minAge on opening day" follows the new opening day;
+ * any other cutoff moves by the whole years between the seasons.
+ */
+function carryCutoff(cutoff: Date | null, minAge: number, from: Date, to: Date) {
+  if (!cutoff) return null;
+  if (cutoff.getTime() === yearsBefore(from, minAge).getTime()) return yearsBefore(to, minAge);
+  return yearsBefore(cutoff, from.getUTCFullYear() - to.getUTCFullYear());
+}
+
+/**
+ * Copies another season's divisions (name, level, fees, age rules, who can play, limits) into a
+ * season. "18 on opening day" cutoffs follow the new opening day and fixed cutoffs move by the years
+ * between the seasons; divisions whose name already exists in the target are skipped.
+ */
+export async function copyDivisions(input: { fromSeasonId: string; toSeasonId: string }): Promise<ActionResult<{ copied: string[]; skipped: string[] }>> {
+  return runAction(async () => {
+    const fromId = Id.parse(input.fromSeasonId);
+    const toId = Id.parse(input.toSeasonId);
+    await requireAdminUser();
+    if (fromId === toId) throw new ActionError("Pick a different season to copy from.", 400);
+    await assertSeasonWritable(toId);
+    const [from, to] = await Promise.all([
+      prisma.season.findUnique({ where: { id: fromId }, include: { divisions: { orderBy: [{ displayOrder: "asc" }, { name: "asc" }] } } }),
+      prisma.season.findUnique({ where: { id: toId }, include: { divisions: { select: { name: true, code: true } } } }),
+    ]);
+    if (!from || !to) throw new ActionError("Season not found.", 404);
+    if (!from.divisions.length) throw new ActionError(`${from.name} has no divisions to copy.`, 400);
+
+    const names = new Set(to.divisions.map((d) => d.name.toLowerCase()));
+    const codes = new Set(to.divisions.map((d) => d.code));
+    const copied: string[] = [];
+    const skipped: string[] = [];
+    const rows = [];
+    for (const d of from.divisions) {
+      if (names.has(d.name.toLowerCase())) {
+        skipped.push(d.name);
+        continue;
+      }
+      let code = d.code;
+      for (let i = 2; codes.has(code); i++) code = `${d.code}-${i}`;
+      codes.add(code);
+      names.add(d.name.toLowerCase());
+      copied.push(d.name);
+      rows.push({
+        seasonId: to.id,
+        code,
+        name: d.name,
+        level: d.level,
+        // Rule text that names a date would be stale; without it the rule is written from the cutoffs
+        description: d.description && /\b(19|20)\d\d\b/.test(d.description) && to.startDate.getTime() !== from.startDate.getTime() ? null : d.description,
+        registrationFee: d.registrationFee,
+        gamePassFee: d.gamePassFee,
+        status: d.status,
+        genderRule: d.genderRule,
+        minAge: d.minAge,
+        maleBornOnOrBefore: carryCutoff(d.maleBornOnOrBefore, d.minAge, from.startDate, to.startDate),
+        femaleBornOnOrBefore: carryCutoff(d.femaleBornOnOrBefore, d.minAge, from.startDate, to.startDate),
+        displayOrder: d.displayOrder,
+        maxTeams: d.maxTeams,
+        rosterMin: d.rosterMin,
+        rosterMax: d.rosterMax,
+      });
+    }
+    if (!rows.length) throw new ActionError(`${to.name} already has every division from ${from.name}.`, 409);
+    await prisma.division.createMany({ data: rows });
+    refreshAll();
+    return {
+      ok: true,
+      message: `Copied ${copied.length} division${copied.length === 1 ? "" : "s"} from ${from.name}${skipped.length ? ` (skipped ${skipped.join(", ")}: already here)` : ""}`,
+      data: { copied, skipped },
+    };
   });
 }
 
@@ -196,6 +316,13 @@ async function divisionInSeason(divisionId: string, seasonId: string) {
   return div;
 }
 
+/** Refuses a new team in a division that has reached its max teams. */
+async function assertDivisionHasRoom(div: { id: string; name: string; maxTeams: number | null }) {
+  if (div.maxTeams == null) return;
+  const teams = await prisma.team.count({ where: { divisionId: div.id } });
+  if (teams >= div.maxTeams) throw new ActionError(`${div.name} is full (${div.maxTeams} teams). Raise its max teams first.`, 409);
+}
+
 /** Short code for URLs and crests: initials, unique within the season. */
 async function teamCode(seasonId: string, name: string) {
   const base = (name.match(/\b[A-Za-z0-9]/g) ?? ["t"]).join("").toLowerCase().slice(0, 4) || "team";
@@ -212,6 +339,7 @@ export async function createTeam(input: z.input<typeof TeamInput>): Promise<Acti
     await assertSeasonWritable(data.seasonId);
     const div = await divisionInSeason(data.divisionId, data.seasonId);
     await assertTeamNameFree(data.seasonId, data.name);
+    await assertDivisionHasRoom(div);
     const captains = data.captainPlayerIds.length ? await prisma.player.findMany({ where: { id: { in: data.captainPlayerIds } } }) : [];
     if (captains.length !== new Set(data.captainPlayerIds).size) throw new ActionError("Some captains weren’t found.", 400);
     for (const p of captains) {
@@ -255,12 +383,13 @@ export async function updateTeam(input: z.input<typeof TeamUpdateInput>): Promis
     const team = await prisma.team.findUnique({ where: { id: data.id } });
     if (!team) throw new ActionError("Team not found.", 404);
     await assertSeasonWritable(team.seasonId);
-    await divisionInSeason(data.divisionId, team.seasonId);
+    const div = await divisionInSeason(data.divisionId, team.seasonId);
     await assertTeamNameFree(team.seasonId, data.name, team.id);
     const moving = data.divisionId !== team.divisionId;
     if (moving && (await prisma.match.count({ where: { OR: [{ homeTeamId: team.id }, { awayTeamId: team.id }] } }))) {
       throw new ActionError("This team has matches in its division. Move or delete those first, then change its division.", 409);
     }
+    if (moving) await assertDivisionHasRoom(div);
     await prisma.$transaction(async (tx) => {
       await tx.team.update({
         where: { id: team.id },

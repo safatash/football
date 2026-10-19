@@ -4,7 +4,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { AppBar, Screen } from "@/components/shell/layout";
 import prisma from "@/lib/prisma";
 import { fmtDateOnly, isoDate } from "@/lib/format";
-import { ageLabel, listDivisions } from "@/lib/queries/admin-league";
+import { ageLabel, listOpenDivisions } from "@/lib/queries/admin-league";
 import { getActiveSeason, getSettings } from "@/lib/queries/season";
 import { listTeams } from "@/lib/queries/teams";
 import { getSession } from "@/lib/session";
@@ -31,7 +31,7 @@ export default async function NewRegistrationPage() {
   }
 
   const [divisions, teams, zips, settings, session] = await Promise.all([
-    listDivisions(season.id),
+    listOpenDivisions(season.id),
     listTeams(season.id),
     prisma.allowedZipCode.findMany({ select: { zipCode: true, fairfaxCounty: true } }),
     getSettings(season.id),
