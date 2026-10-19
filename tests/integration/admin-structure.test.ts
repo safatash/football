@@ -6,6 +6,9 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
   const s = await import("@/lib/actions/admin-structure");
   const { loadStandings } = await import("@/lib/queries/standings");
   const { listOpenDivisions } = await import("@/lib/queries/admin-league");
+  const { standingsByDivision } = await import("@/lib/queries/standings");
+  const { demoSummary } = await import("@/lib/demo");
+  const demo = await import("@/lib/actions/demo");
 
   const ids = {} as Record<string, string>;
   let admin: TestUser = null;
@@ -230,6 +233,30 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
       const unused = await prisma.division.findFirstOrThrow({ where: { seasonId: ids.fall, code: "cc" } });
       expect(await s.deleteDivision({ id: unused.id })).toMatchObject({ ok: true });
       expect(await prisma.division.findUnique({ where: { id: unused.id } })).toBeNull();
+    });
+  });
+
+  describe("standings and demo data", () => {
+    it("lists every division with its table and completed-match count, matching the per-division query", async () => {
+      const all = await standingsByDivision(ids.season);
+      expect(all.map((x) => x.division.code)).toEqual(["wp", "md1", "d3", "mc", "cc"]);
+      for (const x of all) {
+        expect(x.rows).toEqual(await loadStandings(ids.season, x.division.id));
+        expect(x.completed).toBe(x.rows.reduce((a, r) => a + r.played, 0) / 2);
+        expect(x.teams).toBe(x.rows.length);
+      }
+      expect(all.find((x) => x.division.code === "wp")!.completed).toBeGreaterThan(0);
+    });
+
+    it("counts seed data as demo and only clears it with the typed confirmation", async () => {
+      const summary = await demoSummary();
+      expect(summary).toMatchObject({ teams: 13, any: true });
+      expect(summary.players).toBeGreaterThan(20);
+      as(maya);
+      expect(await demo.clearDemoData({ confirm: "clear demo data" })).toMatchObject({ ok: false, status: 403 });
+      as(admin);
+      expect(await demo.clearDemoData({ confirm: "yes" })).toMatchObject({ ok: false, status: 400, error: expect.stringMatching(/clear demo data/) });
+      expect(await prisma.team.count({ where: { isDemo: true } })).toBe(13);
     });
   });
 });

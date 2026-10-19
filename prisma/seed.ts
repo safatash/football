@@ -352,6 +352,7 @@ async function main() {
       awayShirt: '#FFFFFF',
       awayShorts: t.color,
       formation: t.code === 'ffx' ? '4-4-2' : t.code === 'alx' ? '4-3-3' : null,
+      isDemo: true, // sample data, see Settings › Demo data
     }
     const existing = await prisma.team.findFirst({ where: { seasonId: season.id, OR: [{ code: t.code }, { name: t.name }] } })
     const row = existing

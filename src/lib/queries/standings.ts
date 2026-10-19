@@ -2,6 +2,7 @@ import { cache } from "react";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { computeStandings, type StandingRow } from "@/lib/standings";
+import { listDivisions, type DivisionRow } from "./admin-league";
 import { listTeams, type TeamSummary } from "./teams";
 
 /**
@@ -31,6 +32,23 @@ export const loadStandings = cache(async (seasonId: string, divisionId: string) 
   return computeStandings(teams, results);
 });
 
+export type DivisionStandings = { division: DivisionRow; rows: StandingRow<TeamSummary>[]; teams: number; completed: number };
+
+/**
+ * Every division of a season in display order, with its table and how many confirmed results it
+ * is based on. Divisions without teams or results are included (the page shows an empty state).
+ * The admin Standings page and the division page's Standings tab both read this.
+ */
+export const standingsByDivision = cache(async (seasonId: string): Promise<DivisionStandings[]> => {
+  const [divisions, teams, results] = await Promise.all([listDivisions(seasonId), listTeams(seasonId), confirmedResults(seasonId)]);
+  return divisions.map((division) => {
+    const divTeams = teams.filter((t) => t.division.id === division.id);
+    const ids = new Set(divTeams.map((t) => t.id));
+    const counted = results.filter((r) => ids.has(r.homeTeamId) && ids.has(r.awayTeamId));
+    return { division, rows: computeStandings(divTeams, counted), teams: divTeams.length, completed: counted.length };
+  });
+});
+
 /** Standings for every division in a season, in display order (two queries in total). */
 export const loadSeasonStandings = cache(async (seasonId: string) => {
   const [teams, results] = await Promise.all([listTeams(seasonId), confirmedResults(seasonId)]);
@@ -39,7 +57,10 @@ export const loadSeasonStandings = cache(async (seasonId: string) => {
   for (const [id, entry] of byDivision) {
     const divTeams = teams.filter((t) => t.division.id === id);
     const ids = new Set(divTeams.map((t) => t.id));
-    entry.rows = computeStandings(divTeams, results.filter((r) => ids.has(r.homeTeamId) && ids.has(r.awayTeamId)));
+    entry.rows = computeStandings(
+      divTeams,
+      results.filter((r) => ids.has(r.homeTeamId) && ids.has(r.awayTeamId)),
+    );
   }
   return [...byDivision.values()];
 });
@@ -61,7 +82,20 @@ export type Leader = {
  */
 export const seasonLeaders = cache(async (seasonId: string) => {
   const rows = await prisma.$queryRaw<
-    { playerId: string; firstName: string; lastName: string; photoUrl: string | null; social: boolean; divisionId: string; teamId: string; teamName: string; color: string | null; shortName: string | null; goals: bigint; assists: bigint }[]
+    {
+      playerId: string;
+      firstName: string;
+      lastName: string;
+      photoUrl: string | null;
+      social: boolean;
+      divisionId: string;
+      teamId: string;
+      teamName: string;
+      color: string | null;
+      shortName: string | null;
+      goals: bigint;
+      assists: bigint;
+    }[]
   >(Prisma.sql`
     SELECT s."playerId", p."firstName", p."lastName", p."photoUrl", p."social",
            m."divisionId", r."teamId", t."name" AS "teamName", t."color", t."shortName",

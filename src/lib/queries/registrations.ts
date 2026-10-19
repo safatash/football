@@ -20,6 +20,7 @@ export type RegListRow = {
   submittedAt: number;
   amount: number;
   division: string;
+  divisionId: string | null;
   preferred: string;
   captainRequest: boolean;
   needsPlacement: boolean;
@@ -119,6 +120,7 @@ export async function listRegistrations(seasonId: string, { openOnly, take }: { 
       submittedAt: r.submittedAt.getTime(),
       amount: Number(r.totalAmount),
       division: r.division?.name ?? fallback?.division.name ?? "—",
+      divisionId: r.division?.id ?? fallback?.division.id ?? null,
       preferred: preferred ?? "—",
       captainRequest,
       needsPlacement: NEEDS_PLACEMENT.has(r.placementState),

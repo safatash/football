@@ -11,11 +11,12 @@ import { money, fmtShortDateOnly } from "@/lib/format";
 import { ageLabel, genderLabel, getDivisionByCode, ruleText } from "@/lib/queries/admin-league";
 import { listMatches } from "@/lib/queries/matches";
 import { getSettings } from "@/lib/queries/season";
-import { loadStandings, topScorers } from "@/lib/queries/standings";
+import { standingsByDivision, topScorers } from "@/lib/queries/standings";
 import { listTeams } from "@/lib/queries/teams";
 import { ArchivedNotice, Crumbs, param, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
 import { DoneNotice } from "../../_components/done-notice";
-import { StandingsTable } from "../../_components/standings-table";
+import { DivisionStandings } from "../../_components/division-standings";
+import { DemoBadge } from "../../_components/demo";
 
 const TABS = [
   { key: "overview", label: "Overview" },
@@ -38,9 +39,9 @@ export default async function DivisionPage({ params, searchParams }: { params: P
   const d = await getDivisionByCode(season.id, id);
   if (!d) notFound();
   const tab: Tab = TABS.find((t) => t.key === param(sp.tab))?.key ?? "overview";
-  const [teams, rows, scorers, settings, matches] = await Promise.all([
+  const [teams, standings, scorers, settings, matches] = await Promise.all([
     listTeams(season.id, d.id),
-    loadStandings(season.id, d.id),
+    standingsByDivision(season.id).then((all) => all.find((x) => x.division.id === d.id)!),
     topScorers(season.id, d.id),
     getSettings(season.id),
     listMatches(season.id, { divisionId: d.id }),
@@ -49,9 +50,7 @@ export default async function DivisionPage({ params, searchParams }: { params: P
   const base = `/admin/divisions/${d.code}`;
   const tabHref = (key: Tab) => withSeason(key === "overview" ? base : `${base}?tab=${key}`, season);
   const players = teams.reduce((a, t) => a + t.rosterSize, 0);
-  // Each confirmed result counts once for each team
-  const completed = rows.reduce((a, r) => a + r.played, 0) / 2;
-  const record = new Map(rows.map((r) => [r.team.id, r]));
+  const record = new Map(standings.rows.map((r) => [r.team.id, r]));
   const full = d.maxTeams != null && teams.length >= d.maxTeams;
   const editable = !season.archived;
   const gamePass = d.gamePassFee != null ? Number(d.gamePassFee) : settings.gamePassFee;
@@ -89,15 +88,15 @@ export default async function DivisionPage({ params, searchParams }: { params: P
             value={<span className="text-[28px]">{d.status === "ACTIVE" ? "Active" : "Inactive"}</span>}
             note={d.status === "ACTIVE" ? "Open for registration and game passes" : "Hidden from registration and game passes"}
           />
-          <StatCard label="Teams" value={d.maxTeams != null ? `${teams.length} / ${d.maxTeams}` : teams.length} note={d.maxTeams != null ? (full ? "Full" : `${d.maxTeams - teams.length} spots left`) : "No team limit"} />
+          <StatCard
+            label="Teams"
+            value={d.maxTeams != null ? `${teams.length} / ${d.maxTeams}` : teams.length}
+            note={d.maxTeams != null ? (full ? "Full" : `${d.maxTeams - teams.length} spots left`) : "No team limit"}
+          />
           <StatCard label="Players" value={players} note={`Roster size: ${rosterLimitLabel(d)}`} />
           <StatCard label="Season" value={<span className="text-[28px]">{season.name}</span>} note={`${fmtShortDateOnly(season.startDate)} – ${fmtShortDateOnly(season.endDate)}`} />
           <StatCard label="Registration fee" value={money(d.registrationFee)} note="Per player, for the season" />
-          <StatCard
-            label="Game-pass fee"
-            value={money(gamePass)}
-            note={d.gamePassFee != null ? `Division fee (league fee is ${money(settings.gamePassFee)})` : "League fee from Fees & eligibility"}
-          />
+          <StatCard label="Game-pass fee" value={money(gamePass)} note={d.gamePassFee != null ? `Division fee (league fee is ${money(settings.gamePassFee)})` : "League fee from Fees & eligibility"} />
           <StatCard label="Who can play" value={<span className="text-[28px]">{genderLabel(d)}</span>} note={d.level ?? "Level not set"} />
           <StatCard label="Age rule" value={<span className="block text-xl leading-[1.2]">{ageLabel(d, season.startDate)}</span>} note={ruleText(d, season.startDate)} />
         </div>
@@ -141,6 +140,7 @@ export default async function DivisionPage({ params, searchParams }: { params: P
                           <span className="flex items-center gap-2.5">
                             <Crest team={t} />
                             <RowLink href={withSeason(`/admin/teams/${t.id}`, season)}>{t.name}</RowLink>
+                            {t.isDemo ? <DemoBadge /> : null}
                           </span>
                         </BodyCell>
                         <BodyCell>{t.status === "INACTIVE" ? <Badge>Inactive</Badge> : <Badge tone="ok">Active</Badge>}</BodyCell>
@@ -233,62 +233,48 @@ export default async function DivisionPage({ params, searchParams }: { params: P
       ) : null}
 
       {tab === "standings" ? (
-        completed ? (
-          <div className="grid gap-[18px] xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-            <section className="flex min-w-0 flex-col gap-2.5">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="text-[26px]">Standings</h2>
-                <span className="text-[13px] text-muted">
-                  Based on {completed} completed match{completed === 1 ? "" : "es"}
-                </span>
-              </div>
-              <StandingsTable rows={rows} linkBase="/admin/teams" href={(h) => withSeason(h, season)} />
-            </section>
-            <section className="flex min-w-0 flex-col gap-2.5">
-              <h2 className="text-[26px]">Top scorers</h2>
-              {scorers.length ? (
-                <TableWrap>
-                  <DataTable>
-                    <TableHead>
-                      <tr>
-                        <HeadCell>Player</HeadCell>
-                        <HeadCell align="right">G</HeadCell>
-                        <HeadCell align="right">A</HeadCell>
-                      </tr>
-                    </TableHead>
-                    <TableBody>
-                      {scorers.map((p) => (
-                        <BodyRow key={p.playerId}>
-                          <BodyCell>
-                            <span className="flex items-center gap-2">
-                              {p.team ? <Crest team={p.team} /> : null}
-                              <span>
-                                <b>{p.name}</b>
-                                {p.team ? <div className="text-xs text-muted">{p.team.name}</div> : null}
-                              </span>
+        <div className="grid gap-[18px] xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          <DivisionStandings standings={standings} season={season} heading="standings" />
+          <section className="flex min-w-0 flex-col gap-2.5">
+            <h2 className="text-[26px]">Top scorers</h2>
+            {scorers.length ? (
+              <TableWrap>
+                <DataTable>
+                  <TableHead>
+                    <tr>
+                      <HeadCell>Player</HeadCell>
+                      <HeadCell align="right">G</HeadCell>
+                      <HeadCell align="right">A</HeadCell>
+                    </tr>
+                  </TableHead>
+                  <TableBody>
+                    {scorers.map((p) => (
+                      <BodyRow key={p.playerId}>
+                        <BodyCell>
+                          <span className="flex items-center gap-2">
+                            {p.team ? <Crest team={p.team} /> : null}
+                            <span>
+                              <b>{p.name}</b>
+                              {p.team ? <div className="text-xs text-muted">{p.team.name}</div> : null}
                             </span>
-                          </BodyCell>
-                          <BodyCell align="right">
-                            <b className="font-display text-[22px] font-extrabold">{p.goals}</b>
-                          </BodyCell>
-                          <BodyCell align="right">{p.assists}</BodyCell>
-                        </BodyRow>
-                      ))}
-                    </TableBody>
-                  </DataTable>
-                </TableWrap>
-              ) : (
-                <EmptyState icon="ball" title="No goals recorded yet">
-                  Scorers appear once match reports are confirmed.
-                </EmptyState>
-              )}
-            </section>
-          </div>
-        ) : (
-          <EmptyState icon="list" title="No completed matches yet">
-            Standings and top scorers appear once {d.name} has a confirmed result.
-          </EmptyState>
-        )
+                          </span>
+                        </BodyCell>
+                        <BodyCell align="right">
+                          <b className="font-display text-[22px] font-extrabold">{p.goals}</b>
+                        </BodyCell>
+                        <BodyCell align="right">{p.assists}</BodyCell>
+                      </BodyRow>
+                    ))}
+                  </TableBody>
+                </DataTable>
+              </TableWrap>
+            ) : (
+              <EmptyState icon="ball" title="No goals recorded yet">
+                Scorers appear once match reports are confirmed.
+              </EmptyState>
+            )}
+          </section>
+        </div>
       ) : null}
     </>
   );

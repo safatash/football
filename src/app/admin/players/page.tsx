@@ -6,6 +6,10 @@ import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, FilterChip, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { listPlayers, registeredCount, type PlayerRow } from "@/lib/queries/players";
 import { param, seasonFrom, withSeason, type SearchParams } from "../_components/season";
+import { DivisionFilter } from "../_components/division-filter";
+import { DemoBadge } from "../_components/demo";
+import { isDemoEmail } from "@/lib/demo";
+import { listDivisions } from "@/lib/queries/admin-league";
 
 export const metadata = { title: "Players" };
 
@@ -19,7 +23,11 @@ const FILTERS: [key: string, label: string, test: (p: PlayerRow) => boolean][] =
 export default async function PlayersPage({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
   const season = await seasonFrom(sp);
-  const [players, registered] = await Promise.all([listPlayers(season.id, param(sp.q)), registeredCount(season.id)]);
+  const [everyone, registered, divisions] = await Promise.all([listPlayers(season.id, param(sp.q)), registeredCount(season.id), listDivisions(season.id)]);
+  const picked = divisions.find((d) => d.code === param(sp.division));
+  const division = picked ? { division: picked } : null;
+  // A division shows players registered for it or on one of its teams
+  const players = picked ? everyone.filter((p) => p.division?.id === picked.id || p.teams.some((t) => t.division.id === picked.id)) : everyone;
   const filter = FILTERS.find(([k]) => k === param(sp.status)) ?? FILTERS[0];
   const q = param(sp.q).trim();
   const needle = q.toLowerCase();
@@ -29,6 +37,7 @@ export default async function PlayersPage({ searchParams }: { searchParams: Sear
     const p = new URLSearchParams();
     if (key !== "all") p.set("status", key);
     if (q) p.set("q", q);
+    if (division) p.set("division", division.division.code);
     if (!season.isActive) p.set("season", season.name);
     return `/admin/players${p.size ? `?${p}` : ""}`;
   };
@@ -53,9 +62,11 @@ export default async function PlayersPage({ searchParams }: { searchParams: Sear
             {label}
           </FilterChip>
         ))}
+        <DivisionFilter divisions={divisions} value={picked?.code ?? ""} />
         <form action="/admin/players" role="search" className="relative min-w-[180px] max-w-[320px] flex-1">
           {filter[0] !== "all" ? <input type="hidden" name="status" value={filter[0]} /> : null}
           {!season.isActive ? <input type="hidden" name="season" value={season.name} /> : null}
+          {division ? <input type="hidden" name="division" value={division.division.code} /> : null}
           <Icon name="search" className="absolute top-2.5 left-3.5 size-[18px] text-muted" />
           <input
             name="q"
@@ -88,6 +99,11 @@ export default async function PlayersPage({ searchParams }: { searchParams: Sear
                       <Avatar name={p.name} />
                       <span className="min-w-0">
                         <RowLink href={withSeason(`/admin/players/${p.id}`, season)}>{p.name}</RowLink>
+                        {isDemoEmail(p.email) ? (
+                          <span className="ml-1.5">
+                            <DemoBadge />
+                          </span>
+                        ) : null}
                         <div className="truncate text-xs text-muted">{p.email}</div>
                       </span>
                     </span>

@@ -40,6 +40,7 @@ vi.mock("@/lib/prisma", () => ({ default: db.client }));
 const captain = await import("@/lib/actions/captain");
 const admin = await import("@/lib/actions/admin");
 const structure = await import("@/lib/actions/admin-structure");
+const demo = await import("@/lib/actions/demo");
 const approve = await import("@/app/api/admin/registrations/[id]/approve/route");
 const deny = await import("@/app/api/admin/registrations/[id]/deny/route");
 
@@ -120,6 +121,7 @@ describe("admin actions and API routes", () => {
       structure.createMatch({ seasonId: "s26", divisionId: "d", homeTeamId: "a", awayTeamId: "b", date: "2026-05-31", time: "09:00", status: "SCHEDULED" }),
       structure.updateMatch({ id: "m1", seasonId: "s26", divisionId: "d", homeTeamId: "a", awayTeamId: "b", date: "2026-05-31", time: "09:00", status: "SCHEDULED" }),
       structure.deleteMatch({ id: "m1" }),
+      demo.clearDemoData({ confirm: "clear demo data" }),
     ]);
     for (const r of results) expect(r).toMatchObject({ ok: false, status: 403 });
   });

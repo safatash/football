@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Avatar, Crest, type CrestTeam } from "@/components/league";
+import { demoSummary } from "@/lib/demo";
 import { Badge } from "@/components/ui/badge";
 import { Card, EmptyState, Notice as NoticeBox } from "@/components/ui/card";
 import { Segmented } from "@/components/ui/controls";
@@ -21,9 +22,23 @@ export function PublicFrame({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen flex-col">
       <PublicTopNav />
       <PublicMobileNav />
-      <main className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col gap-5 px-4 pt-5 pb-10 lg:gap-6 lg:pt-8">{children}</main>
+      <main className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col gap-5 px-4 pt-5 pb-10 lg:gap-6 lg:pt-8">
+        <PublicDemoNotice />
+        {children}
+      </main>
       <PublicFooter />
     </div>
+  );
+}
+
+/** While seed data is in the database, say so: the teams, players and results aren't real. */
+async function PublicDemoNotice() {
+  const { teams } = await demoSummary();
+  if (!teams) return null;
+  return (
+    <p role="note" className="rounded-xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-[13.5px] text-muted">
+      <b className="text-fg">Preview:</b> the teams, players and results on these pages are demo data, not real NVASA teams.
+    </p>
   );
 }
 

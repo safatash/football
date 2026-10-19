@@ -13,7 +13,8 @@ import { isUpcoming, listMatches, nextMatchDay, reportOverdue } from "@/lib/quer
 import { listPlacements } from "@/lib/queries/placements";
 import { suspendedPlayers } from "@/lib/queries/players";
 import { listRegistrations, openCaptainRequests, openRegistrationStats } from "@/lib/queries/registrations";
-import { loadStandings } from "@/lib/queries/standings";
+import { standingsByDivision } from "@/lib/queries/standings";
+import { rosterWarning } from "@/lib/division-rules";
 import { listTeams } from "@/lib/queries/teams";
 import { ArchivedNotice, seasonFrom, withSeason, type SearchParams } from "./_components/season";
 import { RegistrationTable } from "./_components/registration-table";
@@ -58,10 +59,9 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
   const noRefs = scheduled.filter((m) => m.refsAssigned === 0);
   const attention = suspended.length + overdue.length + toConfirm.length + noRefs.length + captainReqs.length;
 
-  // Team snapshot: first six teams with points from confirmed results
-  const snapshot = teams.slice(0, 6);
-  const tables = await Promise.all([...new Set(snapshot.map((t) => t.division.id))].map((d) => loadStandings(season.id, d)));
-  const points = new Map(tables.flat().map((r) => [r.team.id, r.pts]));
+  // Division leaders: the top team in every division that has a confirmed result
+  const leaders = (await standingsByDivision(season.id)).filter((x) => x.completed && x.rows.length).map((x) => ({ row: x.rows[0], division: x.division }));
+  const rosterOf = new Map(teams.map((t) => [t.id, t.rosterSize]));
 
   const totalWeeks = Math.max(1, Math.ceil((season.endDate.getTime() - season.startDate.getTime()) / WEEK_MS));
   const week = Math.floor((at.getTime() - season.startDate.getTime()) / WEEK_MS) + 1;
@@ -250,48 +250,57 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
 
           <Card>
             <CardHeader
-              title="Team snapshot"
+              title="Division leaders"
               action={
-                <Link href={s("/admin/teams")} className="text-[13.5px] font-bold text-pitch-2 underline underline-offset-4">
-                  All teams
+                <Link href={s("/admin/standings")} className="text-[13.5px] font-bold text-pitch-2 underline underline-offset-4">
+                  All standings
                 </Link>
               }
             />
-            <DataTable className="text-[13.5px]">
-              <TableHead>
-                <tr>
-                  <HeadCell>Team</HeadCell>
-                  <HeadCell align="right">Roster</HeadCell>
-                  <HeadCell align="right">Pts</HeadCell>
-                </tr>
-              </TableHead>
-              <TableBody>
-                {snapshot.map((t) => (
-                  <BodyRow key={t.id}>
-                    <BodyCell className="px-2">
-                      <span className="flex items-center gap-2">
-                        <Crest team={t} />
-                        <span className="min-w-0">
-                          <RowLink href={s(`/admin/teams/${t.code ?? t.id}`)}>{t.name}</RowLink>
-                          <div className="text-xs text-muted">{t.division.name}</div>
-                        </span>
-                      </span>
-                    </BodyCell>
-                    <BodyCell align="right" className="px-2 whitespace-nowrap">
-                      {t.rosterSize}
-                      {t.rosterSize < 16 ? (
-                        <Badge tone="warn" dot={false} className="ml-1.5">
-                          Low
-                        </Badge>
-                      ) : null}
-                    </BodyCell>
-                    <BodyCell align="right" className="px-2">
-                      <b>{points.get(t.id) ?? 0}</b>
-                    </BodyCell>
-                  </BodyRow>
-                ))}
-              </TableBody>
-            </DataTable>
+            {leaders.length ? (
+              <DataTable className="text-[13.5px]">
+                <TableHead>
+                  <tr>
+                    <HeadCell>Team</HeadCell>
+                    <HeadCell align="right">Roster</HeadCell>
+                    <HeadCell align="right">Pts</HeadCell>
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {leaders.map(({ row, division }) => {
+                    const t = row.team;
+                    const size = rosterOf.get(t.id) ?? 0;
+                    const warn = rosterWarning(size, division);
+                    return (
+                      <BodyRow key={t.id}>
+                        <BodyCell className="px-2">
+                          <span className="flex items-center gap-2">
+                            <Crest team={t} />
+                            <span className="min-w-0">
+                              <RowLink href={s(`/admin/teams/${t.code ?? t.id}`)}>{t.name}</RowLink>
+                              <div className="text-xs text-muted">{division.name}</div>
+                            </span>
+                          </span>
+                        </BodyCell>
+                        <BodyCell align="right" className="px-2 whitespace-nowrap">
+                          {size}
+                          {warn ? (
+                            <Badge tone="warn" dot={false} className="ml-1.5">
+                              <span title={warn}>{size < (division.rosterMin ?? 0) ? "Low" : "High"}</span>
+                            </Badge>
+                          ) : null}
+                        </BodyCell>
+                        <BodyCell align="right" className="px-2">
+                          <b>{row.pts}</b>
+                        </BodyCell>
+                      </BodyRow>
+                    );
+                  })}
+                </TableBody>
+              </DataTable>
+            ) : (
+              <p className="text-[13.5px] text-muted">No confirmed results yet. Leaders appear after the first match report is confirmed.</p>
+            )}
           </Card>
         </div>
       </div>

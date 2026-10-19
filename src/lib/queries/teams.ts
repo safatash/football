@@ -13,6 +13,7 @@ export const teamSelect = {
   homeField: true,
   maxPlayers: true,
   status: true,
+  isDemo: true,
   seasonId: true,
   division: { select: { id: true, code: true, name: true, rosterMin: true, rosterMax: true } },
 } satisfies Prisma.TeamSelect;

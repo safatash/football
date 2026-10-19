@@ -11,6 +11,7 @@ import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } fro
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { rosterLimitLabel, rosterWarning } from "@/lib/division-rules";
+import { DemoBadge } from "../../_components/demo";
 
 export const metadata = { title: "Team" };
 
@@ -36,6 +37,7 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
             <span className="flex items-center gap-3.5">
               <Crest team={t} size="lg" />
               {t.name}
+              {t.isDemo ? <DemoBadge /> : null}
             </span>
           }
           sub={[t.division.name, season.name, t.homeField ? `home field ${t.homeField}` : null].filter(Boolean).join(" · ")}

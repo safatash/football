@@ -11,6 +11,7 @@ export function StandingsTable({
   highlight,
   linkBase = "/admin/teams",
   href,
+  compact,
 }: {
   rows: StandingRow<StandingsTeam>[];
   /** Team id or code to highlight. */
@@ -18,6 +19,8 @@ export function StandingsTable({
   linkBase?: string | null;
   /** Builds the team link (e.g. to keep the selected season). Defaults to `${linkBase}/${code ?? id}`. */
   href?: (path: string) => string;
+  /** Hides goals for/against (GD stays) for the stacked all-divisions view. */
+  compact?: boolean;
 }) {
   return (
     <TableWrap>
@@ -31,8 +34,12 @@ export function StandingsTable({
             <HeadCell align="right">W</HeadCell>
             <HeadCell align="right">D</HeadCell>
             <HeadCell align="right">L</HeadCell>
-            <HeadCell align="right">GF</HeadCell>
-            <HeadCell align="right">GA</HeadCell>
+            {compact ? null : (
+              <>
+                <HeadCell align="right">GF</HeadCell>
+                <HeadCell align="right">GA</HeadCell>
+              </>
+            )}
             <HeadCell align="right">GD</HeadCell>
           </tr>
         </TableHead>
@@ -58,8 +65,12 @@ export function StandingsTable({
                 <BodyCell align="right">{r.w}</BodyCell>
                 <BodyCell align="right">{r.d}</BodyCell>
                 <BodyCell align="right">{r.l}</BodyCell>
-                <BodyCell align="right">{r.gf}</BodyCell>
-                <BodyCell align="right">{r.ga}</BodyCell>
+                {compact ? null : (
+                  <>
+                    <BodyCell align="right">{r.gf}</BodyCell>
+                    <BodyCell align="right">{r.ga}</BodyCell>
+                  </>
+                )}
                 <BodyCell align="right">
                   <b>
                     {r.gd > 0 ? "+" : ""}

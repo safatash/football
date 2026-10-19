@@ -251,6 +251,7 @@ model Team {
   color     String? // crest color, hex
   homeField String?
   status    TeamStatus @default(ACTIVE)
+  isDemo    Boolean    @default(false) // sample team from the seed; shown as "Demo" and removable in Settings
 
   // Public team page
   logoUrl    String?
