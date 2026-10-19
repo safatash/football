@@ -26,6 +26,11 @@ describe.skipIf(!hasDb)("organizations: every row belongs to a league (database)
       `SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'organizationId' AND table_name NOT IN ('organization_members', 'organization_settings')`,
     );
     expect(tables.length).toBe(27);
+    // Rows must name their league: no organizationId column defaults to one
+    const defaults = await prisma.$queryRawUnsafe<{ table_name: string }[]>(
+      `SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'organizationId' AND column_default IS NOT NULL`,
+    );
+    expect(defaults.map((d) => d.table_name)).toEqual([]);
     for (const { table_name } of tables) {
       const [{ n }] = await prisma.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "${table_name}" WHERE "organizationId" NOT IN ('${NVASA_ORG_ID}', 'org_demo', '${OTHER}')`);
       expect(n, table_name).toBe(0);
