@@ -286,7 +286,8 @@ To try it locally: open `http://app.localhost:3000/signup`, or sign in at
 `http://app.localhost:3000/login?next=/platform` as `safatash@gmail.com` (seeded operator).
 
 Planned: Postgres row-level security as a second layer (after measuring its cost), and per-league
-payments (Phase 5 design).
+payments with Stripe Connect plus platform billing with Stripe Billing. The design is in
+[docs/payments-architecture.md](docs/payments-architecture.md) (Phase 5; not built).
 
 ### Checks
 
