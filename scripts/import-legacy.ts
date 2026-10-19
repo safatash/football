@@ -1,6 +1,7 @@
 /**
  * Import one season from the old ColdFusion site.
  *
+ *   npm run import:legacy -- --list-seasons
  *   npm run import:legacy -- --season spring2026 --dry-run
  *   npm run import:legacy -- --season spring2026 [--images]
  *
@@ -15,6 +16,9 @@ import { join } from "node:path";
 import mysql from "mysql2/promise";
 import { PrismaClient } from "@prisma/client";
 import { importSeason, type LegacyReader } from "../src/lib/legacy-import";
+
+// Read .env like the app does (tsx doesn't load it on its own)
+if (existsSync(".env")) process.loadEnvFile(".env");
 
 function arg(name: string) {
   const i = process.argv.indexOf(`--${name}`);
@@ -125,7 +129,25 @@ function imageCopier(wwwroot: string) {
   };
 }
 
+/** Read-only: the seasons the old site knows about. */
+async function listSeasons(baseUrl: string) {
+  const main = await mysql.createConnection({ uri: baseUrl, database: "nvasa", dateStrings: true });
+  try {
+    const [rows] = await main.query("SELECT datasource, name, startdate, enddate, activeSite FROM seasons ORDER BY id DESC");
+    console.log("Seasons on the old site (use the datasource with --season):");
+    for (const r of rows as Record<string, unknown>[]) {
+      console.log(`  ${String(r.datasource).padEnd(16)} ${String(r.name).padEnd(16)} ${r.startdate ?? "?"} → ${r.enddate ?? "?"}${Number(r.activeSite) === 1 ? "  (active on the old site)" : ""}`);
+    }
+  } finally {
+    await main.end();
+  }
+}
+
 async function main() {
+  if (flag("list-seasons")) {
+    if (!process.env.LEGACY_MYSQL_URL) throw new Error("Set LEGACY_MYSQL_URL (mysql://user:pass@host:3306)");
+    return listSeasons(process.env.LEGACY_MYSQL_URL);
+  }
   const datasource = arg("season");
   const dryRun = flag("dry-run");
   if (!datasource) throw new Error("Usage: npm run import:legacy -- --season spring2026 [--dry-run] [--images]");
