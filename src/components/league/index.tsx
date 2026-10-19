@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
+import { addressLine, directionsUrl, type Place } from "@/lib/public";
 
 export function Logo({ href = "/", className = "", tone = "default" }: { href?: string; className?: string; tone?: "default" | "light" }) {
   return (
@@ -87,7 +88,9 @@ export function VsRow({ home, away, score, onDark }: { home: CrestTeam; away: Cr
   );
 }
 
-export function MatchMeta({ date, time, field, onDark, extra }: { date: string; time?: string; field?: string | null; onDark?: boolean; extra?: ReactNode }) {
+export function MatchMeta({ date, time, field, place, onDark, extra }: { date: string; time?: string; field?: string | null; place?: Place | null; onDark?: boolean; extra?: ReactNode }) {
+  const map = place ? directionsUrl(place) : null;
+  const address = place ? addressLine(place) : "";
   return (
     <div className={`flex flex-wrap gap-x-3.5 gap-y-1.5 text-[13px] ${onDark ? "text-white/80" : "text-muted"}`}>
       <span className="inline-flex items-center gap-1.5">
@@ -106,6 +109,17 @@ export function MatchMeta({ date, time, field, onDark, extra }: { date: string; 
           {field}
         </span>
       ) : null}
+      {address || map ? (
+        <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+          {address}
+          {map ? (
+            <a href={map} target="_blank" rel="noopener noreferrer" className={`font-bold underline underline-offset-4 ${onDark ? "text-lime" : "text-pitch-2 dark:text-lime"}`}>
+              Directions
+            </a>
+          ) : null}
+        </span>
+      ) : null}
+      {place?.notes ? <span className="basis-full">Parking: {place.notes}</span> : null}
       {extra}
     </div>
   );

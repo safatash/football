@@ -1,5 +1,6 @@
 /** Data for the admin create/edit forms (seasons, divisions, teams, matches). */
 import prisma from "@/lib/prisma";
+import { fieldName } from "@/lib/public";
 import { fullName } from "@/lib/format";
 import { isSeasonClosed } from "./season";
 
@@ -17,9 +18,24 @@ export async function formTeams(seasonIds: string[]) {
   return prisma.team.findMany({ where: { seasonId: { in: seasonIds } }, select: { id: true, name: true, divisionId: true, seasonId: true, status: true }, orderBy: { name: "asc" } });
 }
 
-export async function formFields() {
-  const fields = await prisma.field.findMany({ orderBy: [{ complex: "asc" }, { name: "asc" }] });
-  return fields.map((f) => ({ id: f.id, label: `${f.complex} · ${/^\d+$/.test(f.name) ? `Field ${f.name}` : f.name}${f.city ? ` (${f.city})` : ""}` }));
+/** Fields for the match form, grouped by park. Inactive fields are left out, except the match's own. */
+export async function formFields(keepId?: string | null) {
+  const fields = await prisma.field.findMany({
+    where: { OR: [{ active: true }, ...(keepId ? [{ id: keepId }] : [])] },
+    include: { park: { select: { id: true, name: true, city: true } } },
+    orderBy: [{ park: { name: "asc" } }, { name: "asc" }],
+  });
+  return fields.map((f) => ({
+    id: f.id,
+    parkId: f.park.id,
+    park: [f.park.name, f.park.city].filter(Boolean).join(" · "),
+    label: `${fieldName(f.name)}${f.active ? "" : " (inactive)"}`,
+  }));
+}
+
+/** Parks for the quick "add a field" form. */
+export async function formParks() {
+  return prisma.park.findMany({ select: { id: true, name: true, city: true }, orderBy: { name: "asc" } });
 }
 
 /** Every player with a short hint (position and current teams) for the pickers. */

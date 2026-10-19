@@ -21,10 +21,11 @@ export const demoMatchWhere = { OR: [{ homeTeam: { isDemo: true } }, { awayTeam:
 
 /** How much demo data is left (all seasons). */
 export const demoSummary = cache(async () => {
-  const [teams, players, matches] = await Promise.all([
+  const [teams, players, matches, parks] = await Promise.all([
     prisma.team.count({ where: { isDemo: true } }),
     prisma.player.count({ where: { user: demoUserWhere } }),
     prisma.match.count({ where: demoMatchWhere }),
+    prisma.park.count({ where: { isDemo: true } }),
   ]);
-  return { teams, players, matches, any: teams + players + matches > 0 };
+  return { teams, players, matches, parks, any: teams + players + matches + parks > 0 };
 });

@@ -3,7 +3,36 @@
 /** "#007" for display; game numbers keep their digits past 999. */
 export const gameNo = (n: number) => `#${String(n).padStart(3, "0")}`;
 
-export type Place = { complex?: string | null; name?: string | null; address?: string | null; city?: string | null; state?: string | null; zip?: string | null };
+/** A field at a park, flattened for display (`complex` is the park's name). */
+export type Place = {
+  complex?: string | null;
+  name?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  mapUrl?: string | null;
+  notes?: string | null;
+};
+
+type ParkFields = { name: string; address: string | null; city: string | null; state: string | null; zip: string | null; mapUrl: string | null; notes: string | null };
+/** A field row with its park → Place. */
+export const fieldPlace = (f: { name: string; park: ParkFields }): Place => ({
+  complex: f.park.name,
+  name: f.name,
+  address: f.park.address,
+  city: f.park.city,
+  state: f.park.state,
+  zip: f.park.zip,
+  mapUrl: f.park.mapUrl,
+  notes: f.park.notes,
+});
+
+/** "6601 Telegraph Rd, Alexandria, VA 22310" */
+export const addressLine = (p: Place | null) => (p ? [p.address, p.city, [p.state, p.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") : "");
+
+/** "Field 3" for a numbered field, else its name. */
+export const fieldName = (name: string) => (/^\d+$/.test(name) ? `Field ${name}` : name);
 
 /** "Wakefield Park · Field 3 · Annandale" */
 export function placeLabel(p: Place | null, fallback?: string | null) {
@@ -11,8 +40,9 @@ export function placeLabel(p: Place | null, fallback?: string | null) {
   return [p.complex, p.name ? (/^\d+$/.test(p.name) ? `Field ${p.name}` : p.name) : null, p.city].filter(Boolean).join(" · ");
 }
 
-/** Google Maps directions for a field (address when we have it, else the park and town). */
+/** The park's map link, else Google Maps directions (address when we have it, else the park and town). */
 export function directionsUrl(p: Place | null, fallback?: string | null) {
+  if (p?.mapUrl && /^https?:\/\//.test(p.mapUrl)) return p.mapUrl;
   const query = p?.complex
     ? [p.address ? null : p.complex, p.address, p.city, p.state, p.zip].filter(Boolean).join(", ")
     : (fallback ?? "");

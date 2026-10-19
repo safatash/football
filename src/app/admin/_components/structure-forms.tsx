@@ -23,6 +23,7 @@ import {
   updateTeam,
 } from "@/lib/actions/admin-structure";
 import { money } from "@/lib/format";
+import { createField } from "@/lib/actions/fields";
 import { addPlayerToTeam, removePlayerFromTeam, setCaptain } from "@/lib/actions/admin";
 import type { ActionResult } from "@/lib/actions/result";
 
@@ -752,11 +753,100 @@ export function DeleteTeamButton({ id, name, back }: { id: string; name: string;
 }
 
 /* ------------------------------------------------------------------ */
+/* Quick add field (from the match form)                               */
+/* ------------------------------------------------------------------ */
+
+/** Adds a field without leaving the match being entered. Plain inputs: it sits inside the match form. */
+function QuickAddField({ open, parks: initialParks, onClose, onAdded }: { open: boolean; parks: ParkOption[]; onClose: () => void; onAdded: (f: FieldOption) => void }) {
+  const [parks, setParks] = useState(initialParks);
+  const [parkId, setParkId] = useState(initialParks[0]?.id ?? "__new");
+  const [parkName, setParkName] = useState("");
+  const [city, setCity] = useState("");
+  const [name, setName] = useState("");
+  const [surface, setSurface] = useState<"GRASS" | "TURF">("GRASS");
+  const [error, setError] = useState("");
+  const [pending, start] = useTransition();
+  const save = () =>
+    start(async () => {
+      setError("");
+      const res = await createField({ name, surface, parkId: parkId === "__new" ? null : parkId, newPark: parkId === "__new" ? { name: parkName, city } : null });
+      if (!res.ok || !res.data) return setError(res.ok ? "Something went wrong." : res.error);
+      // A park created here becomes the park for the next quick add
+      if (parkId === "__new") setParks((list) => [...list, { id: res.data!.parkId, name: parkName.trim(), city: city.trim() || null }].sort((a, b) => a.name.localeCompare(b.name)));
+      setParkId(res.data.parkId);
+      setName("");
+      setParkName("");
+      setCity("");
+      onAdded(res.data);
+    });
+  const noEnter = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      save();
+    }
+  };
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Add a field"
+      actions={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={pending} onClick={save}>
+            {pending ? "Adding…" : "Add field"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" onKeyDown={noEnter}>
+        {error ? <Notice tone="bad">{error}</Notice> : null}
+        <Field label="Park" htmlFor="qa-park">
+          <SelectInput id="qa-park" value={parkId} onChange={(e) => setParkId(e.target.value)}>
+            {parks.map((p) => (
+              <option key={p.id} value={p.id}>
+                {[p.name, p.city].filter(Boolean).join(" · ")}
+              </option>
+            ))}
+            <option value="__new">New park…</option>
+          </SelectInput>
+        </Field>
+        {parkId === "__new" ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Park name" htmlFor="qa-pname">
+              <TextInput id="qa-pname" value={parkName} onChange={(e) => setParkName(e.target.value)} />
+            </Field>
+            <Field label="City" htmlFor="qa-city" hint="Address can be added later">
+              <TextInput id="qa-city" value={city} onChange={(e) => setCity(e.target.value)} />
+            </Field>
+          </div>
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Field name or number" htmlFor="qa-name">
+            <TextInput id="qa-name" value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Surface" htmlFor="qa-surface">
+            <SelectInput id="qa-surface" value={surface} onChange={(e) => setSurface(e.target.value as "GRASS" | "TURF")}>
+              <option value="GRASS">Grass</option>
+              <option value="TURF">Turf</option>
+            </SelectInput>
+          </Field>
+        </div>
+        <p className="text-[13px] text-muted">Your match details stay as they are.</p>
+      </div>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Match                                                               */
 /* ------------------------------------------------------------------ */
 
 type TeamOption = { id: string; name: string; divisionId: string };
-type FieldOption = { id: string; label: string };
+type FieldOption = { id: string; label: string; parkId: string; park: string };
+type ParkOption = { id: string; name: string; city: string | null };
 type Status = "SCHEDULED" | "COMPLETED" | "CANCELLED" | "POSTPONED";
 
 export type MatchFormValues = {
@@ -779,7 +869,8 @@ export function MatchForm({
   seasons,
   divisions,
   teams,
-  fields,
+  fields: initialFields,
+  parks: initialParks,
   match,
   seasonId: initialSeason,
   seasonQuery,
@@ -790,6 +881,7 @@ export function MatchForm({
   divisions: DivisionOption[];
   teams: (TeamOption & { seasonId: string })[];
   fields: FieldOption[];
+  parks: ParkOption[];
   match?: MatchFormValues;
   seasonId: string;
   seasonQuery: string;
@@ -807,6 +899,10 @@ export function MatchForm({
   const [away, setAway] = useState(match?.awayTeamId ?? "");
   const [status, setStatus] = useState<Status>(match?.status ?? "SCHEDULED");
   const [fieldId, setFieldId] = useState(match?.fieldId ?? "");
+  const [fields, setFields] = useState(initialFields);
+  const [quickAdd, setQuickAdd] = useState(false);
+  // Field dropdown grouped by park, in the order the server sent them
+  const fieldGroups = [...new Map(fields.map((f) => [f.parkId, f.park])).entries()].map(([parkId, park]) => ({ park, options: fields.filter((f) => f.parkId === parkId) }));
   const [warnings, setWarnings] = useState<string[] | null>(null);
   const [pendingInput, setPendingInput] = useState<Parameters<typeof createMatch>[0] | null>(null);
   const back = backHref ?? `/admin/matches${seasonQuery ? `?${seasonQuery}` : ""}`;
@@ -828,7 +924,6 @@ export function MatchForm({
     e.preventDefault();
     setWarnings(null);
     const f = new FormData(e.currentTarget);
-    const newField = fieldId === "new" ? { complex: str(f, "newComplex"), name: str(f, "newFieldName"), city: str(f, "newCity") } : null;
     save({
       seasonId,
       divisionId,
@@ -836,8 +931,7 @@ export function MatchForm({
       awayTeamId: away,
       date: str(f, "date"),
       time: str(f, "time"),
-      fieldId: fieldId && fieldId !== "new" ? fieldId : null,
-      newField,
+      fieldId: fieldId || null,
       status,
       gameNumber: num(f, "gameNumber"),
       homeScore: status === "COMPLETED" ? num(f, "homeScore") : null,
@@ -943,29 +1037,30 @@ export function MatchForm({
           </Field>
         </div>
         <Field label="Field" htmlFor="m-field">
-          <SelectInput id="m-field" value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
+          <SelectInput id="m-field" value={fieldId} onChange={(e) => (e.target.value === "__new" ? setQuickAdd(true) : setFieldId(e.target.value))}>
             <option value="">To be announced</option>
-            {fields.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
+            {fieldGroups.map((g) => (
+              <optgroup key={g.park} label={g.park}>
+                {g.options.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {g.park.split(" · ")[0]} · {f.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
-            <option value="new">Add a new field…</option>
+            <option value="__new">+ Add new field…</option>
           </SelectInput>
         </Field>
-        {fieldId === "new" ? (
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Park or complex" htmlFor="m-complex">
-              <TextInput id="m-complex" name="newComplex" placeholder="Wakefield Park" />
-            </Field>
-            <Field label="Field" htmlFor="m-fieldname">
-              <TextInput id="m-fieldname" name="newFieldName" placeholder="3" />
-            </Field>
-            <Field label="Town" htmlFor="m-city" hint="For directions">
-              <TextInput id="m-city" name="newCity" placeholder="Annandale" />
-            </Field>
-          </div>
-        ) : null}
+        <QuickAddField
+          open={quickAdd}
+          parks={initialParks}
+          onClose={() => setQuickAdd(false)}
+          onAdded={(f) => {
+            setFields((list) => [...list, f]);
+            setFieldId(f.id);
+            setQuickAdd(false);
+          }}
+        />
         <Field label="Status">
           <ChoiceGroup<Status>
             name="Status"

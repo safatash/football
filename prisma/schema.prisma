@@ -706,23 +706,55 @@ enum InGame {
 }
 
 /// A playing field. Matches point here for directions on public pages.
+/// A park or complex. The address lives here once; its fields are the playing surfaces.
+model Park {
+  id      String  @id @default(cuid())
+  name    String  @unique // e.g. "Wakefield Park"
+  address String? // street
+  city    String?
+  state   String? // VA / MD / DC
+  zip     String?
+  mapUrl  String? // optional map link; otherwise one is built from the address
+  notes   String? // parking and directions, shown to players
+  isDemo  Boolean @default(false) // sample park from the seed; removed by Settings › Demo data
+
+  fields Field[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("parks")
+}
+
 model Field {
-  id       String  @id @default(cuid())
-  complex  String // e.g. "Wakefield Park"
-  name     String // field within the complex, e.g. "3"
-  address  String?
-  city     String?
-  state    String?
-  zip      String?
-  legacyId Int?    @unique // fields.id in the old site (shared across seasons)
+  id       String       @id @default(cuid())
+  parkId   String
+  park     Park         @relation(fields: [parkId], references: [id])
+  name     String // field within the park, e.g. "3" or "North"
+  surface  FieldSurface @default(GRASS)
+  lights   Boolean      @default(false)
+  size     FieldSize    @default(FULL)
+  active   Boolean      @default(true) // inactive fields are hidden when scheduling
+  notes    String?
+  legacyId Int?         @unique // fields.id in the old site (shared across seasons)
 
   matches Match[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([complex, name])
+  @@unique([parkId, name])
   @@map("fields")
+}
+
+enum FieldSurface {
+  GRASS
+  TURF
+}
+
+enum FieldSize {
+  FULL
+  SMALL_SIDED
 }
 
 // ============================================

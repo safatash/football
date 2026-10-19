@@ -9,6 +9,7 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
   const { standingsByDivision } = await import("@/lib/queries/standings");
   const { demoSummary } = await import("@/lib/demo");
   const demo = await import("@/lib/actions/demo");
+  const fields = await import("@/lib/actions/fields");
 
   const ids = {} as Record<string, string>;
   let admin: TestUser = null;
@@ -29,7 +30,8 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
     await prisma.division.deleteMany({ where: { seasonId: { in: sIds } } });
     await prisma.leagueSettings.deleteMany({ where: { seasonId: { in: sIds } } });
     await prisma.season.deleteMany({ where: { id: { in: sIds } } });
-    await prisma.field.deleteMany({ where: { complex: "Itest Park" } });
+    await prisma.field.deleteMany({ where: { park: { name: { startsWith: "Itest" } } } });
+    await prisma.park.deleteMany({ where: { name: { startsWith: "Itest" } } });
     // Spring 2026 stays the active season whatever happened
     await prisma.season.updateMany({ where: { id: { not: active.id }, isActive: true }, data: { isActive: false } });
     await prisma.season.update({ where: { id: active.id }, data: { isActive: true } });
@@ -123,18 +125,20 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
     it("warns about clashes and saves when told to", async () => {
       as(admin);
       // Fairfax United already plays Game #204 at 9:00 on May 17
-      const clash = { seasonId: ids.season, divisionId: ids.wp, homeTeamId: ids.rovers, awayTeamId: ids.ffx, date: "2026-05-17", time: "09:30", status: "SCHEDULED" as const, newField: { complex: "Itest Park", name: "1", city: "Fairfax" } };
+      const added = await fields.createField({ name: "1", newPark: { name: "Itest Park", city: "Fairfax" } });
+      expect(added).toMatchObject({ ok: true, data: { label: "Field 1", park: "Itest Park · Fairfax" } });
+      const field = await prisma.field.findFirstOrThrow({ where: { park: { name: "Itest Park" } } });
+      const clash = { seasonId: ids.season, divisionId: ids.wp, homeTeamId: ids.rovers, awayTeamId: ids.ffx, date: "2026-05-17", time: "09:30", status: "SCHEDULED" as const, fieldId: field.id };
       const warned = await s.createMatch(clash);
       expect(warned).toMatchObject({ ok: false, status: 409 });
       if (!warned.ok) expect(warned.errors).toEqual(["Fairfax United already plays then (Game #204)."]);
       const forced = await s.createMatch({ ...clash, force: true });
       expect(forced).toMatchObject({ ok: true });
       if (forced.ok) ids.clash = forced.data!.id;
-      // Same field, same time, different teams: the field is booked
-      const field = await prisma.field.findFirstOrThrow({ where: { complex: "Itest Park" } });
-      const booked = await s.createMatch({ seasonId: ids.season, divisionId: ids.md1, homeTeamId: ids.nvs, awayTeamId: (await prisma.team.findFirstOrThrow({ where: { seasonId: ids.season, code: "arl" } })).id, date: "2026-05-17", time: "10:00", status: "SCHEDULED", fieldId: field.id });
+      // Same field 90 minutes later, different teams: still within 2 hours
+      const booked = await s.createMatch({ seasonId: ids.season, divisionId: ids.md1, homeTeamId: ids.nvs, awayTeamId: (await prisma.team.findFirstOrThrow({ where: { seasonId: ids.season, code: "arl" } })).id, date: "2026-05-17", time: "11:00", status: "SCHEDULED", fieldId: field.id });
       expect(booked).toMatchObject({ ok: false, status: 409 });
-      if (!booked.ok) expect(booked.errors).toEqual(["Itest Park 1 is already booked then (Game #" + (await prisma.match.findUniqueOrThrow({ where: { id: ids.clash } })).gameNumber + ")."]);
+      if (!booked.ok) expect(booked.errors).toEqual(["Itest Park 1 is already booked within 2 hours (Game #" + (await prisma.match.findUniqueOrThrow({ where: { id: ids.clash } })).gameNumber + ")."]);
     });
 
     it("entering a completed score updates the standings", async () => {

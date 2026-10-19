@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchTeamErrors, scheduleConflicts } from "@/lib/schedule-rules";
+import { doubleBooked, matchTeamErrors, scheduleConflicts } from "@/lib/schedule-rules";
 
 const teams = [
   { id: "ffx", divisionId: "wp", name: "Fairfax United" },
@@ -29,13 +29,30 @@ describe("schedule conflicts", () => {
     const w = scheduleConflicts({ homeTeamId: "ffx", awayTeamId: "pot", scheduledAt: at("2026-05-17T14:00:00Z"), fieldId: "lee2" }, existing, names);
     expect(w).toEqual(["Fairfax United already plays then (Game #204)."]);
   });
-  it("warns when the field is booked", () => {
+  it("warns when the field has another kickoff within 2 hours", () => {
     const w = scheduleConflicts({ homeTeamId: "pot", awayTeamId: "brk", scheduledAt: at("2026-05-17T13:30:00Z"), fieldId: "wak3" }, existing, names, "Wakefield Park 3");
-    expect(w).toEqual(["Wakefield Park 3 is already booked then (Game #204)."]);
+    expect(w).toEqual(["Wakefield Park 3 is already booked within 2 hours (Game #204)."]);
+    // 1 h 50 later: fine for the teams, too close for the field
+    expect(scheduleConflicts({ homeTeamId: "ffx", awayTeamId: "alx", scheduledAt: at("2026-05-17T14:50:00Z"), fieldId: "wak3" }, existing, names, "Wakefield Park 3")).toEqual([
+      "Wakefield Park 3 is already booked within 2 hours (Game #204).",
+    ]);
   });
-  it("ignores games 90+ minutes apart, cancelled games and the match itself", () => {
-    expect(scheduleConflicts({ homeTeamId: "ffx", awayTeamId: "alx", scheduledAt: at("2026-05-17T14:30:00Z"), fieldId: "wak3" }, existing, names)).toEqual([]);
+  it("ignores teams 90+ minutes apart, fields 2+ hours apart, cancelled games and the match itself", () => {
+    expect(scheduleConflicts({ homeTeamId: "ffx", awayTeamId: "alx", scheduledAt: at("2026-05-17T14:30:00Z"), fieldId: "lee2" }, existing, names)).toEqual([]);
+    expect(scheduleConflicts({ homeTeamId: "pot", awayTeamId: "brk", scheduledAt: at("2026-05-17T15:00:00Z"), fieldId: "wak3" }, existing, names)).toEqual([]);
     expect(scheduleConflicts({ homeTeamId: "nvs", awayTeamId: "y", scheduledAt: at("2026-05-17T15:00:00Z"), fieldId: "wak3" }, existing, names)).toEqual([]);
     expect(scheduleConflicts({ id: "m1", homeTeamId: "ffx", awayTeamId: "alx", scheduledAt: at("2026-05-17T13:00:00Z"), fieldId: "wak3" }, existing, names)).toEqual([]);
+  });
+});
+
+describe("field double bookings", () => {
+  it("flags kickoffs on a field less than 2 hours apart, ignoring cancelled games", () => {
+    const hits = doubleBooked([
+      { id: "a", scheduledAt: at("2026-05-17T13:00:00Z") },
+      { id: "b", scheduledAt: at("2026-05-17T14:30:00Z") },
+      { id: "c", scheduledAt: at("2026-05-17T17:00:00Z") },
+      { id: "d", scheduledAt: at("2026-05-17T17:30:00Z"), status: "CANCELLED" },
+    ]);
+    expect([...hits].sort()).toEqual(["a", "b"]);
   });
 });

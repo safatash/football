@@ -242,8 +242,12 @@ export async function importSeason(reader: LegacyReader, db: PrismaClient, opts:
   for (const f of fields) {
     const complex = text(f.complex) || "Field";
     const name = text(f.field) || "1";
-    const data = { complex, name, address: text(f.address) || null, city: text(f.city) || null, state: text(f.state) || null, zip: text(f.zip) || null, legacyId: f.id };
-    const existing = (await db.field.findUnique({ where: { legacyId: f.id } })) ?? (await db.field.findUnique({ where: { complex_name: { complex, name } } }));
+    // The address belongs to the park; the first field that has one fills it in
+    const address = { address: text(f.address) || null, city: text(f.city) || null, state: text(f.state) || null, zip: text(f.zip) || null };
+    const park = await db.park.upsert({ where: { name: complex }, create: { name: complex, ...address }, update: {} });
+    if (!park.address && address.address) await db.park.update({ where: { id: park.id }, data: address });
+    const data = { parkId: park.id, name, legacyId: f.id };
+    const existing = (await db.field.findUnique({ where: { legacyId: f.id } })) ?? (await db.field.findUnique({ where: { parkId_name: { parkId: park.id, name } } }));
     const row = existing ? await db.field.update({ where: { id: existing.id }, data }) : await db.field.create({ data });
     fieldId.set(f.id, row.id);
   }

@@ -11,10 +11,10 @@ import { ActionError, runAction, type ActionResult } from "./result";
 /**
  * Deletes, in order: rosters and game passes tied to demo matches or demo players, demo matches
  * (with their reports, match rosters and availability), demo teams (with their rosters),
- * demo players' registrations and payments, then the demo accounts themselves. Real players'
+ * demo players' registrations and payments, the demo accounts themselves, then demo parks and fields. Real players'
  * registrations that pointed at a demo team keep going, with the team cleared.
  */
-export async function clearDemoData(input: { confirm: string }): Promise<ActionResult<{ teams: number; matches: number; players: number }>> {
+export async function clearDemoData(input: { confirm: string }): Promise<ActionResult<{ teams: number; matches: number; players: number; parks: number }>> {
   return runAction(async () => {
     const { confirm } = z.object({ confirm: z.string() }).parse(input);
     await requireAdminUser();
@@ -39,11 +39,15 @@ export async function clearDemoData(input: { confirm: string }): Promise<ActionR
         await tx.registration.deleteMany({ where: { playerId: { in: playerIds } } });
         await tx.payment.deleteMany({ where: { userId: { in: playerIds } } });
         await tx.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
-        return { teams: teamIds.length, matches: matchIds.length, players: playerIds.length };
+        // Demo parks and their fields (any real match left on one keeps its stored label)
+        const parks = await tx.park.findMany({ where: { isDemo: true }, select: { id: true } });
+        await tx.field.deleteMany({ where: { parkId: { in: parks.map((p) => p.id) } } });
+        await tx.park.deleteMany({ where: { id: { in: parks.map((p) => p.id) } } });
+        return { teams: teamIds.length, matches: matchIds.length, players: playerIds.length, parks: parks.length };
       },
       { timeout: 60_000 },
     );
     revalidatePath("/", "layout");
-    return { ok: true, message: `Removed ${counts.teams} demo teams, ${counts.matches} matches and ${counts.players} players`, data: counts };
+    return { ok: true, message: `Removed ${counts.teams} demo teams, ${counts.matches} matches, ${counts.players} players and ${counts.parks} parks`, data: counts };
   });
 }

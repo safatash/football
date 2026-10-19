@@ -12,6 +12,12 @@ const DONE: Record<string, string> = {
   "match-created": "created",
   "match-saved": "saved",
   "match-deleted": "deleted",
+  "park-created": "created",
+  "park-saved": "saved",
+  "park-deleted": "deleted",
+  "field-created": "added",
+  "field-saved": "saved",
+  "field-deleted": "deleted",
 };
 
 /** Success message after a save (from `?done=…&what=…`). */

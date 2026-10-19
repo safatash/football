@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { now } from "@/lib/clock";
 import { dayKey, fmtDay, fmtTime } from "@/lib/format";
+import { fieldPlace, placeLabel } from "@/lib/public";
 import { teamSelect } from "./teams";
 
 export const matchSelect = {
@@ -12,6 +13,7 @@ export const matchSelect = {
   scheduledAt: true,
   endTime: true,
   field: true,
+  venue: { select: { name: true, park: { select: { name: true, address: true, city: true, state: true, zip: true, mapUrl: true, notes: true } } } },
   status: true,
   homeScore: true,
   awayScore: true,
@@ -27,8 +29,12 @@ type MatchRow = Prisma.MatchGetPayload<{ select: typeof matchSelect }>;
 
 export function toMatchView(m: MatchRow) {
   const refs: [string, string, string] = [m.ref1 ?? "", m.ref2 ?? "", m.ref3 ?? ""];
+  const place = m.venue ? fieldPlace(m.venue) : null;
   return {
     ...m,
+    /** "Wakefield Park · Field 3 · Annandale" (or the stored label for matches without a field row) */
+    field: place ? placeLabel(place) : m.field,
+    place,
     date: fmtDay(m.scheduledAt),
     time: fmtTime(m.scheduledAt),
     day: dayKey(m.scheduledAt),

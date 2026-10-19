@@ -7,6 +7,7 @@ import { Card, EmptyState, KeyValue } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { Directions, JsonLd, PublicFrame, Score, placeOf } from "@/components/public";
+import { addressLine } from "@/lib/public";
 import { one, type PublicSearchParams } from "@/components/public/matches-page";
 import { EditReportLink, ViewerProvider } from "@/components/public/viewer";
 import { gameNo } from "@/lib/public";
@@ -131,7 +132,7 @@ export default async function MatchPage({ params, searchParams }: { params: Para
           url: `${appUrl()}/matches/${m.id}`,
           homeTeam: { "@type": "SportsTeam", name: m.homeTeam.name, url: `${appUrl()}/teams/${m.homeTeam.id}` },
           awayTeam: { "@type": "SportsTeam", name: m.awayTeam.name, url: `${appUrl()}/teams/${m.awayTeam.id}` },
-          ...(placeOf(m) ? { location: { "@type": "Place", name: placeOf(m) } } : {}),
+          ...(placeOf(m) ? { location: { "@type": "Place", name: placeOf(m), ...(m.venue && addressLine(m.venue) ? { address: addressLine(m.venue) } : {}) } } : {}),
         }}
       />
       <ViewerProvider teamIds={[m.homeTeam.id, m.awayTeam.id]}>
@@ -170,7 +171,15 @@ export default async function MatchPage({ params, searchParams }: { params: Para
             items={[
               ["Date", m.dayLabel],
               ["Kickoff", m.time],
-              ["Location", <span key="l" className="flex flex-col items-end gap-0.5">{placeOf(m) || "To be announced"}<Directions m={m} /></span>],
+              [
+                "Location",
+                <span key="l" className="flex flex-col items-end gap-0.5 text-right">
+                  {placeOf(m) || "To be announced"}
+                  {m.venue && addressLine(m.venue) ? <span className="text-[13px] text-muted">{addressLine(m.venue)}</span> : null}
+                  <Directions m={m} />
+                  {m.venue?.notes ? <span className="text-[13px] text-muted">Parking: {m.venue.notes}</span> : null}
+                </span>,
+              ],
             ]}
           />
           <KeyValue items={refs} />

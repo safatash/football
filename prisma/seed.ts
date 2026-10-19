@@ -578,15 +578,21 @@ async function main() {
     planned.push({ ...m, score, div: teamByCode[m.home].div })
   }
 
-  // Fields: "Wakefield Park 3" → complex "Wakefield Park", field "3"
+  // Fields: "Wakefield Park 3" → park "Wakefield Park", field "3". These parks are sample data
+  // (not NVASA's real fields), so they're marked demo and Settings › Demo data removes them.
   const fieldIds: Record<string, string> = {}
   for (const label of [...new Set(planned.map((m) => m.field))]) {
     const [, complex, name] = label.match(/^(.*?)\s+(\S+)$/) ?? [label, label, '1']
     const city = FIELD_CITIES[complex] ?? null
+    const park = await prisma.park.upsert({
+      where: { name: complex },
+      update: { city, state: 'VA', isDemo: true },
+      create: { name: complex, city, state: 'VA', isDemo: true },
+    })
     const row = await prisma.field.upsert({
-      where: { complex_name: { complex, name } },
-      update: { city, state: 'VA' },
-      create: { complex, name, city, state: 'VA' },
+      where: { parkId_name: { parkId: park.id, name } },
+      update: {},
+      create: { parkId: park.id, name },
     })
     fieldIds[label] = row.id
   }

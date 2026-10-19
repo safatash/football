@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { PageHeading } from "@/components/league";
 import prisma from "@/lib/prisma";
 import { dayKey, TZ } from "@/lib/format";
-import { formDivisions, formFields, formTeams } from "@/lib/queries/admin-structure";
+import { formDivisions, formFields, formParks, formTeams } from "@/lib/queries/admin-structure";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../../_components/season";
 import { MatchForm } from "../../../_components/structure-forms";
 
@@ -16,7 +16,7 @@ export default async function EditMatchPage({ params, searchParams }: { params: 
     ? await prisma.match.findUnique({ where: { seasonId_gameNumber: { seasonId: season.id, gameNumber: n } }, include: { _count: { select: { gamePasses: true } } } })
     : null;
   if (!m) notFound();
-  const [divisions, teams, fields] = await Promise.all([formDivisions([m.seasonId]), formTeams([m.seasonId]), formFields()]);
+  const [divisions, teams, fields, parks] = await Promise.all([formDivisions([m.seasonId]), formTeams([m.seasonId]), formFields(m.fieldId), formParks()]);
   const time = m.scheduledAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: TZ });
   return (
     <>
@@ -32,6 +32,7 @@ export default async function EditMatchPage({ params, searchParams }: { params: 
           divisions={divisions}
           teams={teams.filter((t) => t.status !== "INACTIVE" || t.id === m.homeTeamId || t.id === m.awayTeamId)}
           fields={fields}
+          parks={parks}
           seasonId={m.seasonId}
           seasonQuery={season.isActive ? "" : `season=${encodeURIComponent(season.name)}`}
           match={{

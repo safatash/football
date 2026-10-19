@@ -68,6 +68,7 @@ describe.skipIf(!hasDb)("legacy import (database)", async () => {
     await prisma.suspension.deleteMany({ where: { reason: { contains: "Itest Spring 2024" } } });
     await prisma.user.deleteMany({ where: { player: { legacyKey: { in: ["legacy:501", "legacy:502", "legacy:503", "legacy:504"] } } } });
     await prisma.field.deleteMany({ where: { legacyId: 7001 } });
+    await prisma.park.deleteMany({ where: { name: "Itest Park", fields: { none: {} } } });
   }
 
   beforeAll(async () => {
@@ -134,10 +135,10 @@ describe.skipIf(!hasDb)("legacy import (database)", async () => {
 
   it("maps games, officials, stats and standings", async () => {
     const season = await prisma.season.findFirstOrThrow({ where: { legacyDatasource: DS } });
-    const g7 = await prisma.match.findUniqueOrThrow({ where: { seasonId_legacyId: { seasonId: season.id, legacyId: 301 } }, include: { venue: true } });
+    const g7 = await prisma.match.findUniqueOrThrow({ where: { seasonId_legacyId: { seasonId: season.id, legacyId: 301 } }, include: { venue: { include: { park: true } } } });
     expect(g7).toMatchObject({ gameNumber: 7, homeScore: 2, awayScore: 1, status: "COMPLETED", reportStatus: "CONFIRMED", ref1: "Daniel Kim", ref2: "Lucia Fernandes", ref3: "Omar Haddad" });
     expect(g7.scheduledAt.toISOString()).toBe("2024-04-07T13:00:00.000Z");
-    expect(g7.venue).toMatchObject({ complex: "Itest Park", name: "2", city: "Fairfax" });
+    expect(g7.venue).toMatchObject({ name: "2", park: { name: "Itest Park", address: "1 Test Rd", city: "Fairfax", zip: "22030" } });
     const unplayed = await prisma.match.findUniqueOrThrow({ where: { seasonId_legacyId: { seasonId: season.id, legacyId: 303 } } });
     expect(unplayed).toMatchObject({ gameNumber: 100303, status: "SCHEDULED", homeScore: null });
     const cara = await prisma.player.findUniqueOrThrow({ where: { legacyKey: "legacy:503" } });

@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { now } from "@/lib/clock";
 import { dayKey, fmtDay, fmtTime, TZ } from "@/lib/format";
+import { fieldPlace } from "@/lib/public";
 import { divisionSelect } from "./admin-league";
 import type { SeasonRef } from "./season";
 import { seasonalWhere } from "./teams";
@@ -58,7 +59,7 @@ const publicMatchSelect = {
   ref3: true,
   seasonId: true,
   division: { select: { id: true, code: true, name: true } },
-  venue: { select: { complex: true, name: true, address: true, city: true, state: true, zip: true } },
+  venue: { select: { name: true, park: { select: { name: true, address: true, city: true, state: true, zip: true, mapUrl: true, notes: true } } } },
   homeTeam: { select: publicTeam },
   awayTeam: { select: publicTeam },
 } satisfies Prisma.MatchSelect;
@@ -67,6 +68,7 @@ function toPublicMatch(m: Prisma.MatchGetPayload<{ select: typeof publicMatchSel
   const played = m.status === "COMPLETED" && m.homeScore != null && m.awayScore != null;
   return {
     ...m,
+    venue: m.venue ? fieldPlace(m.venue) : null,
     played,
     confirmed: played && m.reportStatus === "CONFIRMED",
     date: m.scheduledAt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: TZ }),

@@ -1,6 +1,6 @@
 import { PageHeading } from "@/components/league";
 import { Notice } from "@/components/ui/card";
-import { editableSeasons, formDivisions, formFields, formTeams } from "@/lib/queries/admin-structure";
+import { editableSeasons, formDivisions, formFields, formParks, formTeams } from "@/lib/queries/admin-structure";
 import { ArchivedNotice, Crumbs, param, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
 import { MatchForm } from "../../_components/structure-forms";
 
@@ -11,7 +11,7 @@ export default async function NewMatchPage({ searchParams }: { searchParams: Sea
   const season = await seasonFrom(sp);
   const seasons = await editableSeasons();
   const ids = seasons.map((s) => s.id);
-  const [divisions, teams, fields] = await Promise.all([formDivisions(ids), formTeams(ids), formFields()]);
+  const [divisions, teams, fields, parks] = await Promise.all([formDivisions(ids), formTeams(ids), formFields(), formParks()]);
   const start = seasons.find((s) => s.id === season.id)?.id ?? seasons[0]?.id ?? "";
   // From a division page: pre-select it and go back there after saving
   const fromDivision = divisions.find((d) => d.seasonId === season.id && d.code === param(sp.division));
@@ -35,6 +35,7 @@ export default async function NewMatchPage({ searchParams }: { searchParams: Sea
           divisions={divisions}
           teams={teams.filter((t) => t.status !== "INACTIVE")}
           fields={fields}
+          parks={parks}
           seasonId={start}
           seasonQuery={season.isActive ? "" : `season=${encodeURIComponent(season.name)}`}
           divisionId={fromDivision?.id}

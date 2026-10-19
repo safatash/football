@@ -1,3 +1,4 @@
+import { addressLine, directionsUrl } from "@/lib/public";
 import { MatchStatusBadge, RoleTag } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/card";
@@ -97,7 +98,7 @@ export default async function PlayerTeamPage({ searchParams }: { searchParams: P
               <MatchStatusBadge status={next.status} />
             </div>
             <VsRow home={next.homeTeam} away={next.awayTeam} />
-            <MatchMeta date={fmtShort(next.scheduledAt)} time={next.time} field={next.field} />
+            <MatchMeta date={fmtShort(next.scheduledAt)} time={next.time} field={next.field} place={next.place} />
             <AvailabilityButtons teamId={t.id} matchId={next.id} onDark={false} initial={myAnswer} />
             <ButtonLink href={`/matches/${next.gameNumber}/print`} variant="ghost" size="sm">
               <Icon name="print" className="size-4" />
@@ -156,6 +157,19 @@ export default async function PlayerTeamPage({ searchParams }: { searchParams: P
                         Game #{m.gameNumber} · {m.time}
                         {m.field ? ` · ${m.field}` : ""}
                       </div>
+                      {!played && m.place ? (
+                        <div className="text-xs text-muted">
+                          {addressLine(m.place)}
+                          {directionsUrl(m.place) ? (
+                            <>
+                              {addressLine(m.place) ? " · " : ""}
+                              <a href={directionsUrl(m.place)!} target="_blank" rel="noopener noreferrer" className="font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
+                                Directions
+                              </a>
+                            </>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                     {played ? (
                       <span className="font-display text-lg font-extrabold">

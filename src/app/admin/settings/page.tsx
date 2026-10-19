@@ -56,7 +56,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
         notice={<ArchivedNotice season={season} />}
         office={<LeagueOffice members={members} selfId={session?.user?.id ?? ""} />}
       />
-      <DemoData teams={demo.teams} matches={demo.matches} players={demo.players} />
+      <DemoData teams={demo.teams} matches={demo.matches} players={demo.players} parks={demo.parks} />
     </>
   );
 }

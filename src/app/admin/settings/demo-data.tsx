@@ -10,14 +10,14 @@ import { clearDemoData } from "@/lib/actions/demo";
 import { CLEAR_DEMO_PHRASE } from "@/lib/demo";
 
 /** Settings › Demo data: what's left from the seed, and a typed-confirmation delete. */
-export function DemoData({ teams, matches, players }: { teams: number; matches: number; players: number }) {
+export function DemoData({ teams, matches, players, parks }: { teams: number; matches: number; players: number; parks: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
   const [pending, start] = useTransition();
-  const any = teams + matches + players > 0;
+  const any = teams + matches + players + parks > 0;
   return (
     <Card as="section" className="flex flex-col gap-3">
       <h2 id="demo-data" className="scroll-mt-24 text-[26px]">
@@ -27,8 +27,8 @@ export function DemoData({ teams, matches, players }: { teams: number; matches: 
       {any ? (
         <>
           <p className="text-muted">
-            The seed added sample teams, matches and players (all @example.com accounts) so the site has something to show. They’re marked <b>Demo</b> everywhere. Clearing removes {teams} teams, {matches}{" "}
-            matches and {players} players with their rosters, reports, registrations, game passes and payments. Divisions, fields, settings and league-office accounts stay.
+            The seed added sample teams, matches, players (all @example.com accounts) and parks so the site has something to show. They’re marked <b>Demo</b> everywhere. Clearing removes {teams} teams, {matches}{" "}
+            matches, {players} players and {parks} parks (with their fields), plus rosters, reports, registrations, game passes and payments. Divisions, settings and league-office accounts stay.
           </p>
           <div>
             <Button variant="danger" onClick={() => (setTyped(""), setError(""), setOpen(true))}>

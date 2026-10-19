@@ -273,7 +273,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
                 <Badge tone="warn">{relativeDay(nextMatch.scheduledAt, now())}</Badge>
               </div>
               <VsRow home={nextMatch.homeTeam} away={nextMatch.awayTeam} onDark />
-              <MatchMeta onDark date={nextMatch.date} time={nextMatch.time} field={nextMatch.field} />
+              <MatchMeta onDark date={nextMatch.date} time={nextMatch.time} field={nextMatch.field} place={nextMatch.place} />
               <AvailabilityButtons teamId={selected.teamId} matchId={nextMatch.id} initial={myAnswer} />
               <ButtonLink href={`/matches/${nextMatch.gameNumber}/print`} size="sm" className="!bg-white !text-[#0F3D2E]">
                 <Icon name="print" className="size-4" />

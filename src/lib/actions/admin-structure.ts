@@ -448,8 +448,6 @@ const MatchInput = z.object({
   date: IsoDate,
   time: z.string().regex(/^\d{2}:\d{2}$/, "Pick a start time."),
   fieldId: Id.nullish(),
-  /** A field that isn't in the list yet (complex + field). */
-  newField: z.object({ complex: z.string().trim().min(2).max(80), name: z.string().trim().min(1).max(20), city: z.string().trim().max(60).optional() }).nullish(),
   status: z.enum(["SCHEDULED", "COMPLETED", "CANCELLED", "POSTPONED"]),
   gameNumber: z.number().int().min(1).max(999_999).nullish(),
   homeScore: Score.default(null),
@@ -470,16 +468,10 @@ async function prepareMatch(data: MatchData, matchId?: string) {
   if (errors.length) throw new ActionError(errors[0], 400, errors);
 
   const scheduledAt = easternTime(data.date, data.time);
-  // A typed-in field is only created once every check below passes
-  const nf = data.newField;
-  let field = nf
-    ? await prisma.field.findUnique({ where: { complex_name: { complex: nf.complex, name: nf.name } } })
-    : data.fieldId
-      ? await prisma.field.findUnique({ where: { id: data.fieldId } })
-      : null;
-  if (data.fieldId && !nf && !field) throw new ActionError("Pick a field from the list.", 400);
-  let fieldId = field?.id ?? null;
-  const fieldName = field ? `${field.complex} ${field.name}` : nf ? `${nf.complex} ${nf.name}` : null;
+  const field = data.fieldId ? await prisma.field.findUnique({ where: { id: data.fieldId }, include: { park: { select: { name: true } } } }) : null;
+  if (data.fieldId && !field) throw new ActionError("Pick a field from the list.", 400);
+  const fieldId = field?.id ?? null;
+  const fieldName = field ? `${field.park.name} ${field.name}` : null;
 
   if (!data.force && data.status !== "CANCELLED") {
     const sameDay = await prisma.match.findMany({
@@ -496,11 +488,6 @@ async function prepareMatch(data: MatchData, matchId?: string) {
     if (taken) throw new ActionError(`Game #${gameNumber} already exists this season.`, 409);
   }
 
-  if (nf && !field) {
-    field = await prisma.field.create({ data: { complex: nf.complex, name: nf.name, city: nf.city || null, state: "VA" } });
-    fieldId = field.id;
-  }
-
   const completed = data.status === "COMPLETED";
   return {
     div,
@@ -514,7 +501,7 @@ async function prepareMatch(data: MatchData, matchId?: string) {
       endTime: new Date(scheduledAt.getTime() + 105 * 60_000),
       fieldId,
       field: fieldName,
-      location: field?.complex ?? null,
+      location: field?.park.name ?? null,
       status: data.status,
       // Scores the office enters are the official result, so they count in the standings
       homeScore: completed ? data.homeScore : null,
