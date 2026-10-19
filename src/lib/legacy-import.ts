@@ -1,7 +1,8 @@
 /**
- * Import one season from the old ColdFusion site's MySQL into Postgres.
+ * Import one season of old ColdFusion site data into Postgres. Not wired to anything yet: it's for a
+ * future file export (.sql or CSV) of the old data. There's no live-database reader.
  *
- * The reader (MySQL in scripts/import-legacy.ts, fixtures in tests) supplies plain rows; this module
+ * A reader (fixtures in tests; later, one that parses the export file) supplies plain rows; this module
  * maps and upserts them by legacy id, in order: season → divisions → fields → teams → players +
  * roster → matches → reports and player stats. Re-running it updates the same rows.
  * Passwords are never imported: imported players get an unusable random password and sign in
@@ -80,7 +81,7 @@ export function parseGameTime(t: Str): string | null {
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
-/** Calendar date from MySQL (Date or "yyyy-mm-dd"). */
+/** Calendar date from the old data (Date or "yyyy-mm-dd"). */
 export function toDay(d: Date | string | null | undefined): string | null {
   if (!d) return null;
   if (d instanceof Date) return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);

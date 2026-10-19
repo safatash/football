@@ -108,24 +108,12 @@ active one. When nothing matches, the link lands on the list page with a short n
 | `/login.cfm`, `/forgotNew.cfm` | `/login` |
 | `/?home=1` | `/` |
 
-### Importing a season from the old site
+### Old-site data
 
-`scripts/import-legacy.ts` reads one season's MySQL database and upserts it by legacy id, in order:
-season → divisions → fields → teams (kit colors, formation, logo/photo) → players and roster
-(jerseys, captains, approval; old status 2 becomes a suspension for that season) → matches (game
-numbers, Eastern kickoff times, scores, fields, referees) → confirmed reports and player stats.
-Re-running it updates the same rows. It never imports passwords: players get an unusable password
-and sign in through **Find my player info** or a password reset. Importing never changes which
-season is active.
-
-```bash
-LEGACY_MYSQL_URL="mysql://user:pass@host:3306" npm run import:legacy -- --season spring2024 --dry-run
-```
-
-The dry run prints counts and the first five mapping problems (missing teams, repeated game
-numbers, unknown dates) without writing anything. Without `--dry-run` it writes to whatever
-`DATABASE_URL` points at, so check that first. Add `--images` to copy referenced logos, team photos
-and player photos from `LEGACY_WWWROOT` (default `~/Documents/nvasa/wwwroot`) into `public/legacy/`.
+There's no import from the old site's database: we don't have access to it, and the new site runs
+on its own Postgres with seed data. If a `.sql` or CSV export of players and seasons turns up, an
+importer will read that file. `src/lib/legacy-import.ts` already holds the source-agnostic mapping
+(legacy ids, kit colors, kickoff times, cards, upserts) for it; nothing runs it today.
 
 ### Environment
 
