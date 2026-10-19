@@ -1,15 +1,12 @@
 import { NextAuthOptions } from "next-auth"
-import { PrismaAdapter } from "@auth/prisma-adapter"
 import CredentialsProvider from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
-import prisma from "@/lib/prisma"
-import { Adapter } from "next-auth/adapters"
-import { isAdminUser } from "@/lib/admin"
-import { playerInOrg } from "@/lib/org"
+import { db } from "@/lib/db";
+import { isOfficeRole } from "@/lib/access"
+import { getOrgId, playerInOrg } from "@/lib/org"
 import { consumeToken } from "@/lib/tokens"
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma) as Adapter,
   providers: [
     CredentialsProvider({
       name: "credentials",
@@ -23,9 +20,9 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Find user with player profile
-        const user = await prisma.user.findFirst({
+        const user = await db.user.findFirst({
           where: { email: { equals: credentials.email.trim(), mode: "insensitive" } },
-          include: { players: playerInOrg() }
+          include: { players: playerInOrg(await getOrgId()) }
         })
 
         if (!user) {
@@ -37,6 +34,11 @@ export const authOptions: NextAuthOptions = {
 
         if (!isValid) {
           throw new Error("Invalid password")
+        }
+
+        // Logins are per league: you need a membership here (platform operators can sign in anywhere)
+        if (!user.isPlatformAdmin && !(await db.organizationMember.findFirst({ where: { userId: user.id, status: "ACTIVE" } }))) {
+          throw new Error("No user found with this email")
         }
 
         // Inactive accounts can't sign in; suspended players can (they see their status)
@@ -59,8 +61,9 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         const userId = await consumeToken("login", credentials?.token ?? "")
         if (!userId) throw new Error("This login link has expired or was already used.")
-        const user = await prisma.user.findUnique({ where: { id: userId }, include: { players: playerInOrg() } })
+        const user = await db.user.findUnique({ where: { id: userId }, include: { players: playerInOrg(await getOrgId()) } })
         if (!user || user.players[0]?.status === "INACTIVE") throw new Error("This account isn’t active.")
+        if (!user.isPlatformAdmin && !(await db.organizationMember.findFirst({ where: { userId: user.id, status: "ACTIVE" } }))) throw new Error("This account isn’t active.")
         return { id: user.id, email: user.email, name: user.players[0] ? `${user.players[0].firstName} ${user.players[0].lastName}` : user.email }
       },
     }),
@@ -70,29 +73,30 @@ export const authOptions: NextAuthOptions = {
       if (token && session.user) {
         session.user.id = token.sub as string
         
-        // Fetch player data and role
-        const user = await prisma.user.findUnique({
-          where: { id: token.sub as string },
-          include: {
-            players: {
-              ...playerInOrg(),
-              include: {
-                teamMemberships: {
-                  where: { 
-                    isCaptain: true,
-                    leftAt: null
-                  }
-                }
-              }
-            }
+        // League-specific: membership role, player profile and captaincy in the current league
+        let orgId: string | null = null
+        try {
+          orgId = await getOrgId()
+        } catch {
+          // A platform route (no league): nothing league-specific in the session
+        }
+        if (orgId) {
+          const [member, player] = await Promise.all([
+            db.organizationMember.findFirst({ where: { userId: token.sub as string, status: "ACTIVE" } }),
+            db.player.findFirst({
+              where: { userId: token.sub as string },
+              include: { teamMemberships: { where: { isCaptain: true, leftAt: null } } },
+            }),
+          ])
+          session.user.isAdmin = isOfficeRole(member?.role)
+          session.user.orgRole = member?.role ?? null
+          if (player) {
+            session.user.playerId = player.id
+            session.user.name = `${player.firstName} ${player.lastName}`
+            session.user.isCaptain = player.teamMemberships.length > 0
           }
-        })
-
-        session.user.isAdmin = isAdminUser(user)
-        if (user?.players[0]) {
-          session.user.playerId = user.players[0].id
-          session.user.name = `${user.players[0].firstName} ${user.players[0].lastName}`
-          session.user.isCaptain = user.players[0].teamMemberships.length > 0
+        } else {
+          session.user.isAdmin = false
         }
       }
       return session

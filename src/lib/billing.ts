@@ -6,10 +6,10 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { PaymentMethod, PaymentStatus, Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import type { DbTx } from "@/lib/db";
 import { appUrl } from "@/lib/stripe";
 
-type Db = Prisma.TransactionClient | typeof prisma;
+type Db = DbTx;
 
 export const METHODS: [PaymentMethod, string][] = [
   ["CASH", "Cash"],

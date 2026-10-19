@@ -1,6 +1,6 @@
 "use server";
 
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { accountPasswordErrors, hashPassword, verifyPassword } from "@/lib/password";
 import { getSession } from "@/lib/session";
 
@@ -24,14 +24,14 @@ export async function changePassword(_prev: PasswordState, formData: FormData): 
   if (next !== confirm) fieldErrors.confirmPassword = "Passwords don’t match";
   if (Object.keys(fieldErrors).length) return { ok: false, error: "Check the highlighted fields.", fieldErrors };
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { password: true } });
+  const user = await db.user.findUnique({ where: { id: userId }, select: { password: true } });
   if (!user) return { ok: false, error: "We couldn’t find your account. Log in again." };
   if (!(await verifyPassword(current, user.password))) {
     return { ok: false, error: "Check the highlighted fields.", fieldErrors: { currentPassword: "That isn’t your current password" } };
   }
 
   try {
-    await prisma.user.update({ where: { id: userId }, data: { password: await hashPassword(next) } });
+    await db.user.update({ where: { id: userId }, data: { password: await hashPassword(next) } });
   } catch {
     return { ok: false, error: "We couldn’t change your password. Try again in a moment." };
   }

@@ -45,7 +45,7 @@ export function LeagueOffice({ members, selfId }: { members: LeagueOfficeMember[
   return (
     <Card className="flex flex-col gap-3">
       <h3 className="text-[19px] font-bold">League office</h3>
-      <p className="text-[13px] text-muted">People who can use these screens. They need an NVASA account first.</p>
+      <p className="text-[13px] text-muted">People who can use these screens. They need an account first.</p>
       <ul className="flex flex-col overflow-hidden rounded-[var(--radius-field)] border border-line">
         {members.map((m) => (
           <li key={m.email} className="flex min-h-11 items-center gap-3 border-b border-line px-3.5 py-2 last:border-b-0">
@@ -58,7 +58,7 @@ export function LeagueOffice({ members, selfId }: { members: LeagueOfficeMember[
               <span className="block truncate font-mono text-[13px]">{m.email}</span>
             </span>
             {m.viaSetting ? (
-              <Badge dot={false}>{m.hasAccount ? "ADMIN_EMAILS" : "No account yet"}</Badge>
+              <Badge dot={false}>Owner</Badge>
             ) : m.userId === selfId ? (
               <Badge dot={false}>You</Badge>
             ) : (

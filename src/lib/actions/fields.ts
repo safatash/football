@@ -6,7 +6,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { audit } from "@/lib/billing";
 import { fieldName } from "@/lib/public";
 import { requireAdminUser } from "./admin-guard";
@@ -60,7 +60,7 @@ function refresh() {
 }
 
 async function assertParkNameFree(name: string, exceptId?: string) {
-  const taken = await prisma.park.findFirst({ where: { name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) } });
+  const taken = await db.park.findFirst({ where: { name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) } });
   if (taken) throw new ActionError(`There’s already a park called ${taken.name}.`, 409);
 }
 
@@ -73,7 +73,7 @@ function assertUniqueNames(names: string[]) {
 }
 
 async function assertFieldNameFree(parkId: string, name: string, exceptId?: string) {
-  const taken = await prisma.field.findFirst({ where: { parkId, name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) } });
+  const taken = await db.field.findFirst({ where: { parkId, name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) } });
   if (taken) throw new ActionError(`This park already has ${fieldName(taken.name)}.`, 409);
 }
 
@@ -85,7 +85,7 @@ export async function createPark(input: z.input<typeof ParkInput> & { fields: z.
     const admin = await requireAdminUser();
     await assertParkNameFree(park.name);
     assertUniqueNames(fields.map((f) => f.name));
-    const row = await prisma.$transaction(async (tx) => {
+    const row = await db.$transaction(async (tx) => {
       const p = await tx.park.create({ data: { ...parkData(park), fields: { create: fields.map(fieldData) } } });
       await audit(tx, admin, { action: "park.created", entityType: "park", entityId: p.id, summary: `Added ${p.name} with ${fields.length} field${fields.length === 1 ? "" : "s"}` });
       return p;
@@ -100,9 +100,9 @@ export async function updatePark(input: z.input<typeof ParkInput> & { id: string
     const park = ParkInput.parse(input);
     const id = Id.parse(input.id);
     const admin = await requireAdminUser();
-    if (!(await prisma.park.findUnique({ where: { id } }))) throw new ActionError("Park not found.", 404);
+    if (!(await db.park.findUnique({ where: { id } }))) throw new ActionError("Park not found.", 404);
     await assertParkNameFree(park.name, id);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.park.update({ where: { id }, data: parkData(park) });
       await audit(tx, admin, { action: "park.updated", entityType: "park", entityId: id, summary: `Updated ${park.name}` });
     });
@@ -116,11 +116,11 @@ export async function deletePark(input: { id: string }): Promise<ActionResult> {
   return runAction(async () => {
     const id = Id.parse(input.id);
     const admin = await requireAdminUser();
-    const park = await prisma.park.findUnique({ where: { id }, include: { fields: { select: { id: true, _count: { select: { matches: true } } } } } });
+    const park = await db.park.findUnique({ where: { id }, include: { fields: { select: { id: true, _count: { select: { matches: true } } } } } });
     if (!park) throw new ActionError("Park not found.", 404);
     const used = park.fields.reduce((a, f) => a + f._count.matches, 0);
     if (used) throw new ActionError(`${park.name} has ${used} match${used === 1 ? "" : "es"} on its fields, so it can’t be deleted. Set its fields to inactive instead.`, 409);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.field.deleteMany({ where: { parkId: id } });
       await tx.park.delete({ where: { id } });
       await audit(tx, admin, { action: "park.deleted", entityType: "park", entityId: id, summary: `Deleted ${park.name}` });
@@ -143,11 +143,11 @@ export async function createField(
     const field = FieldInput.parse(input);
     const admin = await requireAdminUser();
     const newPark = input.newPark ? QuickPark.parse(input.newPark) : null;
-    let park = !newPark && input.parkId ? await prisma.park.findUnique({ where: { id: Id.parse(input.parkId) } }) : null;
+    let park = !newPark && input.parkId ? await db.park.findUnique({ where: { id: Id.parse(input.parkId) } }) : null;
     if (!newPark && !park) throw new ActionError("Pick a park.", 400);
     if (newPark) await assertParkNameFree(newPark.name);
     else await assertFieldNameFree(park!.id, field.name);
-    const row = await prisma.$transaction(async (tx) => {
+    const row = await db.$transaction(async (tx) => {
       if (newPark) park = await tx.park.create({ data: { name: newPark.name, city: newPark.city || null, state: "VA" } });
       const f = await tx.field.create({ data: { ...fieldData(field), parkId: park!.id } });
       await audit(tx, admin, { action: "field.created", entityType: "field", entityId: f.id, summary: `Added ${park!.name} ${fieldName(f.name)}` });
@@ -168,12 +168,12 @@ export async function updateField(input: z.input<typeof FieldInput> & { id: stri
     const id = Id.parse(input.id);
     const parkId = Id.parse(input.parkId);
     const admin = await requireAdminUser();
-    const current = await prisma.field.findUnique({ where: { id } });
+    const current = await db.field.findUnique({ where: { id } });
     if (!current) throw new ActionError("Field not found.", 404);
-    const park = await prisma.park.findUnique({ where: { id: parkId } });
+    const park = await db.park.findUnique({ where: { id: parkId } });
     if (!park) throw new ActionError("Pick a park.", 400);
     await assertFieldNameFree(parkId, field.name, id);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.field.update({ where: { id }, data: { ...fieldData(field), parkId } });
       await audit(tx, admin, {
         action: "field.updated",
@@ -192,13 +192,13 @@ export async function deleteField(input: { id: string }): Promise<ActionResult> 
   return runAction(async () => {
     const id = Id.parse(input.id);
     const admin = await requireAdminUser();
-    const field = await prisma.field.findUnique({ where: { id }, include: { park: true, _count: { select: { matches: true } } } });
+    const field = await db.field.findUnique({ where: { id }, include: { park: true, _count: { select: { matches: true } } } });
     if (!field) throw new ActionError("Field not found.", 404);
     const label = `${field.park.name} ${fieldName(field.name)}`;
     if (field._count.matches) {
       throw new ActionError(`${label} has ${field._count.matches} match${field._count.matches === 1 ? "" : "es"}, so it can’t be deleted. Set it to inactive instead.`, 409);
     }
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.field.delete({ where: { id } });
       await audit(tx, admin, { action: "field.deleted", entityType: "field", entityId: id, summary: `Deleted ${label}` });
     });

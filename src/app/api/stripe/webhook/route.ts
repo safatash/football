@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { fulfillGamePass } from "@/lib/game-pass-server";
 import { regNumber } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
@@ -8,6 +8,8 @@ import { registrationReceivedEmail } from "@/lib/mail-templates";
 import { syncPaymentStatus } from "@/lib/billing";
 import { countDiscountUse } from "@/lib/registration";
 import { stripe } from "@/lib/stripe";
+import { runWithOrg } from "@/lib/db";
+import { orgForCheckout } from "@/platform/checkout";
 
 function readEvent(body: string, signature: string | null): Stripe.Event {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -21,7 +23,7 @@ function readEvent(body: string, signature: string | null): Stripe.Event {
 async function registrationPaid(session: Stripe.Checkout.Session) {
   const registrationId = session.metadata?.registrationId;
   if (!registrationId) throw new Error("Missing registrationId");
-  const recorded = await prisma.$transaction(async (tx) => {
+  const recorded = await db.$transaction(async (tx) => {
     // Stripe retries webhooks: the checkout session id is stored on the payment
     if (await tx.payment.findUnique({ where: { stripeChargeId: session.id } })) return false;
     const reg = await tx.registration.findUnique({ where: { id: registrationId } });
@@ -49,7 +51,7 @@ async function registrationPaid(session: Stripe.Checkout.Session) {
     return true;
   });
   if (!recorded) return;
-  const reg = await prisma.registration.findUniqueOrThrow({
+  const reg = await db.registration.findUniqueOrThrow({
     where: { id: registrationId },
     include: { season: true, division: true, player: { select: { firstName: true, user: { select: { email: true } } } } },
   });
@@ -63,7 +65,7 @@ async function registrationPaid(session: Stripe.Checkout.Session) {
 async function balancePaid(session: Stripe.Checkout.Session) {
   const registrationId = session.metadata?.registrationId;
   if (!registrationId) throw new Error("Missing registrationId");
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     if (await tx.payment.findUnique({ where: { stripeChargeId: session.id } })) return;
     const reg = await tx.registration.findUnique({ where: { id: registrationId } });
     if (!reg) throw new Error(`Registration ${registrationId} not found`);
@@ -104,14 +106,19 @@ export async function POST(req: NextRequest) {
   const session = event.data.object as Stripe.Checkout.Session;
   const type = session.metadata?.type ?? (session.metadata?.registrationId ? "registration" : null);
 
+  if (type !== "registration" && type !== "registration_balance" && type !== "game_pass") {
+    console.error("Webhook: unknown checkout type", type);
+    return NextResponse.json({ error: "Unknown checkout type" }, { status: 400 });
+  }
+  // The webhook is a platform route (no league host): run it as the league the checkout belongs to
+  const orgId = await orgForCheckout(session.metadata);
+  if (!orgId) {
+    console.error("Webhook: no league for checkout", session.id);
+    return NextResponse.json({ error: "Unknown league" }, { status: 400 });
+  }
+
   try {
-    if (type === "registration") await registrationPaid(session);
-    else if (type === "registration_balance") await balancePaid(session);
-    else if (type === "game_pass") await fulfillGamePass(session);
-    else {
-      console.error("Webhook: unknown checkout type", type);
-      return NextResponse.json({ error: "Unknown checkout type" }, { status: 400 });
-    }
+    await runWithOrg(orgId, () => (type === "registration" ? registrationPaid(session) : type === "registration_balance" ? balancePaid(session) : fulfillGamePass(session)));
   } catch (error) {
     console.error("Error processing webhook:", error);
     return NextResponse.json({ error: "Database error" }, { status: 500 });

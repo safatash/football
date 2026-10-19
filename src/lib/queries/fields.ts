@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { fmtDay, fmtTime, dayKey } from "@/lib/format";
 import { addressLine, fieldName } from "@/lib/public";
@@ -14,8 +14,8 @@ export const SIZE: Record<string, string> = { FULL: "Full size", SMALL_SIDED: "S
 /** Every park with its fields and how many upcoming matches each field has. */
 export async function listParks() {
   const [parks, counts] = await Promise.all([
-    prisma.park.findMany({ include: { fields: { orderBy: { name: "asc" } } }, orderBy: { name: "asc" } }),
-    prisma.match.groupBy({ by: ["fieldId"], where: { ...upcomingWhere(), fieldId: { not: null } }, _count: { _all: true } }),
+    db.park.findMany({ include: { fields: { orderBy: { name: "asc" } } }, orderBy: { name: "asc" } }),
+    db.match.groupBy({ by: ["fieldId"], where: { ...upcomingWhere(), fieldId: { not: null } }, _count: { _all: true } }),
   ]);
   const upcoming = new Map(counts.map((c) => [c.fieldId, c._count._all]));
   return parks.map((p) => ({
@@ -26,14 +26,14 @@ export async function listParks() {
 }
 
 export async function getPark(id: string) {
-  return prisma.park.findUnique({ where: { id }, include: { fields: { orderBy: { name: "asc" }, include: { _count: { select: { matches: true } } } } } });
+  return db.park.findUnique({ where: { id }, include: { fields: { orderBy: { name: "asc" }, include: { _count: { select: { matches: true } } } } } });
 }
 
 /** A field with its park, upcoming matches (grouped by day, double bookings flagged) and match count. */
 export async function getFieldSchedule(id: string) {
-  const field = await prisma.field.findUnique({ where: { id }, include: { park: true, _count: { select: { matches: true } } } });
+  const field = await db.field.findUnique({ where: { id }, include: { park: true, _count: { select: { matches: true } } } });
   if (!field) return null;
-  const matches = await prisma.match.findMany({
+  const matches = await db.match.findMany({
     where: { fieldId: id, ...upcomingWhere() },
     select: {
       id: true,

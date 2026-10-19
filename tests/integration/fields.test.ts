@@ -3,7 +3,8 @@ import { auth, hasDb, type TestUser } from "./setup";
 import { NVASA_ORG_ID, playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("parks and fields (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+  // NVASA's rows, through the league-scoped client (the Demo League shares names with NVASA)
+  const prisma = (await import("@/platform/db")).clientForOrg("org_nvasa");
   const f = await import("@/lib/actions/fields");
   const { formFields } = await import("@/lib/queries/admin-structure");
   const { getFieldSchedule, listParks } = await import("@/lib/queries/fields");
@@ -25,7 +26,7 @@ describe.skipIf(!hasDb)("parks and fields (database)", async () => {
     await cleanup();
     const a = await prisma.user.findUniqueOrThrow({ where: { email: "safatash@gmail.com" } });
     office = { id: a.id, email: a.email, name: "Office", isAdmin: true };
-    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg() } });
+    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg(NVASA_ORG_ID) } });
     maya = { id: m.id, email: m.email, name: "Maya", playerId: m.players[0]!.id };
     const wak = await prisma.park.findUniqueOrThrow({ where: { organizationId_name: { organizationId: NVASA_ORG_ID, name: "Wakefield Park" } } });
     ids.wakefield = wak.id;

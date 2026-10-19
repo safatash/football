@@ -1,6 +1,6 @@
 import { cache } from "react";
 import type { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { fmtShort, fullName, relativeDay } from "@/lib/format";
 import { getTeamAccess } from "@/lib/team-access";
@@ -11,7 +11,7 @@ import { matchPool, teamRoster, type RosterMember } from "./teams";
 export const teamAccess = cache((teamId: string) => getTeamAccess(teamId));
 
 export const seasonName = cache(async (seasonId: string) => {
-  const s = await prisma.season.findUnique({ where: { id: seasonId }, select: { name: true } });
+  const s = await db.season.findUnique({ where: { id: seasonId }, select: { name: true } });
   return s?.name ?? "";
 });
 
@@ -23,7 +23,7 @@ export const nextTeamMatch = cache((teamId: string, seasonId: string) => nextMat
  * isn't submitted or confirmed yet, otherwise the most recent completed match.
  */
 export const reportMatchFor = cache(async (teamId: string, seasonId: string) => {
-  const rows = await prisma.match.findMany({
+  const rows = await db.match.findMany({
     where: { seasonId, status: "COMPLETED", OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }] },
     select: { ...matchSelect, reports: { where: { teamId }, select: { status: true } } },
     orderBy: { scheduledAt: "desc" },
@@ -78,7 +78,7 @@ export type SquadPlayer = {
 };
 
 async function availabilityFor(matchId: string, teamRosterIds: string[]) {
-  const rows = await prisma.matchAvailability.findMany({
+  const rows = await db.matchAvailability.findMany({
     where: { matchId, teamRosterId: { in: teamRosterIds } },
     select: { teamRosterId: true, status: true, note: true },
   });
@@ -90,7 +90,7 @@ async function availabilityFor(matchId: string, teamRosterIds: string[]) {
 /** Active suspensions: playerId → end date (null = until lifted). */
 async function suspensionsFor(playerIds: string[]) {
   const at = now();
-  const rows = await prisma.suspension.findMany({
+  const rows = await db.suspension.findMany({
     where: { playerId: { in: playerIds }, liftedAt: null, startsAt: { lte: at }, OR: [{ endsAt: null }, { endsAt: { gt: at } }] },
     select: { playerId: true, endsAt: true },
   });
@@ -135,7 +135,7 @@ export async function squadFor(members: RosterMember[], matchId: string | null, 
 
 /** The team's match roster for a match, with its entries' lineup slots. */
 export const matchRosterFor = cache((matchId: string, teamId: string) =>
-  prisma.matchRoster.findUnique({
+  db.matchRoster.findUnique({
     where: { matchId_teamId: { matchId, teamId } },
     select: { id: true, status: true, formation: true, finalizedAt: true, entries: { select: { teamRosterId: true, lineupSlot: true } } },
   }),
@@ -151,7 +151,7 @@ const sheetMemberSelect = {
 
 /** Match roster entries with their players (for the report and the printed sheet). */
 export async function matchRosterPlayers(matchId: string, teamId: string) {
-  const r = await prisma.matchRoster.findUnique({
+  const r = await db.matchRoster.findUnique({
     where: { matchId_teamId: { matchId, teamId } },
     select: { status: true, entries: { select: { lineupSlot: true, teamRoster: { select: sheetMemberSelect } } } },
   });
@@ -173,7 +173,7 @@ export async function matchRosterPlayers(matchId: string, teamId: string) {
 
 /** The team's own report for a match, with player stats. */
 export function teamReport(matchId: string, teamId: string) {
-  return prisma.matchReport.findUnique({
+  return db.matchReport.findUnique({
     where: { matchId_teamId: { matchId, teamId } },
     select: {
       status: true,
@@ -188,7 +188,7 @@ export function teamReport(matchId: string, teamId: string) {
 /** Everyone who has been on the team on a game pass this season, newest first. */
 export async function gamePassMembers(teamId: string, take = 12) {
   const at = now();
-  const rows = await prisma.teamRoster.findMany({
+  const rows = await db.teamRoster.findMany({
     where: { teamId, membershipType: "GAME_PASS" },
     select: {
       id: true,

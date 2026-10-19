@@ -1,6 +1,6 @@
 import { cache } from "react";
 import type { PlacementState, Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { ageOn } from "@/lib/eligibility";
 import { fullName, regNumber } from "@/lib/format";
 import type { SeasonRef } from "./season";
@@ -18,14 +18,14 @@ export const PLACEMENT_LABEL: Record<Exclude<PlacementState, "NONE">, PlacementL
 export const QUEUE_STATES: PlacementState[] = ["NEW", "INFO_REQUESTED", "WAITLISTED"];
 
 export const listDivisions = cache(async (seasonId: string) =>
-  prisma.division.findMany({ where: { seasonId }, select: { id: true, code: true, name: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] }),
+  db.division.findMany({ where: { seasonId }, select: { id: true, code: true, name: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] }),
 );
 
 const POSITION_AREA: Record<string, string> = { GK: "goal", DEF: "defense", MID: "midfield", FWD: "attack" };
 
 /** Seasonal roster counts by position for every team in a division. */
 const positionCounts = cache(async (seasonId: string, divisionId: string) => {
-  const rows = await prisma.teamRoster.findMany({
+  const rows = await db.teamRoster.findMany({
     where: { ...seasonalWhere, divisionId, team: { seasonId } },
     select: { teamId: true, player: { select: { position: true } } },
   });
@@ -114,7 +114,7 @@ export type Placement = Awaited<ReturnType<typeof toPlacement>>;
 
 /** Players waiting for a team in a season, oldest first. */
 export async function listPlacements(season: Pick<SeasonRef, "id" | "startDate">, states: PlacementState[] = QUEUE_STATES) {
-  const rows = await prisma.registration.findMany({
+  const rows = await db.registration.findMany({
     where: { seasonId: season.id, placementState: { in: states }, status: { notIn: ["REJECTED", "CANCELLED"] } },
     select: placementSelect,
     orderBy: [{ submittedAt: "asc" }, { number: "asc" }],
@@ -124,7 +124,7 @@ export async function listPlacements(season: Pick<SeasonRef, "id" | "startDate">
 
 /** One placement (any state but NONE) by registration id. */
 export async function getPlacement(id: string, season: Pick<SeasonRef, "id" | "startDate">) {
-  const r = await prisma.registration.findFirst({
+  const r = await db.registration.findFirst({
     where: { id, seasonId: season.id, placementState: { not: "NONE" } },
     select: placementSelect,
   });

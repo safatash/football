@@ -5,7 +5,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { money } from "@/lib/format";
 import { ageLabel, genderLabel, listDivisions } from "@/lib/queries/admin-league";
 import { ArchivedNotice, param, seasonFrom, withSeason, type SearchParams } from "../_components/season";
@@ -19,11 +19,11 @@ export default async function DivisionsPage({ searchParams }: { searchParams: Se
   const season = await seasonFrom(sp);
   const [divisions, teamCounts, playerCounts, others] = await Promise.all([
     listDivisions(season.id),
-    prisma.team.groupBy({ by: ["divisionId"], where: { seasonId: season.id }, _count: { _all: true } }),
-    prisma.teamRoster.groupBy({ by: ["divisionId"], where: { team: { seasonId: season.id }, leftAt: null, membershipType: "SEASONAL" }, _count: { _all: true } }),
+    db.team.groupBy({ by: ["divisionId"], where: { seasonId: season.id }, _count: { _all: true } }),
+    db.teamRoster.groupBy({ by: ["divisionId"], where: { team: { seasonId: season.id }, leftAt: null, membershipType: "SEASONAL" }, _count: { _all: true } }),
     season.archived
       ? []
-      : prisma.season.findMany({
+      : db.season.findMany({
           where: { id: { not: season.id }, divisions: { some: {} } },
           select: { id: true, name: true, divisions: { select: { name: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] } },
           orderBy: { startDate: "desc" },

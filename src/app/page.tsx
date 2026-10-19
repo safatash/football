@@ -5,7 +5,7 @@ import { Badge, GamePassTag } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { Crest, Logo, MatchMeta, VsRow } from "@/components/league";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { fmtShort, money } from "@/lib/format";
 import { listMatches, nextMatchDay } from "@/lib/queries/matches";
 import { getActiveSeason, getSettings } from "@/lib/queries/season";
@@ -51,13 +51,13 @@ async function loadLanding() {
   const season = await getActiveSeason();
   if (!season) return null;
   const [divisions, teams, fields, settings, matches] = await Promise.all([
-    prisma.division.findMany({
+    db.division.findMany({
       where: { seasonId: season.id, status: "ACTIVE" },
       select: { id: true, name: true, level: true, registrationFee: true, genderRule: true, maleBornOnOrBefore: true, femaleBornOnOrBefore: true, minAge: true },
       orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     }),
-    prisma.team.count({ where: { seasonId: season.id } }),
-    prisma.match.findMany({ where: { seasonId: season.id, location: { not: null } }, distinct: ["location"], select: { location: true } }),
+    db.team.count({ where: { seasonId: season.id } }),
+    db.match.findMany({ where: { seasonId: season.id, location: { not: null } }, distinct: ["location"], select: { location: true } }),
     getSettings(season.id),
     listMatches(season.id),
   ]);

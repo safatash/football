@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
-import { currentOrgId } from "@/lib/org";
+import { db } from "@/lib/db";
+import { getOrgId } from "@/lib/org";
 import { ageOn } from "@/lib/eligibility";
 import { accountPasswordErrors, hashPassword } from "@/lib/password";
 import { getActiveSeason } from "@/lib/queries/season";
@@ -33,19 +33,19 @@ export async function POST(req: NextRequest) {
   const age = ageOn(dob, season?.startDate ?? new Date());
   if (age === null || age < 18) return NextResponse.json({ error: "Players must be 18 or older." }, { status: 400 });
   if (await blocklistHit(email)) return NextResponse.json({ error: "This email is not eligible. Contact office@nvasa.org." }, { status: 403 });
-  if (await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } })) {
+  if (await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } })) {
     return NextResponse.json({ error: "That email already has an NVASA account. Log in instead." }, { status: 409 });
   }
 
   const [firstName, ...rest] = name.split(/\s+/);
-  await prisma.user.create({
+  await db.user.create({
     data: {
       email,
       password: await hashPassword(password),
-      memberships: { create: { organizationId: currentOrgId(), role: "PLAYER", joinedAt: new Date() } },
+      memberships: { create: { organizationId: (await getOrgId()), role: "PLAYER", joinedAt: new Date() } },
       players: {
         create: {
-          organizationId: currentOrgId(),
+          organizationId: (await getOrgId()),
           firstName,
           lastName: rest.join(" "),
           gender: GENDER[gender],

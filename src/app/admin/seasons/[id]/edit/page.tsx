@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { PageHeading } from "@/components/league";
 import { Notice } from "@/components/ui/card";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { isoDate } from "@/lib/format";
 import { getActiveSeason, isSeasonClosed } from "@/lib/queries/season";
 import { Crumbs } from "../../../_components/season";
@@ -11,7 +11,7 @@ export const metadata = { title: "Edit season" };
 
 export default async function EditSeasonPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [season, active] = await Promise.all([prisma.season.findUnique({ where: { id } }), getActiveSeason()]);
+  const [season, active] = await Promise.all([db.season.findUnique({ where: { id } }), getActiveSeason()]);
   if (!season) notFound();
   return (
     <>

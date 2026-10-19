@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { appUrl } from "@/lib/stripe";
 
 // Rendered on request (not at build time), so builds don't need the database.
@@ -9,13 +9,13 @@ export const dynamic = "force-dynamic";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = appUrl();
   const fixed: MetadataRoute.Sitemap = ["", "/standings", "/results", "/schedule", "/teams", "/register"].map((p) => ({ url: `${base}${p}`, changeFrequency: "daily" }));
-  const season = await prisma.season.findFirst({ where: { isActive: true }, select: { id: true } }).catch(() => null);
+  const season = await db.season.findFirst({ where: { isActive: true }, select: { id: true } }).catch(() => null);
   if (!season) return fixed;
   const rows = await Promise.all([
-    prisma.team.findMany({ where: { seasonId: season.id }, select: { id: true, updatedAt: true } }),
-    prisma.division.findMany({ where: { seasonId: season.id }, select: { code: true } }),
-    prisma.match.findMany({ where: { seasonId: season.id, status: { not: "CANCELLED" } }, select: { id: true, updatedAt: true } }),
-    prisma.player.findMany({
+    db.team.findMany({ where: { seasonId: season.id }, select: { id: true, updatedAt: true } }),
+    db.division.findMany({ where: { seasonId: season.id }, select: { code: true } }),
+    db.match.findMany({ where: { seasonId: season.id, status: { not: "CANCELLED" } }, select: { id: true, updatedAt: true } }),
+    db.player.findMany({
       where: { teamMemberships: { some: { membershipType: "SEASONAL", leftAt: null, team: { seasonId: season.id } } }, finalApproval: "APPROVED" },
       select: { id: true, updatedAt: true },
     }),

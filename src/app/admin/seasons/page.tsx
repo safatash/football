@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { fmtDateOnly } from "@/lib/format";
 import { isSeasonClosed } from "@/lib/queries/season";
 import { param, type SearchParams } from "../_components/season";
@@ -14,7 +14,7 @@ export const metadata = { title: "Seasons" };
 
 export default async function SeasonsPage({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
-  const seasons = await prisma.season.findMany({
+  const seasons = await db.season.findMany({
     include: { _count: { select: { divisions: true, teams: true, matches: true } } },
     orderBy: { startDate: "desc" },
   });

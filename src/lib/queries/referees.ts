@@ -1,4 +1,5 @@
-import prisma from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { TZ, dayKey, fmtDay, fmtShort, fmtTime } from "@/lib/format";
 import { CREW, ROLE_LABEL, certState, feeFor, fills, openRoles, worked, type Role } from "@/lib/officials";
@@ -13,8 +14,8 @@ export const certDate = (d: Date | null) => (d ? d.toLocaleDateString("en-US", {
 /** Every referee with how many matches they're on this season. */
 export async function listReferees(seasonId: string) {
   const [refs, counts] = await Promise.all([
-    prisma.referee.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }] }),
-    prisma.matchOfficial.groupBy({ by: ["refereeId"], where: { status: { not: "DECLINED" }, match: { seasonId, status: { not: "CANCELLED" } } }, _count: { _all: true } }),
+    db.referee.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }] }),
+    db.matchOfficial.groupBy({ by: ["refereeId"], where: { status: { not: "DECLINED" }, match: { seasonId, status: { not: "CANCELLED" } } }, _count: { _all: true } }),
   ]);
   const n = new Map(counts.map((c) => [c.refereeId, c._count._all]));
   const at = now();
@@ -23,7 +24,7 @@ export async function listReferees(seasonId: string) {
 
 /** Active referees for the officials picker. */
 export async function refereeOptions() {
-  return prisma.referee.findMany({ where: { active: true }, select: { id: true, name: true, positions: true }, orderBy: { name: "asc" } });
+  return db.referee.findMany({ where: { active: true }, select: { id: true, name: true, positions: true }, orderBy: { name: "asc" } });
 }
 
 const assignmentInclude = {
@@ -45,7 +46,7 @@ const assignmentInclude = {
 } as const;
 
 type AssignmentRow = Awaited<ReturnType<typeof loadAssignments>>[number];
-const loadAssignments = (where: Parameters<typeof prisma.matchOfficial.findMany>[0]) => prisma.matchOfficial.findMany({ ...where, include: assignmentInclude });
+const loadAssignments = (args: { where: Prisma.MatchOfficialWhereInput; orderBy?: Prisma.MatchOfficialOrderByWithRelationInput }) => db.matchOfficial.findMany({ ...args, include: assignmentInclude });
 
 function toLine(o: AssignmentRow) {
   const m = o.match;
@@ -71,7 +72,7 @@ function toLine(o: AssignmentRow) {
 
 /** A referee with upcoming and past assignments and season totals. */
 export async function getReferee(id: string, seasonId: string) {
-  const ref = await prisma.referee.findUnique({ where: { id } });
+  const ref = await db.referee.findUnique({ where: { id } });
   if (!ref) return null;
   const rows = await loadAssignments({ where: { refereeId: id }, orderBy: { match: { scheduledAt: "asc" } } });
   const at = now();
@@ -108,7 +109,7 @@ export const addDays = (iso: string, n: number) => new Date(new Date(`${iso}T12:
 export async function assignmentsBoard(weekStart: string, missingOnly: boolean) {
   const from = new Date(`${weekStart}T04:00:00Z`);
   const to = new Date(from.getTime() + 7 * 864e5);
-  const matches = await prisma.match.findMany({
+  const matches = await db.match.findMany({
     where: { scheduledAt: { gte: from, lt: to }, status: { not: "CANCELLED" } },
     select: {
       id: true,
@@ -154,7 +155,7 @@ export async function payReport(from: string, to: string) {
     where: { status: { in: ["ASSIGNED", "CONFIRMED"] }, match: { scheduledAt: { gte: start, lt: end }, status: { not: "CANCELLED" } } },
     orderBy: { match: { scheduledAt: "asc" } },
   });
-  const refs = await prisma.referee.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.refereeId))] } }, select: { id: true, name: true, email: true } });
+  const refs = await db.referee.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.refereeId))] } }, select: { id: true, name: true, email: true } });
   return refs
     .map((ref) => {
       const lines = rows.filter((r) => r.refereeId === ref.id).map(toLine);
@@ -168,7 +169,7 @@ export async function payReport(from: string, to: string) {
 /** Upcoming matches (next `days` days) whose crew isn't full. */
 export async function crewGaps(seasonId: string, days = 14) {
   const at = now();
-  const matches = await prisma.match.findMany({
+  const matches = await db.match.findMany({
     where: { seasonId, scheduledAt: { gte: at, lt: new Date(at.getTime() + days * 864e5) }, status: { in: ["SCHEDULED", "POSTPONED"] } },
     select: { id: true, gameNumber: true, scheduledAt: true, homeTeam: { select: { name: true } }, awayTeam: { select: { name: true } }, officials: { select: { role: true, status: true } } },
     orderBy: { scheduledAt: "asc" },

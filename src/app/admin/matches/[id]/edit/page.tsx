@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { PageHeading } from "@/components/league";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { dayKey, TZ } from "@/lib/format";
 import { formDivisions, formFields, formParks, formTeams } from "@/lib/queries/admin-structure";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../../_components/season";
@@ -13,7 +13,7 @@ export default async function EditMatchPage({ params, searchParams }: { params: 
   const season = await seasonFrom(sp);
   const n = Number(id);
   const m = Number.isInteger(n)
-    ? await prisma.match.findUnique({ where: { seasonId_gameNumber: { seasonId: season.id, gameNumber: n } }, include: { _count: { select: { gamePasses: true } } } })
+    ? await db.match.findUnique({ where: { seasonId_gameNumber: { seasonId: season.id, gameNumber: n } }, include: { _count: { select: { gamePasses: true } } } })
     : null;
   if (!m) notFound();
   const [divisions, teams, fields, parks] = await Promise.all([formDivisions([m.seasonId]), formTeams([m.seasonId]), formFields(m.fieldId), formParks()]);

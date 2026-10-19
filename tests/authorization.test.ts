@@ -16,7 +16,8 @@ const db = vi.hoisted(() => {
     membership: null as null | { isCaptain: boolean; membershipType: string },
     role: "PLAYER",
     client: {
-      user: { findUnique: async () => ({ id: "u1", email: "player@example.com", role: db.role }) },
+      user: { findUnique: async () => ({ id: "u1", email: "player@example.com" }) },
+      organizationMember: { findFirst: async () => ({ role: db.role, status: "ACTIVE" }) },
       team: { findUnique: async () => team },
       teamRoster: { findFirst: async () => db.membership, findMany: fail, update: fail, create: fail },
       registration: { findUnique: fail, updateMany: fail, update: fail },
@@ -32,10 +33,12 @@ const db = vi.hoisted(() => {
       player: { update: fail, findUnique: fail },
       captainRequest: { findUnique: fail },
       $transaction: fail,
+      // The league-scoped client is an extension of this one
+      $extends: () => db.client,
     },
   };
 });
-vi.mock("@/lib/prisma", () => ({ default: db.client }));
+vi.mock("@/platform/prisma", () => ({ default: db.client }));
 
 const captain = await import("@/lib/actions/captain");
 const admin = await import("@/lib/actions/admin");

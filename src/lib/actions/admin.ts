@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
-import { playerInOrg, currentOrgId } from "@/lib/org";
+import { db } from "@/lib/db";
+import { playerInOrg, getOrgId } from "@/lib/org";
 import { now } from "@/lib/clock";
 import { fullName, money as fmtMoney } from "@/lib/format";
 import { normalizeCode } from "@/lib/fees";
@@ -16,7 +16,6 @@ import { hashPassword } from "@/lib/password";
 import { blocklistHit, zipEligible } from "@/lib/queries/registrations";
 import { appUrl } from "@/lib/stripe";
 import { createToken } from "@/lib/tokens";
-import { isAdminEmail } from "@/lib/admin";
 import { assertSeasonWritable } from "@/lib/queries/season";
 import { syncMatchReportStatus } from "@/lib/reports";
 import { ActionError, runAction, type ActionResult } from "./result";
@@ -37,17 +36,17 @@ export async function reopenRegistration(input: { registrationId: string }): Pro
   return runAction(async () => {
     const { registrationId } = z.object({ registrationId: Id }).parse(input);
     await requireAdminUser();
-    const reg = await prisma.registration.findUnique({ where: { id: registrationId } });
+    const reg = await db.registration.findUnique({ where: { id: registrationId } });
     if (!reg) throw new ActionError("Registration not found.", 404);
     await assertSeasonWritable(reg.seasonId);
     if (reg.status !== "REJECTED") throw new ActionError("Only denied registrations can be reopened.", 409);
-    await prisma.$transaction([
-      prisma.registration.update({
+    await db.$transaction(async (tx) => {
+      await tx.registration.update({
         where: { id: reg.id },
         data: { status: reg.paymentStatus === "PAID" ? "PENDING" : "SUBMITTED", rejectedAt: null, deniedReason: null, deniedMessage: null },
-      }),
-      prisma.player.update({ where: { id: reg.playerId }, data: { finalApproval: "NEEDS_REVIEW" } }),
-    ]);
+      });
+      await tx.player.update({ where: { id: reg.playerId }, data: { finalApproval: "NEEDS_REVIEW" } });
+    });
     refreshAdmin();
     return { ok: true, message: "Reopened for review" };
   });
@@ -58,17 +57,17 @@ export async function decideCaptainRequest(input: { requestId: string; approve: 
   return runAction(async () => {
     const data = z.object({ requestId: Id, approve: z.boolean() }).parse(input);
     const admin = await requireAdminUser();
-    const req = await prisma.captainRequest.findUnique({
+    const req = await db.captainRequest.findUnique({
       where: { id: data.requestId },
       include: { team: { select: { id: true, name: true, seasonId: true } }, player: { select: { id: true, firstName: true, lastName: true, user: { select: { email: true } } } } },
     });
     if (!req) throw new ActionError("Captain request not found.", 404);
     await assertSeasonWritable(req.team.seasonId);
     if (req.status !== "PENDING") throw new ActionError("This request was already decided.", 409);
-    const membership = await prisma.teamRoster.findFirst({ where: { playerId: req.playerId, teamId: req.teamId, leftAt: null, membershipType: "SEASONAL" } });
+    const membership = await db.teamRoster.findFirst({ where: { playerId: req.playerId, teamId: req.teamId, leftAt: null, membershipType: "SEASONAL" } });
     if (data.approve && !membership) throw new ActionError(`${fullName(req.player)} isn’t on ${req.team.name}’s roster yet. Approve their registration first.`, 409);
 
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.captainRequest.update({ where: { id: req.id }, data: { status: data.approve ? "APPROVED" : "DENIED", decidedById: admin.id, decidedAt: now() } });
       if (data.approve && membership) await tx.teamRoster.update({ where: { id: membership.id }, data: { isCaptain: true, captainRequest: true } });
     });
@@ -84,13 +83,13 @@ export async function setCaptain(input: { playerId: string; teamId: string; isCa
   return runAction(async () => {
     const data = z.object({ playerId: Id, teamId: Id, isCaptain: z.boolean() }).parse(input);
     const admin = await requireAdminUser();
-    const membership = await prisma.teamRoster.findFirst({
+    const membership = await db.teamRoster.findFirst({
       where: { playerId: data.playerId, teamId: data.teamId, leftAt: null, membershipType: "SEASONAL" },
       include: { team: { select: { name: true, seasonId: true } } },
     });
     if (!membership) throw new ActionError("That player isn’t on this team’s season roster.", 404);
     await assertSeasonWritable(membership.team.seasonId);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.teamRoster.update({ where: { id: membership.id }, data: { isCaptain: data.isCaptain } });
       // A direct grant settles any pending request for that team
       if (data.isCaptain) {
@@ -111,7 +110,7 @@ export async function setCaptain(input: { playerId: string; teamId: string; isCa
 /* ------------------------------------------------------------------ */
 
 async function placementRegistration(registrationId: string) {
-  const reg = await prisma.registration.findUnique({
+  const reg = await db.registration.findUnique({
     where: { id: registrationId },
     include: { player: { select: { id: true, firstName: true, lastName: true, user: { select: { email: true } } } } },
   });
@@ -130,10 +129,10 @@ export async function assignPlacement(input: { registrationId: string; teamId: s
     const data = z.object({ registrationId: Id, teamId: Id }).parse(input);
     await requireAdminUser();
     const reg = await placementRegistration(data.registrationId);
-    const team = await prisma.team.findUnique({ where: { id: data.teamId } });
+    const team = await db.team.findUnique({ where: { id: data.teamId } });
     if (!team || team.seasonId !== reg.seasonId) throw new ActionError("Pick a team from this season.", 400);
 
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       const existing = await tx.teamRoster.findFirst({ where: { playerId: reg.playerId, teamId: team.id, membershipType: "SEASONAL", matchId: null } });
       if (existing) await tx.teamRoster.update({ where: { id: existing.id }, data: { leftAt: null } });
       else await tx.teamRoster.create({ data: { playerId: reg.playerId, teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL" } });
@@ -158,7 +157,7 @@ export async function waitlistPlacement(input: { registrationId: string }): Prom
     const { registrationId } = z.object({ registrationId: Id }).parse(input);
     await requireAdminUser();
     const reg = await placementRegistration(registrationId);
-    await prisma.registration.update({ where: { id: reg.id }, data: { placementState: "WAITLISTED" } });
+    await db.registration.update({ where: { id: reg.id }, data: { placementState: "WAITLISTED" } });
     refreshAdmin();
     return { ok: true, message: `${fullName(reg.player)} waitlisted` };
   });
@@ -171,7 +170,7 @@ export async function requestPlacementInfo(input: { registrationId: string; mess
     const admin = await requireAdminUser();
     const reg = await placementRegistration(data.registrationId);
     await sendMail({ to: reg.player.user.email, replyTo: admin.email, ...placementInfoEmail({ firstName: reg.player.firstName, message: data.message }) });
-    await prisma.registration.update({ where: { id: reg.id }, data: { placementState: "INFO_REQUESTED" } });
+    await db.registration.update({ where: { id: reg.id }, data: { placementState: "INFO_REQUESTED" } });
     refreshAdmin();
     return { ok: true, message: "Request sent" };
   });
@@ -187,7 +186,7 @@ export async function suspendPlayer(input: z.input<typeof SuspendInput>): Promis
   return runAction(async () => {
     const data = SuspendInput.parse(input);
     const admin = await requireAdminUser();
-    const player = await prisma.player.findUnique({ where: { id: data.playerId }, select: { id: true, firstName: true, lastName: true } });
+    const player = await db.player.findUnique({ where: { id: data.playerId }, select: { id: true, firstName: true, lastName: true } });
     if (!player) throw new ActionError("Player not found.", 404);
     const at = now();
     // Eligible again on that date: the suspension ends at the start of it (Eastern)
@@ -195,10 +194,10 @@ export async function suspendPlayer(input: z.input<typeof SuspendInput>): Promis
     if (endsAt && endsAt <= at) throw new ActionError("Pick a date in the future.", 400);
     const untilLabel = data.until ? day(data.until).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) : "";
     const note = `${data.reason}.${untilLabel ? ` Eligible again ${untilLabel}.` : ""}`;
-    await prisma.$transaction([
-      prisma.suspension.create({ data: { playerId: player.id, reason: note, startsAt: at, endsAt, createdById: admin.id } }),
-      prisma.player.update({ where: { id: player.id }, data: { status: "SUSPENDED" } }),
-    ]);
+    await db.$transaction(async (tx) => {
+      await tx.suspension.create({ data: { playerId: player.id, reason: note, startsAt: at, endsAt, createdById: admin.id } });
+      await tx.player.update({ where: { id: player.id }, data: { status: "SUSPENDED" } });
+    });
     refreshAdmin();
     revalidatePath("/captain", "layout");
     return { ok: true, message: "Player suspended", data: { note } };
@@ -210,10 +209,10 @@ export async function liftSuspension(input: { playerId: string }): Promise<Actio
     const { playerId } = z.object({ playerId: Id }).parse(input);
     await requireAdminUser();
     const at = now();
-    await prisma.$transaction([
-      prisma.suspension.updateMany({ where: { playerId, liftedAt: null, OR: [{ endsAt: null }, { endsAt: { gt: at } }] }, data: { liftedAt: at } }),
-      prisma.player.update({ where: { id: playerId }, data: { status: "ACTIVE" } }),
-    ]);
+    await db.$transaction(async (tx) => {
+      await tx.suspension.updateMany({ where: { playerId, liftedAt: null, OR: [{ endsAt: null }, { endsAt: { gt: at } }] }, data: { liftedAt: at } });
+      await tx.player.update({ where: { id: playerId }, data: { status: "ACTIVE" } });
+    });
     refreshAdmin();
     revalidatePath("/captain", "layout");
     return { ok: true, message: "Suspension lifted" };
@@ -232,12 +231,12 @@ export async function confirmReport(input: { matchId: string; teamId: string }):
   return runAction(async () => {
     const data = z.object({ matchId: Id, teamId: Id }).parse(input);
     const admin = await requireAdminUser();
-    const report = await prisma.matchReport.findUnique({ where: { matchId_teamId: data }, include: { match: true } });
+    const report = await db.matchReport.findUnique({ where: { matchId_teamId: data }, include: { match: true } });
     if (!report) throw new ActionError("Report not found.", 404);
     await assertSeasonWritable(report.match.seasonId);
     if (report.status !== "SUBMITTED") throw new ActionError(report.status === "CONFIRMED" ? "This report is already confirmed." : "Only submitted reports can be confirmed.", 409);
     const at = now();
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.matchReport.update({ where: { id: report.id }, data: { status: "CONFIRMED", confirmedById: admin.id, confirmedAt: at } });
       await tx.match.update({ where: { id: report.matchId }, data: { homeScore: report.homeScore, awayScore: report.awayScore, status: "COMPLETED" } });
       await syncMatchReportStatus(tx, report.matchId, at);
@@ -252,10 +251,10 @@ export async function sendReportReminder(input: { matchId: string; teamId: strin
   return runAction(async () => {
     const data = z.object({ matchId: Id, teamId: Id }).parse(input);
     const admin = await requireAdminUser();
-    const match = await prisma.match.findUnique({ where: { id: data.matchId }, select: { gameNumber: true, seasonId: true, homeTeamId: true, awayTeamId: true } });
+    const match = await db.match.findUnique({ where: { id: data.matchId }, select: { gameNumber: true, seasonId: true, homeTeamId: true, awayTeamId: true } });
     if (!match || (match.homeTeamId !== data.teamId && match.awayTeamId !== data.teamId)) throw new ActionError("Match not found.", 404);
     await assertSeasonWritable(match.seasonId);
-    const captains = await prisma.teamRoster.findMany({
+    const captains = await db.teamRoster.findMany({
       where: { teamId: data.teamId, isCaptain: true, leftAt: null, membershipType: "SEASONAL" },
       select: { player: { select: { firstName: true, lastName: true, user: { select: { email: true } } } }, team: { select: { name: true } } },
     });
@@ -287,11 +286,11 @@ export async function saveSettings(input: z.input<typeof SettingsInput>): Promis
     const data = SettingsInput.parse(input);
     await requireAdminUser();
     await assertSeasonWritable(data.seasonId);
-    const divisions = await prisma.division.findMany({ where: { seasonId: data.seasonId } });
+    const divisions = await db.division.findMany({ where: { seasonId: data.seasonId } });
     const byId = new Map(divisions.map((d) => [d.id, d]));
     if (data.divisions.some((d) => !byId.has(d.id))) throw new ActionError("Some divisions aren’t in this season.", 400);
 
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       for (const d of data.divisions) {
         const div = byId.get(d.id)!;
         const separate = d.menCutoff !== undefined || d.womenCutoff !== undefined;
@@ -313,7 +312,7 @@ export async function saveSettings(input: z.input<typeof SettingsInput>): Promis
       });
       // The county rule is league-wide (Phase 3 gives it its own settings page)
       await tx.organizationSettings.update({
-        where: { organizationId: currentOrgId() },
+        where: { organizationId: (await getOrgId()) },
         data: { eligibilityMode: data.fairfaxCountyAllowed ? "COUNTY_LIST" : "ZIP_LIST" },
       });
     });
@@ -348,12 +347,12 @@ export async function createDiscountCode(input: z.input<typeof CodeInput>): Prom
     await requireAdminUser();
     await assertSeasonWritable(data.seasonId);
     const code = normalizeCode(data.code);
-    if (await prisma.discountCode.findUnique({ where: { organizationId_code: { organizationId: currentOrgId(), code } } })) throw new ActionError(`${code} already exists.`, 409);
+    if (await db.discountCode.findUnique({ where: { organizationId_code: { organizationId: (await getOrgId()), code } } })) throw new ActionError(`${code} already exists.`, 409);
     if (data.teamId) {
-      const team = await prisma.team.findUnique({ where: { id: data.teamId } });
+      const team = await db.team.findUnique({ where: { id: data.teamId } });
       if (!team || team.seasonId !== data.seasonId) throw new ActionError("Pick a team from this season.", 400);
     }
-    await prisma.discountCode.create({
+    await db.discountCode.create({
       data: { code, kind: data.kind, type: data.type, value: data.value, maxUses: data.maxUses ?? null, seasonId: data.seasonId, teamId: data.kind === "TEAM_PAID" ? data.teamId : null },
     });
     refreshAdmin();
@@ -362,7 +361,7 @@ export async function createDiscountCode(input: z.input<typeof CodeInput>): Prom
 }
 
 async function seasonCode(id: string) {
-  const code = await prisma.discountCode.findUnique({ where: { id } });
+  const code = await db.discountCode.findUnique({ where: { id } });
   if (!code) throw new ActionError("Code not found.", 404);
   await assertSeasonWritable(code.seasonId);
   return code;
@@ -373,7 +372,7 @@ export async function setDiscountCodeActive(input: { id: string; active: boolean
     const data = z.object({ id: Id, active: z.boolean() }).parse(input);
     await requireAdminUser();
     const code = await seasonCode(data.id);
-    await prisma.discountCode.update({ where: { id: code.id }, data: { active: data.active } });
+    await db.discountCode.update({ where: { id: code.id }, data: { active: data.active } });
     refreshAdmin();
     return { ok: true, message: `${code.code} ${data.active ? "turned on" : "turned off"}` };
   });
@@ -385,9 +384,9 @@ export async function deleteDiscountCode(input: { id: string }): Promise<ActionR
     const { id } = z.object({ id: Id }).parse(input);
     await requireAdminUser();
     const code = await seasonCode(id);
-    const used = code.uses > 0 || (await prisma.registration.count({ where: { discountCodeId: code.id } })) > 0;
+    const used = code.uses > 0 || (await db.registration.count({ where: { discountCodeId: code.id } })) > 0;
     if (used) throw new ActionError(`${code.code} has been used. Turn it off instead.`, 409);
-    await prisma.discountCode.delete({ where: { id: code.id } });
+    await db.discountCode.delete({ where: { id: code.id } });
     refreshAdmin();
     return { ok: true, message: `${code.code} deleted` };
   });
@@ -397,9 +396,9 @@ export async function addAllowedZip(input: { zip: string }): Promise<ActionResul
   return runAction(async () => {
     const { zip } = z.object({ zip: z.string().trim().regex(/^\d{5}$/, "Enter a 5-digit ZIP code.") }).parse(input);
     await requireAdminUser();
-    const existing = await prisma.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: currentOrgId(), zipCode: zip } } });
+    const existing = await db.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: (await getOrgId()), zipCode: zip } } });
     if (existing) throw new ActionError(existing.county ? `${zip} is in ${existing.county}.` : `${zip} is already allowed.`, 409);
-    await prisma.allowedZipCode.create({ data: { zipCode: zip, county: null } });
+    await db.allowedZipCode.create({ data: { zipCode: zip, county: null } });
     refreshAdmin();
     return { ok: true, message: `${zip} added` };
   });
@@ -409,7 +408,7 @@ export async function removeAllowedZip(input: { zip: string }): Promise<ActionRe
   return runAction(async () => {
     const { zip } = z.object({ zip: z.string().trim().regex(/^\d{5}$/) }).parse(input);
     await requireAdminUser();
-    const res = await prisma.allowedZipCode.deleteMany({ where: { zipCode: zip, county: null } });
+    const res = await db.allowedZipCode.deleteMany({ where: { zipCode: zip, county: null } });
     if (!res.count) throw new ActionError(`${zip} isn’t on the extra list.`, 404);
     refreshAdmin();
     return { ok: true, message: `${zip} removed` };
@@ -427,8 +426,8 @@ export async function addBlock(input: { entry: string; reason?: string }): Promi
   return runAction(async () => {
     const data = z.object({ entry: BlockEntry, reason: z.string().trim().max(200).optional() }).parse(input);
     const admin = await requireAdminUser();
-    if (await prisma.blocklist.findUnique({ where: { organizationId_email: { organizationId: currentOrgId(), email: data.entry } } })) throw new ActionError(`${data.entry} is already blocked.`, 409);
-    await prisma.blocklist.create({ data: { email: data.entry, reason: data.reason || null, blockedBy: admin.email } });
+    if (await db.blocklist.findUnique({ where: { organizationId_email: { organizationId: (await getOrgId()), email: data.entry } } })) throw new ActionError(`${data.entry} is already blocked.`, 409);
+    await db.blocklist.create({ data: { email: data.entry, reason: data.reason || null, blockedBy: admin.email } });
     refreshAdmin();
     return { ok: true, message: `${data.entry} blocked` };
   });
@@ -438,7 +437,7 @@ export async function removeBlock(input: { entry: string }): Promise<ActionResul
   return runAction(async () => {
     const { entry } = z.object({ entry: z.string().trim().toLowerCase().max(254) }).parse(input);
     await requireAdminUser();
-    const res = await prisma.blocklist.deleteMany({ where: { email: entry } });
+    const res = await db.blocklist.deleteMany({ where: { email: entry } });
     if (!res.count) throw new ActionError(`${entry} isn’t on the blocklist.`, 404);
     refreshAdmin();
     return { ok: true, message: `${entry} removed` };
@@ -519,16 +518,16 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
   return runAction(async () => {
     const data = NewPlayerInput.parse(input);
     const admin = await requireAdminUser();
-    if (await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } })) {
+    if (await db.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } })) {
       throw new ActionError("That email already has an NVASA account. Search for the player instead.", 409);
     }
     const team = data.teamId ? await teamForRoster(data.teamId) : null;
     if (team) await assertJerseyFree(team.id, data.jerseyNumber ?? null);
-    const zip = data.zip ? await prisma.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: currentOrgId(), zipCode: data.zip } } }) : null;
+    const zip = data.zip ? await db.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: (await getOrgId()), zipCode: data.zip } } }) : null;
 
     const warnings: string[] = [];
     if (await blocklistHit(data.email)) warnings.push(`${data.email} is on the blocklist.`);
-    if (data.zip && !(await zipEligible(team?.seasonId ?? (await prisma.season.findFirst({ where: { isActive: true }, select: { id: true } }))?.id ?? "", { zip: data.zip, county: zip?.county ?? null }))) {
+    if (data.zip && !(await zipEligible(team?.seasonId ?? (await db.season.findFirst({ where: { isActive: true }, select: { id: true } }))?.id ?? "", { zip: data.zip, county: zip?.county ?? null }))) {
       warnings.push(`ZIP ${data.zip} isn’t in the league’s eligible area.`);
     }
     if (team) {
@@ -542,15 +541,15 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
     // What the registration owes: the fee, or the office's amount when collecting later / by link
     const due = billing && (billing.mode === "LINK" || billing.mode === "LATER") && billing.amount != null ? billing.amount : fee;
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await db.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email: data.email,
           password: await hashPassword(randomBytes(24).toString("base64url")),
-          memberships: { create: { organizationId: currentOrgId(), role: "PLAYER", joinedAt: new Date() } },
+          memberships: { create: { organizationId: (await getOrgId()), role: "PLAYER", joinedAt: new Date() } },
           players: {
             create: {
-              organizationId: currentOrgId(),
+              organizationId: (await getOrgId()),
               firstName: data.firstName,
               lastName: data.lastName,
               gender: data.gender,
@@ -576,7 +575,7 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
             },
           },
         },
-        include: { players: playerInOrg() },
+        include: { players: playerInOrg(await getOrgId()) },
       });
       const player = user.players[0]!;
       await audit(tx, admin, {
@@ -669,7 +668,7 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
         replyTo: admin.email,
         ...paymentLinkEmail({ firstName: data.firstName, seasonName: team!.season.name, divisionName: team!.division.name, amount: fmtMoney(due), url: payLinkUrl(created.registrationId) }),
       });
-      await audit(prisma, admin, {
+      await audit(db, admin, {
         action: "payment.link_sent",
         entityType: "registration",
         entityId: created.registrationId,
@@ -696,21 +695,21 @@ export async function addPlayerToTeam(input: z.input<typeof RosterAddInput>): Pr
     const data = RosterAddInput.parse(input);
     await requireAdminUser();
     const team = await teamForRoster(data.teamId);
-    const player = await prisma.player.findUnique({ where: { id: data.playerId } });
+    const player = await db.player.findUnique({ where: { id: data.playerId } });
     if (!player) throw new ActionError("Player not found.", 404);
     if (player.status === "INACTIVE") throw new ActionError("This account is inactive.", 409);
     const elig = checkEligibility(team.division, { dob: player.dob, gender: player.gender }, team.season.startDate);
     if (!elig.ok) throw new ActionError(`${fullName(player)} can’t play in ${team.division.name}: ${elig.reason}.`, 400);
     await assertJerseyFree(team.id, data.jerseyNumber ?? null, player.id);
 
-    const existing = await prisma.teamRoster.findFirst({ where: { playerId: player.id, teamId: team.id, membershipType: "SEASONAL", matchId: null } });
+    const existing = await db.teamRoster.findFirst({ where: { playerId: player.id, teamId: team.id, membershipType: "SEASONAL", matchId: null } });
     if (existing && !existing.leftAt) throw new ActionError(`${fullName(player)} is already on ${team.name}.`, 409);
     if (existing) {
-      await prisma.teamRoster.update({ where: { id: existing.id }, data: { leftAt: null, isCaptain: false, jerseyNumber: data.jerseyNumber ?? existing.jerseyNumber, joinedAt: now() } });
+      await db.teamRoster.update({ where: { id: existing.id }, data: { leftAt: null, isCaptain: false, jerseyNumber: data.jerseyNumber ?? existing.jerseyNumber, joinedAt: now() } });
     } else {
-      await prisma.teamRoster.create({ data: { playerId: player.id, teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL", jerseyNumber: data.jerseyNumber ?? null } });
+      await db.teamRoster.create({ data: { playerId: player.id, teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL", jerseyNumber: data.jerseyNumber ?? null } });
     }
-    if (player.finalApproval !== "APPROVED") await prisma.player.update({ where: { id: player.id }, data: { finalApproval: "APPROVED" } });
+    if (player.finalApproval !== "APPROVED") await db.player.update({ where: { id: player.id }, data: { finalApproval: "APPROVED" } });
     refreshAdmin();
     revalidatePath(`/captain/${team.id}`, "layout");
     return { ok: true, message: `${fullName(player)} added to ${team.name}` };
@@ -727,20 +726,20 @@ export async function removePlayerFromTeam(input: { playerId: string; teamId: st
     const data = z.object({ playerId: Id, teamId: Id }).parse(input);
     await requireAdminUser();
     const team = await teamForRoster(data.teamId);
-    const membership = await prisma.teamRoster.findFirst({
+    const membership = await db.teamRoster.findFirst({
       where: { playerId: data.playerId, teamId: team.id, membershipType: "SEASONAL", leftAt: null },
       include: { player: { select: { firstName: true, lastName: true } } },
     });
     if (!membership) throw new ActionError("That player isn’t on this team’s season roster.", 404);
     const at = now();
-    await prisma.$transaction([
-      prisma.teamRoster.update({ where: { id: membership.id }, data: { leftAt: at, isCaptain: false } }),
-      prisma.matchRosterEntry.deleteMany({
+    await db.$transaction(async (tx) => {
+      await tx.teamRoster.update({ where: { id: membership.id }, data: { leftAt: at, isCaptain: false } });
+      await tx.matchRosterEntry.deleteMany({
         where: { teamRosterId: membership.id, matchRoster: { status: "DRAFT", match: { scheduledAt: { gt: at }, status: "SCHEDULED" } } },
-      }),
-      prisma.matchAvailability.deleteMany({ where: { teamRosterId: membership.id, match: { scheduledAt: { gt: at } } } }),
-      prisma.captainRequest.updateMany({ where: { playerId: data.playerId, teamId: team.id, status: "PENDING" }, data: { status: "DENIED", decidedAt: at } }),
-    ]);
+      });
+      await tx.matchAvailability.deleteMany({ where: { teamRosterId: membership.id, match: { scheduledAt: { gt: at } } } });
+      await tx.captainRequest.updateMany({ where: { playerId: data.playerId, teamId: team.id, status: "PENDING" }, data: { status: "DENIED", decidedAt: at } });
+    });
     refreshAdmin();
     revalidatePath(`/captain/${team.id}`, "layout");
     return { ok: true, message: `${fullName(membership.player)} removed from ${team.name}` };
@@ -748,28 +747,26 @@ export async function removePlayerFromTeam(input: { playerId: string; teamId: st
 }
 
 /**
- * Grants or revokes league-office access (User.role). Addresses in ADMIN_EMAILS stay admins
- * whatever the role, and you can't remove your own access.
+ * Grants or revokes league-office access in this league (membership role ADMIN / PLAYER).
+ * Owners keep access, and you can't remove your own.
  */
 export async function setLeagueOfficeAccess(input: { email: string; admin: boolean }): Promise<ActionResult> {
   return runAction(async () => {
     const data = z.object({ email: z.string().trim().toLowerCase().email("Enter a valid email address."), admin: z.boolean() }).parse(input);
     const me = await requireAdminUser();
-    const user = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
-    if (!user) throw new ActionError(`No NVASA account uses ${data.email}. They need to sign up or be added as a player first.`, 404);
+    const user = await db.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
+    if (!user) throw new ActionError(`No account uses ${data.email}. They need to sign up or be added as a player first.`, 404);
     if (!data.admin && user.id === me.id) throw new ActionError("You can’t remove your own league-office access.", 409);
-    if (!data.admin && isAdminEmail(user.email)) {
-      throw new ActionError(`${user.email} is listed in ADMIN_EMAILS, so it stays an admin. Remove it from that setting to revoke access.`, 409);
-    }
-    if ((user.role === "ADMIN") === data.admin) throw new ActionError(data.admin ? `${user.email} already has league-office access.` : `${user.email} isn’t an admin.`, 409);
-    await prisma.$transaction([
-      prisma.user.update({ where: { id: user.id }, data: { role: data.admin ? "ADMIN" : "PLAYER" } }),
-      // Keep the league membership in step (Phase 2 makes memberships the source of truth); owners stay owners
-      prisma.organizationMember.updateMany({
-        where: { userId: user.id, organizationId: currentOrgId(), role: { not: "OWNER" } },
-        data: { role: data.admin ? "ADMIN" : "PLAYER" },
-      }),
-    ]);
+    const member = await db.organizationMember.findFirst({ where: { userId: user.id } });
+    if (!data.admin && member?.role === "OWNER") throw new ActionError(`${user.email} owns this league, so they keep access.`, 409);
+    const isAdmin = member?.role === "OWNER" || member?.role === "ADMIN";
+    if (isAdmin === data.admin) throw new ActionError(data.admin ? `${user.email} already has league-office access.` : `${user.email} isn’t an admin.`, 409);
+    const role = data.admin ? "ADMIN" : "PLAYER";
+    await db.$transaction(async (tx) => {
+      if (member) await tx.organizationMember.update({ where: { id: member.id }, data: { role, status: "ACTIVE" } });
+      else await tx.organizationMember.create({ data: { userId: user.id, organizationId: await getOrgId(), role, joinedAt: new Date() } });
+      await audit(tx, me, { action: data.admin ? "office.granted" : "office.revoked", entityType: "user", entityId: user.id, summary: `${data.admin ? "Gave" : "Removed"} league-office access ${data.admin ? "to" : "from"} ${user.email}` });
+    });
     refreshAdmin();
     return { ok: true, message: data.admin ? `${user.email} can now use the league office` : `League-office access removed for ${user.email}` };
   });

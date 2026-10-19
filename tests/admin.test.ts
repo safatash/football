@@ -1,23 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { isAdminEmail, isAdminUser } from "@/lib/admin";
+import { describe, expect, it } from "vitest";
+import { isOfficeRole } from "@/lib/access";
 import { accountPasswordErrors } from "@/lib/password";
 
 describe("admin access", () => {
-  afterEach(() => vi.unstubAllEnvs());
-
-  it("defaults ADMIN_EMAILS to the league office account", () => {
-    vi.stubEnv("ADMIN_EMAILS", undefined as unknown as string);
-    delete process.env.ADMIN_EMAILS;
-    expect(isAdminEmail("SafaTash@gmail.com")).toBe(true);
-    expect(isAdminEmail("someone@example.com")).toBe(false);
-  });
-
-  it("accepts the ADMIN role or a listed email", () => {
-    vi.stubEnv("ADMIN_EMAILS", "office@nvasa.org, chair@nvasa.org");
-    expect(isAdminUser({ email: "player@example.com", role: "ADMIN" })).toBe(true);
-    expect(isAdminUser({ email: "chair@nvasa.org", role: "PLAYER" })).toBe(true);
-    expect(isAdminUser({ email: "player@example.com", role: "PLAYER" })).toBe(false);
-    expect(isAdminUser(null)).toBe(false);
+  it("treats OWNER and ADMIN members as league office", () => {
+    expect(isOfficeRole("OWNER")).toBe(true);
+    expect(isOfficeRole("ADMIN")).toBe(true);
+    expect(isOfficeRole("STAFF")).toBe(false);
+    expect(isOfficeRole("PLAYER")).toBe(false);
+    expect(isOfficeRole(null)).toBe(false);
   });
 });
 

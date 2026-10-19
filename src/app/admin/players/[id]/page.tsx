@@ -6,10 +6,9 @@ import { Card, CardHeader, EmptyState, KeyValue } from "@/components/ui/card";
 import { isUpcoming, listMatches } from "@/lib/queries/matches";
 import { getPlayer } from "@/lib/queries/players";
 import { ArchivedNotice, Crumbs, param, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { dayKey, fmtShort } from "@/lib/format";
-import { isAdminEmail } from "@/lib/admin";
 import { listTeams } from "@/lib/queries/teams";
 import { getSession } from "@/lib/session";
 import { AddToTeam, CaptainRequests, LeagueOfficeAccess, PlayerHeader, TeamAccessTable } from "./player-actions";
@@ -30,16 +29,17 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
     ? (await listMatches(season.id)).filter((m) => isUpcoming(m) && (teamIds.has(m.homeTeam.id) || teamIds.has(m.awayTeam.id)))
     : [];
   const readOnly = season.archived;
-  const [seasonTeams, session, billing, extra] = await Promise.all([
+  const [seasonTeams, session, billing, extra, member] = await Promise.all([
     listTeams(season.id),
     getSession(),
     playerBilling(p.id, season.id),
-    prisma.player.findUnique({ where: { id: p.id }, select: { emergencyContactName: true, emergencyContactPhone: true, tshirtSize: true, contactMe: true, social: true, tournaments: true } }),
+    db.player.findUnique({ where: { id: p.id }, select: { emergencyContactName: true, emergencyContactPhone: true, tshirtSize: true, contactMe: true, social: true, tournaments: true } }),
+    db.organizationMember.findFirst({ where: { userId: p.userId, status: "ACTIVE" }, select: { role: true } }),
   ]);
   const optIns = extra ? [extra.contactMe && "news", extra.social && "social media", extra.tournaments && "tournaments"].filter(Boolean).join(", ") : "";
   const onTeam = new Set(p.teams.map((t) => t.id));
   const addable = seasonTeams.filter((t) => !onTeam.has(t.id)).map((t) => ({ id: t.id, name: t.name, division: t.division.name }));
-  const requests = await prisma.captainRequest.findMany({
+  const requests = await db.captainRequest.findMany({
     where: { playerId: p.id, status: "PENDING", team: { seasonId: season.id } },
     select: { id: true, note: true, createdAt: true, team: { select: { name: true } } },
     orderBy: { createdAt: "asc" },
@@ -158,8 +158,8 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
         <Card>
           <LeagueOfficeAccess
             email={p.email}
-            isAdmin={p.role === "ADMIN" || isAdminEmail(p.email)}
-            viaSetting={isAdminEmail(p.email)}
+            isAdmin={member?.role === "OWNER" || member?.role === "ADMIN"}
+            viaSetting={member?.role === "OWNER"}
             isSelf={session?.user?.id === p.userId}
           />
         </Card>

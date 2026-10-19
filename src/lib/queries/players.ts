@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { fmtDateOnly, fullName } from "@/lib/format";
 import { paymentLabel } from "./registrations";
@@ -30,7 +30,7 @@ const playerSelect = (seasonId: string) =>
     status: true,
     finalApproval: true,
     registrationDate: true,
-    user: { select: { id: true, email: true, role: true } },
+    user: { select: { id: true, email: true } },
     suspensions: { where: activeSuspensionWhere(), select: { reason: true, endsAt: true }, orderBy: { startsAt: "desc" }, take: 1 },
     teamMemberships: {
       where: { ...seasonalWhere, team: { seasonId } },
@@ -85,7 +85,6 @@ function toRow(p: PlayerRowData) {
     name: fullName(p),
     email: p.user.email,
     userId: p.user.id,
-    role: p.user.role,
     status,
     teams,
     division: reg?.division ?? teams[0]?.division ?? null,
@@ -103,7 +102,7 @@ export type PlayerRow = ReturnType<typeof toRow>;
 /** Players in a season. A search (`q`) looks across every player, so new accounts can be found. */
 export async function listPlayers(seasonId: string, q = "") {
   const needle = q.trim();
-  const rows = await prisma.player.findMany({
+  const rows = await db.player.findMany({
     where: needle
       ? {
           OR: [
@@ -124,12 +123,12 @@ export async function listPlayers(seasonId: string, q = "") {
 
 /** Distinct players with a registration in the season. */
 export async function registeredCount(seasonId: string) {
-  return prisma.player.count({ where: { registrations: { some: { seasonId, status: { not: "CANCELLED" } } } } });
+  return db.player.count({ where: { registrations: { some: { seasonId, status: { not: "CANCELLED" } } } } });
 }
 
 /** Suspended players in a season (status or an active suspension). */
 export async function suspendedPlayers(seasonId: string) {
-  const rows = await prisma.player.findMany({
+  const rows = await db.player.findMany({
     where: { AND: [inSeasonWhere(seasonId), { OR: [{ status: "SUSPENDED" }, { suspensions: { some: activeSuspensionWhere() } }] }] },
     select: playerSelect(seasonId),
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
@@ -139,7 +138,7 @@ export async function suspendedPlayers(seasonId: string) {
 
 /** A player's profile with this season's registration, passes and teams. */
 export async function getPlayer(id: string, seasonId: string) {
-  const p = await prisma.player.findUnique({
+  const p = await db.player.findUnique({
     where: { id },
     select: { ...playerSelect(seasonId), dob: true, position: true, phone: true, city: true, state: true, zip: true },
   });

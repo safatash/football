@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { expireGamePasses } from "@/lib/game-pass-server";
+import { forEachLeague } from "@/platform/jobs";
 
 /**
- * Marks game passes EXPIRED after their window and closes their game-pass roster rows.
+ * Marks game passes EXPIRED after their window and closes their game-pass roster rows, in every active league.
  * Vercel Cron calls it with `Authorization: Bearer $CRON_SECRET` (see vercel.json).
  */
 export async function GET(req: NextRequest) {
@@ -10,6 +11,5 @@ export async function GET(req: NextRequest) {
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const expired = await expireGamePasses();
-  return NextResponse.json({ expired });
+  return NextResponse.json({ leagues: await forEachLeague(expireGamePasses) });
 }

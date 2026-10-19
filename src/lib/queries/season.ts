@@ -1,13 +1,13 @@
 import { cache } from "react";
 import { DEFAULT_GAME_PASS_FEE, DEFAULT_MAX_MATCH_ROSTER } from "@/lib/league-data";
-import prisma from "@/lib/prisma";
-import { currentOrgId } from "@/lib/org";
+import { db } from "@/lib/db";
+import { getOrgId } from "@/lib/org";
 import { now } from "@/lib/clock";
 
 export type SeasonRef = { id: string; name: string; isActive: boolean; startDate: Date; endDate: Date };
 
 export const listSeasons = cache(async (): Promise<SeasonRef[]> =>
-  prisma.season.findMany({ select: { id: true, name: true, isActive: true, startDate: true, endDate: true }, orderBy: { startDate: "desc" } }),
+  db.season.findMany({ select: { id: true, name: true, isActive: true, startDate: true, endDate: true }, orderBy: { startDate: "desc" } }),
 );
 
 /** The active season; falls back to the most recent one. */
@@ -38,8 +38,8 @@ export async function resolveSeason(name?: string | null): Promise<ResolvedSeaso
  */
 export const getSettings = cache(async (seasonId: string) => {
   const [season, org] = await Promise.all([
-    prisma.leagueSettings.findUnique({ where: { seasonId } }),
-    prisma.organizationSettings.findUnique({ where: { organizationId: currentOrgId() } }),
+    db.leagueSettings.findUnique({ where: { seasonId } }),
+    db.organizationSettings.findUnique({ where: { organizationId: (await getOrgId()) } }),
   ]);
   return {
     gamePassFee: season?.gamePassFee != null ? Number(season.gamePassFee) : org ? Number(org.gamePassFee) : DEFAULT_GAME_PASS_FEE,
@@ -54,7 +54,7 @@ export const getSettings = cache(async (seasonId: string) => {
 
 /** Throws when the season is closed. Server actions call this before writing season data. */
 export async function assertSeasonWritable(seasonId: string) {
-  const s = await prisma.season.findUnique({ where: { id: seasonId }, select: { isActive: true, name: true, endDate: true } });
+  const s = await db.season.findUnique({ where: { id: seasonId }, select: { isActive: true, name: true, endDate: true } });
   if (!s) throw new SeasonReadOnlyError("That season doesn’t exist.");
   if (isSeasonClosed(s)) throw new SeasonReadOnlyError(`${s.name} is over, so changes are turned off.`);
 }

@@ -308,7 +308,7 @@ export function LeagueOfficeAccess({ email, isAdmin, viaSetting, isSelf }: { ema
       </div>
       <p className="text-[13px] text-muted">
         {viaSetting
-          ? "This address is listed in the ADMIN_EMAILS setting, so it always has access."
+          ? "Owns this league, so they always have access."
           : isAdmin
             ? "Can use the league office: registrations, placement, players, teams, matches and settings."
             : "Admins can review registrations, manage teams and change league settings."}

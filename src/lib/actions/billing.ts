@@ -7,7 +7,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { audit, billingSummary, ledgerWhere, methodLabel, payLinkUrl, syncPaymentStatus } from "@/lib/billing";
 import { fullName, money } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
@@ -24,7 +24,7 @@ const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.");
 const onDay = (iso: string) => new Date(`${iso}T16:00:00Z`);
 
 async function loadRegistration(id: string) {
-  const reg = await prisma.registration.findUnique({
+  const reg = await db.registration.findUnique({
     where: { id },
     include: { season: true, division: true, player: { include: { user: { select: { email: true } } } } },
   });
@@ -33,7 +33,7 @@ async function loadRegistration(id: string) {
 }
 
 async function balanceOf(reg: { id: string; paymentId: string | null; totalAmount: unknown }) {
-  const rows = await prisma.payment.findMany({ where: ledgerWhere(reg), select: { amount: true, status: true, paymentType: true } });
+  const rows = await db.payment.findMany({ where: ledgerWhere(reg), select: { amount: true, status: true, paymentType: true } });
   return billingSummary(
     Number(reg.totalAmount),
     rows.map((r) => ({ ...r, amount: Number(r.amount) })),
@@ -66,7 +66,7 @@ export async function recordPayment(input: z.input<typeof RecordInput>): Promise
     if (data.amount > before.balance + 0.001) {
       throw new ActionError(before.balance > 0 ? `That’s more than the ${money(before.balance)} balance.` : "Nothing is owed on this registration.", 409);
     }
-    const summary = await prisma.$transaction(async (tx) => {
+    const summary = await db.$transaction(async (tx) => {
       const p = await tx.payment.create({
         data: {
           userId: reg.playerId,
@@ -112,7 +112,7 @@ export async function sendPaymentLink(input: { registrationId: string }): Promis
       ...paymentLinkEmail({ firstName: reg.player.firstName, seasonName: reg.season.name, divisionName: reg.division?.name ?? "", amount: money(balance), url }),
     });
     if (res.failed) throw new ActionError("The email didn’t send. Try again in a minute.", 409);
-    await audit(prisma, admin, {
+    await audit(db, admin, {
       action: "payment.link_sent",
       entityType: "registration",
       entityId: reg.id,
@@ -134,7 +134,7 @@ export async function waiveBalance(input: z.input<typeof WaiveInput>): Promise<A
     const reg = await loadRegistration(data.registrationId);
     const { balance } = await balanceOf(reg);
     if (balance <= 0) throw new ActionError("Nothing is owed on this registration.", 409);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       const p = await tx.payment.create({
         data: {
           userId: reg.playerId,
@@ -172,7 +172,7 @@ export async function refundPayment(input: z.input<typeof RefundInput>): Promise
     const reg = await loadRegistration(data.registrationId);
     const { paid } = await balanceOf(reg);
     if (data.amount > paid + 0.001) throw new ActionError(paid > 0 ? `Only ${money(paid)} has been paid, so that’s the most you can refund.` : "Nothing has been paid yet.", 409);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       const p = await tx.payment.create({
         data: {
           userId: reg.playerId,
@@ -215,7 +215,7 @@ export async function applyDiscountCode(input: z.input<typeof DiscountInput>): P
     if (!priced.ok) throw new ActionError(priced.message, 400);
     if (!priced.discountId) throw new ActionError("Enter a code.", 400);
     if (priced.discountId === reg.discountCodeId) throw new ActionError("That code is already applied.", 409);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.registration.update({ where: { id: reg.id }, data: { amountBeforeDiscount: fee, totalAmount: priced.total, discountCodeId: priced.discountId } });
       await countDiscountUse(tx, priced.discountId!);
       const s = await syncPaymentStatus(tx, reg.id);

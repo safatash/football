@@ -49,7 +49,8 @@ const fixture: LegacyReader = {
 };
 
 describe.skipIf(!hasDb)("legacy import (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+  // NVASA's rows, through the league-scoped client (the Demo League shares names with NVASA)
+  const prisma = (await import("@/platform/db")).clientForOrg("org_nvasa");
   const { importSeason } = await import("@/lib/legacy-import");
   const { loadStandings } = await import("@/lib/queries/standings");
   const { resolveLegacy } = await import("@/lib/legacy-redirects");

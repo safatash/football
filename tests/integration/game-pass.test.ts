@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb } from "./setup";
 
 describe.skipIf(!hasDb)("game passes (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+  // NVASA's rows, through the league-scoped client (the Demo League shares names with NVASA)
+  const prisma = (await import("@/platform/db")).clientForOrg("org_nvasa");
   const { checkGamePassPurchase, expireGamePasses, fulfillGamePass, GamePassError } = await import("@/lib/game-pass-server");
   const { matchPool } = await import("@/lib/queries/teams");
 

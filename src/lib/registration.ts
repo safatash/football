@@ -1,14 +1,13 @@
-import type { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
-import { currentOrgId } from "@/lib/org";
+import { db, type DbTx } from "@/lib/db";
+import { getOrgId } from "@/lib/org";
 import { normalizeCode, priceRegistration, validateDiscount, type DiscountRule } from "@/lib/fees";
 
-type Db = Prisma.TransactionClient | typeof prisma;
+type Db = DbTx;
 
-export async function loadDiscount(code: string, db: Db = prisma): Promise<(DiscountRule & { id: string }) | null> {
+export async function loadDiscount(code: string, client: Db = db): Promise<(DiscountRule & { id: string }) | null> {
   const c = normalizeCode(code);
   if (!c) return null;
-  const row = await db.discountCode.findUnique({ where: { organizationId_code: { organizationId: currentOrgId(), code: c } } });
+  const row = await client.discountCode.findUnique({ where: { organizationId_code: { organizationId: (await getOrgId()), code: c } } });
   if (!row) return null;
   return { ...row, value: Number(row.value) };
 }
@@ -27,7 +26,7 @@ export async function priceWithCode(opts: { fee: number; code: string; season: {
  * Counts a discount code use. Runs inside the transaction that marks a registration paid (webhook)
  * or submits a free one, and refuses to go past maxUses.
  */
-export async function countDiscountUse(tx: Prisma.TransactionClient, discountCodeId: string) {
+export async function countDiscountUse(tx: DbTx, discountCodeId: string) {
   const code = await tx.discountCode.findUnique({ where: { id: discountCodeId }, select: { maxUses: true } });
   if (!code) return;
   await tx.discountCode.updateMany({

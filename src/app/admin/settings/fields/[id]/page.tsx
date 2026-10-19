@@ -3,7 +3,7 @@ import { PageHeading } from "@/components/league";
 import { Badge, MatchStatusBadge } from "@/components/ui/badge";
 import { EmptyState, Notice } from "@/components/ui/card";
 import { BodyCell, BodyRow, DataTable, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { SIZE, SURFACE, getFieldSchedule } from "@/lib/queries/fields";
 import { addressLine } from "@/lib/public";
 import { Crumbs } from "../../../_components/season";
@@ -13,7 +13,7 @@ export const metadata = { title: "Field" };
 
 export default async function FieldPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [data, parks] = await Promise.all([getFieldSchedule(id), prisma.park.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })]);
+  const [data, parks] = await Promise.all([getFieldSchedule(id), db.park.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })]);
   if (!data) notFound();
   const { field, label, days, upcoming, clashes } = data;
   const seasonQ = (m: { season: { name: string; isActive: boolean } }) => (m.season.isActive ? "" : `?season=${encodeURIComponent(m.season.name)}`);

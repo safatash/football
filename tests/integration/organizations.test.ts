@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasDb } from "./setup";
 
-describe.skipIf(!hasDb)("organizations: NVASA owns the existing data (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+describe.skipIf(!hasDb)("organizations: every row belongs to a league (database)", async () => {
+  const { default: prisma } = await import("@/platform/prisma");
   const { NVASA_ORG_ID } = await import("@/lib/org");
   const OTHER = "org_itest_other";
 
@@ -20,24 +20,23 @@ describe.skipIf(!hasDb)("organizations: NVASA owns the existing data (database)"
   });
   afterAll(cleanup);
 
-  it("NVASA exists, is active, and owns every league row", async () => {
+  it("NVASA exists, is active, and every league row belongs to NVASA or the Demo League", async () => {
     expect(await prisma.organization.findUnique({ where: { id: NVASA_ORG_ID } })).toMatchObject({ slug: "nvasa", status: "ACTIVE", timezone: "America/New_York" });
     const tables = await prisma.$queryRawUnsafe<{ table_name: string }[]>(
       `SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'organizationId' AND table_name NOT IN ('organization_members', 'organization_settings')`,
     );
     expect(tables.length).toBe(27);
     for (const { table_name } of tables) {
-      const [{ n }] = await prisma.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "${table_name}" WHERE "organizationId" NOT IN ('${NVASA_ORG_ID}', '${OTHER}')`);
+      const [{ n }] = await prisma.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "${table_name}" WHERE "organizationId" NOT IN ('${NVASA_ORG_ID}', 'org_demo', '${OTHER}')`);
       expect(n, table_name).toBe(0);
     }
   });
 
-  it("every user is a member; the operator owns NVASA; league settings carry the Fairfax rule", async () => {
-    const users = await prisma.user.count();
-    expect(await prisma.organizationMember.count({ where: { organizationId: NVASA_ORG_ID } })).toBe(users);
+  it("every user belongs to a league; the operator owns NVASA; league settings carry the Fairfax rule", async () => {
+    expect(await prisma.user.count({ where: { memberships: { none: {} } } })).toBe(0);
     const me = await prisma.user.findUniqueOrThrow({ where: { email: "safatash@gmail.com" }, include: { memberships: true } });
     expect(me.isPlatformAdmin).toBe(true);
-    expect(me.memberships).toMatchObject([{ organizationId: NVASA_ORG_ID, role: "OWNER", status: "ACTIVE" }]);
+    expect(me.memberships.find((m) => m.organizationId === NVASA_ORG_ID)).toMatchObject({ role: "OWNER", status: "ACTIVE" });
     expect(await prisma.organizationSettings.findUnique({ where: { organizationId: NVASA_ORG_ID } })).toMatchObject({
       eligibilityMode: "COUNTY_LIST",
       eligibleCounties: ["Fairfax County, VA"],

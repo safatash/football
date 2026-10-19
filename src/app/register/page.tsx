@@ -3,7 +3,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { AppBar, Screen } from "@/components/shell/layout";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { money } from "@/lib/format";
 import { getActiveSeason, getSettings } from "@/lib/queries/season";
 
@@ -84,7 +84,7 @@ function PathCard({ p }: { p: Path }) {
 export default async function RegisterBranchPage() {
   const season = await getActiveSeason();
   const [fee, settings] = season
-    ? await Promise.all([prisma.division.aggregate({ where: { seasonId: season.id, status: "ACTIVE" }, _min: { registrationFee: true } }), getSettings(season.id)])
+    ? await Promise.all([db.division.aggregate({ where: { seasonId: season.id, status: "ACTIVE" }, _min: { registrationFee: true } }), getSettings(season.id)])
     : [null, null];
   const minFee = Number(fee?._min.registrationFee ?? 0);
   const gamePassFee = settings?.gamePassFee ?? 15;

@@ -121,7 +121,8 @@ See `.env.example`. Beyond the database, NextAuth and Stripe keys:
 
 | Variable | What it does |
 | --- | --- |
-| `ADMIN_EMAILS` | Comma-separated league-office emails (defaults to `safatash@gmail.com`). Users with `role = ADMIN` are admins too: `npm run admin:grant -- someone@example.com`. |
+| `APP_ROOT_DOMAIN` | Leagues live at `<slug>.<APP_ROOT_DOMAIN>` (default `app.localhost`, so `nvasa.app.localhost:3000`). |
+| `ORG_SLUG`, `ALLOW_ORG_FALLBACK` | Local work on plain `localhost`: the league to show (or `?org=<slug>`). Ignored in production unless `ALLOW_ORG_FALLBACK=true`. |
 | `CRON_SECRET` | Required by `/api/cron/*` (`Authorization: Bearer …`). Vercel Cron sends it. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Outgoing mail. Production sends when set. |
 | `MAIL_DELIVER`, `MAIL_TEST_RECIPIENTS` | Outside production, mail is only logged to the server console. Set `MAIL_DELIVER=true` to really send, and then only to `example.com` / `.test` addresses or the ones listed in `MAIL_TEST_RECIPIENTS`. |
@@ -149,9 +150,15 @@ divisions when nothing uses them.
 
 | Account | Password | Sees |
 | --- | --- | --- |
-| `safatash@gmail.com` | `Admin123!` | League office (`/admin`); no player profile |
+| `safatash@gmail.com` | `Admin123!` | NVASA league office (`/admin`, owner); platform operator; no player profile |
 | `maya.johnson@example.com` | `MayaJohnson26` | Captain of Fairfax United, player on Bloodline |
 | Any other seeded player, e.g. `hannah.cole@example.com` | `NvasaPlayer26` | Player portal |
+| `demo.office@example.com` | `DemoOffice26` | Demo League office (`demo.app.localhost:3000/admin`) |
+
+The seed also creates the **Demo League** (`prisma/seed-demo-league.ts`, slug `demo`): one season,
+one division, "Fairfax United" and "Alexandria FC" (the same names as NVASA's), one match, a paid
+registration, a park and a referee. Maya is a member of both leagues with a separate player
+profile in each.
 
 The seeded matches are in May 2026; set `NVASA_NOW=2026-05-16T12:00:00-04:00` to see Game #204 as
 "tomorrow".
@@ -164,6 +171,66 @@ The seeded matches are in May 2026; set `NVASA_NOW=2026-05-16T12:00:00-04:00` to
   their game-pass roster rows. Pages already ignore expired passes before this runs.
 - `/api/cron/daily` (05:30 UTC): marks reports still missing 48 hours after kickoff `OVERDUE`, and
   returns players whose suspension ended to Active.
+
+Both run once per league in service (`TRIAL`, `ACTIVE`, `PAST_DUE`) and return results by league slug.
+
+### Multi-tenant architecture (branch `saas/multitenant`)
+
+The app hosts many leagues ("organizations"). NVASA is one of them (`org_nvasa`).
+
+**Data ownership.** `Organization` holds the league (slug, status, plan, custom domain), with
+`OrganizationSettings` and `OrganizationMember` (role `OWNER` / `ADMIN` / `STAFF` / `PLAYER`).
+Every league-owned table has a required `organizationId` with no database default. Unique keys are
+per league (season names, team codes, discount codes, registration numbers…). Child rows point at
+their parents with composite foreign keys (`[parentId, organizationId]`), so the database rejects a
+row in one league that references another league's row.
+
+A `User` is a login shared across leagues. Each league has its own `Player` profile for that user
+(`players` is filtered by `organizationId`) and its own membership. League roles come from
+`OrganizationMember`; `User.isPlatformAdmin` marks the SaaS operator. There is no global admin role.
+
+**Finding the league.** `src/proxy.ts` reads the host:
+
+| Host | League |
+| --- | --- |
+| `<slug>.<APP_ROOT_DOMAIN>` | by slug |
+| any other host | by `Organization.customDomain` |
+| `localhost` (development) | `?org=<slug>` (kept in a cookie), else `ORG_SLUG` |
+
+Unknown host → "League not found" (404). `SUSPENDED` / `CANCELLED` → "This league is unavailable"
+(503), except `/login`, `/api/auth/*` and `/admin`, so the office can still sign in. The proxy
+removes any client-sent `x-org-id` and sets its own. `/api/stripe/webhook` and `/api/cron/*` are
+platform routes with no league host.
+
+**Enforced isolation.** App code reads and writes through `db` / `getDb()` from `@/lib/db`
+(`src/platform/db.ts`): a Prisma extension that adds `organizationId` to every `where` (find,
+count, aggregate, groupBy, update, delete, upsert) and sets it on every create, and refuses writes
+that name another league. The current league comes from `runWithOrg()` (webhooks, crons, seed,
+tests) or the proxy's header. Raw SQL isn't covered, so each `$queryRaw` filters on
+`"organizationId"` itself. The raw client (`@/platform/prisma`) is only allowed in `src/platform/`,
+scripts, the seed and tests.
+
+- Authorization: `requireOrgRole([...])` (`src/lib/access.ts`) checks the membership in the current
+  league; the admin guard is `requireOrgRole(["OWNER", "ADMIN"])`. Captain rights stay per team.
+- Sign-in is per league: NextAuth cookies are per host, and you need a membership in that league
+  (platform operators can sign in anywhere).
+- Stripe Checkout sessions carry `metadata.organizationId`; the webhook runs as that league
+  (older sessions are matched through their registration or match).
+- Audit log rows belong to the league. There are no file uploads or data-cache tags yet; when
+  they arrive, prefix keys and tags with the organization id.
+
+Guard tests (run in CI, `.github/workflows/ci.yml`):
+
+- `tests/integration/isolation.test.ts`: working as the Demo League, NVASA's players, teams,
+  matches, payments, registrations, referees, parks and fields can't be read, listed, updated or
+  deleted, through the client, the page queries or server actions with guessed ids; NVASA's admin
+  has no office access there; an NVASA-only player can't sign in there; and a checksum of every
+  NVASA row is unchanged afterwards.
+- `tests/raw-client.test.ts`: no raw client outside `src/platform/`, and every raw SQL query
+  filters by `organizationId`.
+
+Planned: Postgres row-level security as a second layer (after measuring its cost), removing the
+hard-coded NVASA text, a platform/operator area, and per-league payments.
 
 ### Checks
 

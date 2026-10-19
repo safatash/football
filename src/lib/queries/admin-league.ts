@@ -1,7 +1,7 @@
 import { cache } from "react";
 import type { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
-import { playerInOrg } from "@/lib/org";
+import { db } from "@/lib/db";
+import { playerInOrg, getOrgId } from "@/lib/org";
 
 /* ---------- Divisions ---------- */
 
@@ -29,16 +29,16 @@ export const divisionSelect = {
 export type DivisionRow = Prisma.DivisionGetPayload<{ select: typeof divisionSelect }>;
 
 export const listDivisions = cache(async (seasonId: string): Promise<DivisionRow[]> =>
-  prisma.division.findMany({ where: { seasonId }, select: divisionSelect, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] }),
+  db.division.findMany({ where: { seasonId }, select: divisionSelect, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] }),
 );
 
 /** Divisions players can register for (inactive ones are hidden outside the office). */
 export const listOpenDivisions = cache(async (seasonId: string): Promise<DivisionRow[]> =>
-  prisma.division.findMany({ where: { seasonId, status: "ACTIVE" }, select: divisionSelect, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] }),
+  db.division.findMany({ where: { seasonId, status: "ACTIVE" }, select: divisionSelect, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] }),
 );
 
 export async function getDivisionByCode(seasonId: string, code: string) {
-  return prisma.division.findUnique({ where: { seasonId_code: { seasonId, code } }, select: divisionSelect });
+  return db.division.findUnique({ where: { seasonId_code: { seasonId, code } }, select: divisionSelect });
 }
 
 /* ---------- Division age / gender labels ---------- */
@@ -98,7 +98,7 @@ export function genderLabel(d: Pick<DivisionRow, "genderRule" | "maleBornOnOrBef
 
 /** Both teams' reports for a match. */
 export async function matchReports(matchId: string) {
-  return prisma.matchReport.findMany({
+  return db.matchReport.findMany({
     where: { matchId },
     select: { id: true, teamId: true, status: true, homeScore: true, awayScore: true, submittedAt: true, confirmedAt: true },
   });
@@ -108,7 +108,7 @@ export type MatchReportRow = Awaited<ReturnType<typeof matchReports>>[number];
 /** Each team's match roster (selected players) with availability for that match. */
 export async function matchRosters(matchId: string) {
   const [rosters, unavailable] = await Promise.all([
-    prisma.matchRoster.findMany({
+    db.matchRoster.findMany({
       where: { matchId },
       select: {
         teamId: true,
@@ -127,14 +127,14 @@ export async function matchRosters(matchId: string) {
         },
       },
     }),
-    prisma.matchAvailability.findMany({ where: { matchId, status: "UNAVAILABLE" }, select: { teamRosterId: true } }),
+    db.matchAvailability.findMany({ where: { matchId, status: "UNAVAILABLE" }, select: { teamRosterId: true } }),
   ]);
   return { rosters, unavailable: new Set(unavailable.map((u) => u.teamRosterId)) };
 }
 
 /** Game-pass players registered for this match, by team. */
 export async function matchGamePassPlayers(matchId: string) {
-  return prisma.teamRoster.findMany({
+  return db.teamRoster.findMany({
     where: { matchId, membershipType: "GAME_PASS" },
     select: {
       id: true,
@@ -150,7 +150,7 @@ export async function matchGamePassPlayers(matchId: string) {
 const KIND_LABEL = { BOARD: "Board member", PROMO: "Promo", TEAM_PAID: "Team paid in full" } as const;
 
 export async function listDiscountCodes(seasonId: string) {
-  const rows = await prisma.discountCode.findMany({
+  const rows = await db.discountCode.findMany({
     where: { seasonId },
     select: { id: true, code: true, kind: true, type: true, value: true, uses: true, maxUses: true, active: true },
     orderBy: [{ active: "desc" }, { code: "asc" }],
@@ -173,37 +173,31 @@ export type DiscountCodeView = Awaited<ReturnType<typeof listDiscountCodes>>[num
 
 /** Extra allowed ZIP codes (rows without a county; county rows are lookups for county eligibility). */
 export async function extraZipCodes() {
-  const rows = await prisma.allowedZipCode.findMany({ where: { county: null }, orderBy: { zipCode: "asc" }, select: { zipCode: true } });
+  const rows = await db.allowedZipCode.findMany({ where: { county: null }, orderBy: { zipCode: "asc" }, select: { zipCode: true } });
   return rows.map((r) => r.zipCode);
 }
 
 export async function blocklistEntries() {
-  const rows = await prisma.blocklist.findMany({ orderBy: { blockedAt: "desc" }, select: { email: true } });
+  const rows = await db.blocklist.findMany({ orderBy: { blockedAt: "desc" }, select: { email: true } });
   return rows.map((r) => r.email);
 }
 
-/** Everyone with league-office access: role ADMIN accounts plus ADMIN_EMAILS addresses. */
+/** Everyone with league-office access in this league (OWNER and ADMIN members). */
 export async function leagueOfficeMembers() {
-  const listed = (process.env.ADMIN_EMAILS ?? "safatash@gmail.com")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  const users = await prisma.user.findMany({
-    where: { OR: [{ role: "ADMIN" }, ...listed.map((email) => ({ email: { equals: email, mode: "insensitive" as const } }))] },
-    select: { id: true, email: true, role: true, players: { ...playerInOrg(), select: { id: true, firstName: true, lastName: true } } },
-    orderBy: { email: "asc" },
+  const orgId = await getOrgId();
+  const members = await db.organizationMember.findMany({
+    where: { role: { in: ["OWNER", "ADMIN"] }, status: "ACTIVE" },
+    include: { user: { select: { id: true, email: true, players: { ...playerInOrg(orgId), select: { id: true, firstName: true, lastName: true } } } } },
+    orderBy: [{ role: "asc" }, { user: { email: "asc" } }],
   });
-  const rows = users.map((u) => ({
-    email: u.email,
-    name: u.players[0] ? `${u.players[0].firstName} ${u.players[0].lastName}` : null,
-    playerId: (u.players[0]?.id ?? null) as string | null,
-    viaSetting: listed.includes(u.email.toLowerCase()),
+  return members.map((m) => ({
+    email: m.user.email,
+    name: m.user.players[0] ? `${m.user.players[0].firstName} ${m.user.players[0].lastName}` : null,
+    playerId: (m.user.players[0]?.id ?? null) as string | null,
+    /** Owners always keep access (the list shows them as "Owner") */
+    viaSetting: m.role === "OWNER",
     hasAccount: true,
-    userId: u.id,
+    userId: m.user.id,
   }));
-  for (const email of listed) {
-    if (!rows.some((r) => r.email.toLowerCase() === email)) rows.push({ email, name: null, playerId: null, viaSetting: true, hasAccount: false, userId: "" });
-  }
-  return rows;
 }
 export type LeagueOfficeMember = Awaited<ReturnType<typeof leagueOfficeMembers>>[number];

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { GamePassError, checkGamePassPurchase, fulfillGamePass } from "@/lib/game-pass-server";
 import { getSession } from "@/lib/session";
 import { appUrl, stripe } from "@/lib/stripe";
+import { getOrgId } from "@/lib/db";
 
 const Body = z.object({ matchId: z.string().trim().min(1).max(64), teamId: z.string().trim().max(64).nullish() });
 
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const { player, match, fee } = await checkGamePassPurchase(playerId, parsed.data.matchId, teamId);
-    const metadata = { type: "game_pass", matchId: match.id, playerId, teamId: teamId ?? "" };
+    const metadata = { type: "game_pass", organizationId: await getOrgId(), matchId: match.id, playerId, teamId: teamId ?? "" };
 
     if (fee <= 0) {
       const pass = await fulfillGamePass({ id: `free_${randomUUID()}`, metadata, amount_total: 0, currency: "usd", payment_intent: null });

@@ -1,9 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
-import { playerInOrg } from "@/lib/org";
+import { NVASA_ORG_ID, playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("captain actions (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+  // NVASA's rows, through the league-scoped client (the Demo League shares names with NVASA)
+  const prisma = (await import("@/platform/db")).clientForOrg("org_nvasa");
   const actions = await import("@/lib/actions/captain");
 
   const ids = {} as Record<string, string>;
@@ -11,7 +12,7 @@ describe.skipIf(!hasDb)("captain actions (database)", async () => {
   const roster = {} as Record<string, string>; // name → FFX TeamRoster id
 
   async function userFor(email: string, isAdmin = false): Promise<TestUser> {
-    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { players: playerInOrg() } });
+    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { players: playerInOrg(NVASA_ORG_ID) } });
     return { id: u.id, email: u.email, name: u.players[0] ? `${u.players[0].firstName} ${u.players[0].lastName}` : u.email, playerId: u.players[0]?.id, isAdmin };
   }
 

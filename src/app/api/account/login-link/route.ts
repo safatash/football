@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
-import { playerInOrg } from "@/lib/org";
+import { db } from "@/lib/db";
+import { playerInOrg, getOrgId } from "@/lib/org";
 import { sendMail } from "@/lib/mail";
 import { loginLinkEmail } from "@/lib/mail-templates";
 import { appUrl } from "@/lib/stripe";
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Enter your email and date of birth." }, { status: 400 });
   const { email, dob } = parsed.data;
-  const user = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, include: { players: playerInOrg() } });
+  const user = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, include: { players: playerInOrg(await getOrgId()) } });
   if (user?.players[0] && user.players[0].dob.toISOString().slice(0, 10) === dob && user.players[0].status !== "INACTIVE") {
     const token = await createToken("login", user.id);
     await sendMail({ to: user.email, ...loginLinkEmail({ firstName: user.players[0].firstName, url: `${appUrl()}/login/link?token=${token}` }) });

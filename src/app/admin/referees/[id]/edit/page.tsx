@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { PageHeading } from "@/components/league";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { Crumbs } from "../../../_components/season";
 import { RefereeForm } from "../../forms";
 
@@ -8,7 +8,7 @@ export const metadata = { title: "Edit referee" };
 
 export default async function EditRefereePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const r = await prisma.referee.findUnique({ where: { id } });
+  const r = await db.referee.findUnique({ where: { id } });
   if (!r) notFound();
   return (
     <>

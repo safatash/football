@@ -1,5 +1,5 @@
 import type { PaymentMethod, PaymentStatus, Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { methodLabel } from "@/lib/billing";
 import { TZ, fullName } from "@/lib/format";
 
@@ -16,7 +16,7 @@ export const REPORT_STATUSES: [PaymentStatus, string][] = [
  * checkout) and game passes for the season's matches. Optional method / status filters.
  */
 export async function seasonPayments(seasonId: string, filters: { method?: PaymentMethod | null; status?: PaymentStatus | null } = {}) {
-  const regs = await prisma.registration.findMany({ where: { seasonId }, select: { id: true, paymentId: true } });
+  const regs = await db.registration.findMany({ where: { seasonId }, select: { id: true, paymentId: true } });
   const where: Prisma.PaymentWhereInput = {
     AND: [
       {
@@ -30,7 +30,7 @@ export async function seasonPayments(seasonId: string, filters: { method?: Payme
       filters.status ? { status: filters.status } : {},
     ],
   };
-  const rows = await prisma.payment.findMany({
+  const rows = await db.payment.findMany({
     where,
     include: {
       player: { select: { id: true, firstName: true, lastName: true } },

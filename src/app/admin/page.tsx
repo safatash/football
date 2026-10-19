@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { Avatar, Crest, PageHeading } from "@/components/league";
 import { Badge, MatchStatusBadge, PlayerStatusBadge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
@@ -47,7 +47,7 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
   const sunday = sundayDay.matches;
   const sundayLabel = sunday[0] ? fmtShort(sunday[0].scheduledAt) : "";
   const homeRosters = sunday.length
-    ? await prisma.matchRoster.findMany({
+    ? await db.matchRoster.findMany({
         where: { OR: sunday.map((m) => ({ matchId: m.id, teamId: m.homeTeam.id })) },
         select: { matchId: true, status: true },
       })

@@ -1,4 +1,4 @@
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { billingSummary, ledgerWhere, methodLabel } from "@/lib/billing";
 import { TZ } from "@/lib/format";
 
@@ -7,15 +7,15 @@ const stamp = (d: Date) => d.toLocaleString("en-US", { month: "short", day: "num
 
 /** A player's billing for a season: their latest registration, its ledger and the billing activity. */
 export async function playerBilling(playerId: string, seasonId: string) {
-  const reg = await prisma.registration.findFirst({
+  const reg = await db.registration.findFirst({
     where: { playerId, seasonId },
     orderBy: { submittedAt: "desc" },
     include: { division: { select: { name: true, registrationFee: true } }, discountCode: { select: { code: true } } },
   });
   if (!reg) return null;
   const [rows, activity] = await Promise.all([
-    prisma.payment.findMany({ where: ledgerWhere(reg), include: { recordedBy: { select: { email: true } } }, orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }] }),
-    prisma.auditLog.findMany({ where: { entityType: "registration", entityId: reg.id }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.payment.findMany({ where: ledgerWhere(reg), include: { recordedBy: { select: { email: true } } }, orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }] }),
+    db.auditLog.findMany({ where: { entityType: "registration", entityId: reg.id }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
   const summary = billingSummary(
     Number(reg.totalAmount),

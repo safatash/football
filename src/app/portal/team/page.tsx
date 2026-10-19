@@ -6,7 +6,7 @@ import { Segmented } from "@/components/ui/controls";
 import { Icon } from "@/components/ui/icon";
 import { Jersey, MatchMeta, PosTag, VsRow } from "@/components/league";
 import { AppBar, Screen, TeamHeader } from "@/components/shell/layout";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { fmtShort } from "@/lib/format";
 import { posCode } from "@/lib/queries/captain";
 import { isUpcoming, listMatches } from "@/lib/queries/matches";
@@ -29,7 +29,7 @@ export default async function PlayerTeamPage({ searchParams }: { searchParams: P
   const playerId = session.user.playerId;
 
   const memberships = playerId
-    ? await prisma.teamRoster.findMany({
+    ? await db.teamRoster.findMany({
         where: { playerId, leftAt: null, membershipType: "SEASONAL" },
         include: {
           team: { include: { division: true, season: true } },
@@ -65,9 +65,9 @@ export default async function PlayerTeamPage({ searchParams }: { searchParams: P
   const [roster, { matches, next }] = await Promise.all([teamRoster(t.id), teamMatches(t.id, t.seasonId)]);
   const captains = roster.filter((r) => r.isCaptain).map((r) => r.name);
   const mine = next
-    ? await prisma.matchAvailability.findUnique({ where: { matchId_teamRosterId: { matchId: next.id, teamRosterId: selected.id } }, select: { status: true } })
+    ? await db.matchAvailability.findUnique({ where: { matchId_teamRosterId: { matchId: next.id, teamRosterId: selected.id } }, select: { status: true } })
     : null;
-  const captainRequestPending = playerId ? await prisma.captainRequest.count({ where: { playerId, teamId: t.id, status: "PENDING" } }) : 0;
+  const captainRequestPending = playerId ? await db.captainRequest.count({ where: { playerId, teamId: t.id, status: "PENDING" } }) : 0;
   const myAnswer: Choice | null = mine?.status === "AVAILABLE" ? "yes" : mine?.status === "UNAVAILABLE" ? "no" : null;
 
   return (

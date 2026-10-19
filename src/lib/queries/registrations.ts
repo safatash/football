@@ -1,6 +1,6 @@
 import type { Prisma, RegistrationStatus } from "@prisma/client";
-import prisma from "@/lib/prisma";
-import { currentOrgId } from "@/lib/org";
+import { db } from "@/lib/db";
+import { getOrgId } from "@/lib/org";
 import { ageOn, checkEligibility } from "@/lib/eligibility";
 import { fmtDateOnly, fmtShort, fullName, money, regNumber } from "@/lib/format";
 import { getSettings, type SeasonRef } from "./season";
@@ -60,7 +60,7 @@ async function legacyTeams(seasonId: string, values: string[]) {
   const uniq = [...new Set(values)];
   const map = new Map<string, LegacyTeam>();
   if (!uniq.length) return map;
-  const teams = await prisma.team.findMany({
+  const teams = await db.team.findMany({
     where: { seasonId, OR: [{ id: { in: uniq } }, { name: { in: uniq } }] },
     select: { id: true, name: true, division: { select: { id: true, name: true, registrationFee: true } } },
   });
@@ -93,7 +93,7 @@ const NEEDS_PLACEMENT = new Set(["NEW", "INFO_REQUESTED", "WAITLISTED"]);
 
 /** Registrations in a season, newest first. */
 export async function listRegistrations(seasonId: string, { openOnly, take }: { openOnly?: boolean; take?: number } = {}) {
-  const regs = await prisma.registration.findMany({
+  const regs = await db.registration.findMany({
     where: { seasonId, ...(openOnly ? { status: { in: OPEN_STATUSES } } : {}) },
     select: listSelect,
     orderBy: [{ submittedAt: "desc" }, { number: "desc" }],
@@ -135,16 +135,16 @@ export async function listRegistrations(seasonId: string, { openOnly, take }: { 
 export async function openRegistrationStats(seasonId: string) {
   const where = { seasonId, status: { in: OPEN_STATUSES } } satisfies Prisma.RegistrationWhereInput;
   const [count, oldest, total] = await Promise.all([
-    prisma.registration.count({ where }),
-    prisma.registration.findFirst({ where, orderBy: { submittedAt: "asc" }, select: { submittedAt: true } }),
-    prisma.registration.count({ where: { seasonId } }),
+    db.registration.count({ where }),
+    db.registration.findFirst({ where, orderBy: { submittedAt: "asc" }, select: { submittedAt: true } }),
+    db.registration.count({ where: { seasonId } }),
   ]);
   return { count, oldest: oldest ? fmtShort(oldest.submittedAt) : "", total };
 }
 
 /** Pending captain requests for teams in a season. */
 export async function openCaptainRequests(seasonId: string) {
-  const rows = await prisma.captainRequest.findMany({
+  const rows = await db.captainRequest.findMany({
     where: { status: "PENDING", team: { seasonId } },
     select: {
       id: true,
@@ -169,7 +169,7 @@ const GENDER: Record<string, string> = { FEMALE: "Female", MALE: "Male", NON_BIN
 export async function blocklistHit(email: string) {
   const e = email.trim().toLowerCase();
   const domain = e.split("@")[1] ?? "";
-  return prisma.blocklist.findFirst({
+  return db.blocklist.findFirst({
     where: { email: { in: [e, ...(domain ? [domain, `*@${domain}`, `@${domain}`] : [])], mode: "insensitive" } },
     select: { reason: true },
   });
@@ -183,7 +183,7 @@ export async function blocklistHit(email: string) {
 export async function zipEligible(seasonId: string, player: { zip: string; county: string | null }) {
   const [settings, zip] = await Promise.all([
     getSettings(seasonId),
-    prisma.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: currentOrgId(), zipCode: player.zip.trim() } }, select: { county: true } }),
+    db.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: (await getOrgId()), zipCode: player.zip.trim() } }, select: { county: true } }),
   ]);
   if (settings.eligibilityMode === "NONE") return true;
   if (zip && !zip.county) return true;
@@ -194,7 +194,7 @@ export async function zipEligible(seasonId: string, player: { zip: string; count
 
 /** Everything the registration review screen needs. Null when the id isn't in this season. */
 export async function getRegistrationReview(id: string, season: Pick<SeasonRef, "id" | "name" | "startDate">) {
-  const reg = await prisma.registration.findFirst({
+  const reg = await db.registration.findFirst({
     where: { id, seasonId: season.id },
     include: {
       player: { include: { user: { select: { email: true } } } },
@@ -221,7 +221,7 @@ export async function getRegistrationReview(id: string, season: Pick<SeasonRef, 
 
   const nameOf = (v: string) => legacy.get(v)?.name ?? v;
   const legacyPreferred = picks[0] ? legacy.get(picks[0]) : undefined;
-  const division = reg.division ?? (legacyPreferred ? await prisma.division.findUnique({ where: { id: legacyPreferred.division.id } }) : null);
+  const division = reg.division ?? (legacyPreferred ? await db.division.findUnique({ where: { id: legacyPreferred.division.id } }) : null);
   const preferred = reg.preferredTeam ?? (reg.division ? null : (legacyPreferred ?? null));
   const preferredName = preferred?.name ?? (!reg.division && picks[0] ? nameOf(picks[0]) : "—");
   const backupName = reg.backupTeam?.name ?? (!reg.division && picks[1] ? nameOf(picks[1]) : "—");

@@ -9,8 +9,9 @@
  * through "Find my player info" or a password reset.
  */
 import { randomBytes } from "node:crypto";
-import type { Prisma, PrismaClient } from "@prisma/client";
-import { currentOrgId, playerInOrg } from "@/lib/org";
+import type { Prisma } from "@prisma/client";
+import type { DbTx } from "@/lib/db";
+import { getOrgId, playerInOrg } from "@/lib/org";
 import { easternTime } from "@/lib/game-pass";
 import { legacyPlayerKey } from "@/lib/legacy-redirects";
 import { hashPassword } from "@/lib/password";
@@ -140,7 +141,7 @@ export type ImportOptions = {
 
 export type ImportReport = { counts: Record<string, number>; problems: string[] };
 
-export async function importSeason(reader: LegacyReader, db: PrismaClient, opts: ImportOptions): Promise<ImportReport> {
+export async function importSeason(reader: LegacyReader, db: DbTx, opts: ImportOptions): Promise<ImportReport> {
   const log = opts.log ?? (() => {});
   const problems: string[] = [];
   const problem = (p: string) => problems.push(p);
@@ -245,10 +246,10 @@ export async function importSeason(reader: LegacyReader, db: PrismaClient, opts:
     const name = text(f.field) || "1";
     // The address belongs to the park; the first field that has one fills it in
     const address = { address: text(f.address) || null, city: text(f.city) || null, state: text(f.state) || null, zip: text(f.zip) || null };
-    const park = await db.park.upsert({ where: { organizationId_name: { organizationId: currentOrgId(), name: complex } }, create: { name: complex, ...address }, update: {} });
+    const park = await db.park.upsert({ where: { organizationId_name: { organizationId: (await getOrgId()), name: complex } }, create: { name: complex, ...address }, update: {} });
     if (!park.address && address.address) await db.park.update({ where: { id: park.id }, data: address });
     const data = { parkId: park.id, name, legacyId: f.id };
-    const existing = (await db.field.findUnique({ where: { organizationId_legacyId: { organizationId: currentOrgId(), legacyId: f.id } } })) ?? (await db.field.findUnique({ where: { parkId_name: { parkId: park.id, name } } }));
+    const existing = (await db.field.findUnique({ where: { organizationId_legacyId: { organizationId: (await getOrgId()), legacyId: f.id } } })) ?? (await db.field.findUnique({ where: { parkId_name: { parkId: park.id, name } } }));
     const row = existing ? await db.field.update({ where: { id: existing.id }, data }) : await db.field.create({ data });
     fieldId.set(f.id, row.id);
   }
@@ -288,7 +289,7 @@ export async function importSeason(reader: LegacyReader, db: PrismaClient, opts:
     const key = legacyPlayerKey(p.id);
     const email = text(p.email).toLowerCase();
     const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
-    let existing = await db.player.findUnique({ where: { organizationId_legacyKey: { organizationId: currentOrgId(), legacyKey: key } }, select: { id: true, userId: true } });
+    let existing = await db.player.findUnique({ where: { organizationId_legacyKey: { organizationId: (await getOrgId()), legacyKey: key } }, select: { id: true, userId: true } });
     if (!existing && validEmail) existing = await db.player.findFirst({ where: { user: { email: { equals: validEmail, mode: "insensitive" } } }, select: { id: true, userId: true } });
     const photo = text(p.photo) && opts.imageUrl ? opts.imageUrl("players", text(p.photo)) : null;
     const profile = {
@@ -311,10 +312,10 @@ export async function importSeason(reader: LegacyReader, db: PrismaClient, opts:
       data: {
         email: loginEmail,
         password: unusable,
-        memberships: { create: { organizationId: currentOrgId(), role: "PLAYER", joinedAt: new Date() } },
+        memberships: { create: { organizationId: (await getOrgId()), role: "PLAYER", joinedAt: new Date() } },
         players: {
           create: {
-            organizationId: currentOrgId(),
+            organizationId: (await getOrgId()),
             ...profile,
             dob: new Date(`${dob}T00:00:00Z`),
             phone: text(p.phone),
@@ -329,7 +330,7 @@ export async function importSeason(reader: LegacyReader, db: PrismaClient, opts:
         },
       },
       include: { players: {
-          ...playerInOrg(), select: { id: true } } },
+          ...playerInOrg(await getOrgId()), select: { id: true } } },
     });
     playerId.set(p.id, user.players[0]!.id);
   }

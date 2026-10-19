@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { checkEligibility } from "@/lib/eligibility";
 import { passWindow } from "@/lib/game-pass";
@@ -25,11 +25,11 @@ export class GamePassError extends Error {
  */
 export async function checkGamePassPurchase(playerId: string, matchId: string, teamId: string | null) {
   const [player, match] = await Promise.all([
-    prisma.player.findUnique({
+    db.player.findUnique({
       where: { id: playerId },
       include: { user: { select: { email: true } }, suspensions: { where: { liftedAt: null, startsAt: { lte: now() }, OR: [{ endsAt: null }, { endsAt: { gt: now() } }] } } },
     }),
-    prisma.match.findUnique({
+    db.match.findUnique({
       where: { id: matchId },
       include: { division: true, season: true, homeTeam: { select: { id: true, name: true } }, awayTeam: { select: { id: true, name: true } } },
     }),
@@ -47,12 +47,12 @@ export async function checkGamePassPurchase(playerId: string, matchId: string, t
     const elig = checkEligibility(match.division, { dob: player.dob, gender: player.gender }, match.season.startDate);
     if (!elig.ok) throw new GamePassError(`You can’t play in ${match.division.name}: ${elig.reason}.`, 403);
   }
-  const onTeam = await prisma.teamRoster.findFirst({
+  const onTeam = await db.teamRoster.findFirst({
     where: { playerId, leftAt: null, membershipType: "SEASONAL", teamId: { in: [match.homeTeamId, match.awayTeamId] } },
     select: { team: { select: { name: true } } },
   });
   if (onTeam) throw new GamePassError(`You’re already on ${onTeam.team.name}’s roster, so you don’t need a pass.`, 409);
-  const existing = await prisma.gamePass.findUnique({ where: { playerId_matchId: { playerId, matchId } } });
+  const existing = await db.gamePass.findUnique({ where: { playerId_matchId: { playerId, matchId } } });
   if (existing && existing.status !== "CANCELLED") throw new GamePassError(`You already have a game pass for Game #${match.gameNumber}.`, 409);
 
   // A division can override the league-wide game-pass fee
@@ -72,7 +72,7 @@ export async function fulfillGamePass(session: Pick<Stripe.Checkout.Session, "id
   if (!matchId || !playerId) throw new Error("Game pass checkout is missing matchId/playerId");
 
   let created = false;
-  const pass = await prisma.$transaction(async (tx) => {
+  const pass = await db.$transaction(async (tx) => {
     const paid = await tx.payment.findUnique({ where: { stripeChargeId: session.id }, include: { gamePass: true } });
     if (paid?.gamePass) return paid.gamePass;
 
@@ -121,7 +121,7 @@ export async function fulfillGamePass(session: Pick<Stripe.Checkout.Session, "id
 }
 
 async function sendGamePassReceipt(passId: string) {
-  const p = await prisma.gamePass.findUniqueOrThrow({
+  const p = await db.gamePass.findUniqueOrThrow({
     where: { id: passId },
     include: {
       payment: true,
@@ -147,12 +147,12 @@ async function sendGamePassReceipt(passId: string) {
 
 /** Marks passes past their window EXPIRED and closes their game-pass roster rows. */
 export async function expireGamePasses(at = now(), scope: { playerId?: string } = {}) {
-  const due = await prisma.gamePass.findMany({ where: { status: "ACTIVE", validUntil: { lt: at }, ...scope }, select: { id: true, validUntil: true } });
+  const due = await db.gamePass.findMany({ where: { status: "ACTIVE", validUntil: { lt: at }, ...scope }, select: { id: true, validUntil: true } });
   for (const pass of due) {
-    await prisma.$transaction([
-      prisma.gamePass.update({ where: { id: pass.id }, data: { status: "EXPIRED" } }),
-      prisma.teamRoster.updateMany({ where: { gamePassId: pass.id, membershipType: "GAME_PASS", leftAt: null }, data: { leftAt: pass.validUntil } }),
-    ]);
+    await db.$transaction(async (tx) => {
+      await tx.gamePass.update({ where: { id: pass.id }, data: { status: "EXPIRED" } });
+      await tx.teamRoster.updateMany({ where: { gamePassId: pass.id, membershipType: "GAME_PASS", leftAt: null }, data: { leftAt: pass.validUntil } });
+    });
   }
   return due.length;
 }

@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
-import { playerInOrg } from "@/lib/org";
+import { NVASA_ORG_ID, playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+  // NVASA's rows, through the league-scoped client (the Demo League shares names with NVASA)
+  const prisma = (await import("@/platform/db")).clientForOrg("org_nvasa");
   const s = await import("@/lib/actions/admin-structure");
   const { loadStandings } = await import("@/lib/queries/standings");
   const { listOpenDivisions } = await import("@/lib/queries/admin-league");
@@ -42,7 +43,7 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
     await cleanup();
     const a = await prisma.user.findUniqueOrThrow({ where: { email: "safatash@gmail.com" } });
     admin = { id: a.id, email: a.email, name: "Admin", isAdmin: true };
-    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg() } });
+    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg(NVASA_ORG_ID) } });
     maya = { id: m.id, email: m.email, name: "Maya", playerId: m.players[0]!.id };
     const season = await prisma.season.findFirstOrThrow({ where: { name: "Spring 2026" } });
     ids.season = season.id;

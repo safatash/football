@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { activeSuspensionWhere } from "@/lib/queries/players";
 import { getSession } from "@/lib/session";
@@ -19,12 +19,12 @@ export async function GET(req: NextRequest) {
   const teamIds = (req.nextUrl.searchParams.get("teams") ?? "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 4);
   const [memberships, suspended] = await Promise.all([
     session.user.playerId
-      ? prisma.teamRoster.findMany({
+      ? db.teamRoster.findMany({
           where: { playerId: session.user.playerId, teamId: { in: teamIds }, leftAt: null },
           select: { teamId: true, isCaptain: true, membershipType: true },
         })
       : [],
-    prisma.teamRoster.findMany({
+    db.teamRoster.findMany({
       where: { teamId: { in: teamIds }, leftAt: null, membershipType: "SEASONAL", player: { OR: [{ status: "SUSPENDED" }, { suspensions: { some: activeSuspensionWhere(now()) } }] } },
       select: { playerId: true },
     }),

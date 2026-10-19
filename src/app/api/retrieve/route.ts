@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
-import { playerInOrg } from "@/lib/org";
+import { db } from "@/lib/db";
+import { playerInOrg, getOrgId } from "@/lib/org";
 
 function maskEmail(email: string) {
   const [local, domain] = email.split("@");
@@ -22,11 +22,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Enter your email and date of birth." }, { status: 400 });
     }
 
-    const user = await prisma.user.findFirst({
+    const user = await db.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
       include: {
         players: {
-          ...playerInOrg(),
+          ...playerInOrg(await getOrgId()),
           include: {
             teamMemberships: { include: { team: { select: { name: true } } }, orderBy: { joinedAt: "desc" }, take: 1 },
           },

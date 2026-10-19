@@ -1,6 +1,6 @@
 import { cache } from "react";
 import type { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { fullName } from "@/lib/format";
 
@@ -29,7 +29,7 @@ export const activePassWhere = (at = now()) =>
 export type TeamSummary = TeamRef & { rosterSize: number; captains: string[] };
 
 export const listTeams = cache(async (seasonId: string, divisionId?: string): Promise<TeamSummary[]> => {
-  const teams = await prisma.team.findMany({
+  const teams = await db.team.findMany({
     where: { seasonId, ...(divisionId ? { divisionId } : {}) },
     select: {
       ...teamSelect,
@@ -43,7 +43,7 @@ export const listTeams = cache(async (seasonId: string, divisionId?: string): Pr
 
 /** A team by id or by its code within a season. */
 export async function getTeam(idOrCode: string, seasonId?: string) {
-  return prisma.team.findFirst({
+  return db.team.findFirst({
     where: seasonId ? { seasonId, OR: [{ id: idOrCode }, { code: idOrCode }] } : { OR: [{ id: idOrCode }, { code: idOrCode }] },
     select: teamSelect,
     orderBy: { createdAt: "desc" },
@@ -75,13 +75,13 @@ const byJersey = (a: { jerseyNumber: number | null; name: string }, b: { jerseyN
 
 /** Season roster of a team, ordered by jersey. */
 export async function teamRoster(teamId: string) {
-  const rows = await prisma.teamRoster.findMany({ where: { teamId, ...seasonalWhere }, select: memberSelect });
+  const rows = await db.teamRoster.findMany({ where: { teamId, ...seasonalWhere }, select: memberSelect });
   return rows.map(toMember).sort(byJersey);
 }
 
 /** Match-roster pool: season roster plus active game-pass players for that match only. */
 export async function matchPool(teamId: string, matchId: string) {
-  const rows = await prisma.teamRoster.findMany({
+  const rows = await db.teamRoster.findMany({
     where: { teamId, OR: [seasonalWhere, { ...activePassWhere(), matchId }] },
     select: memberSelect,
   });

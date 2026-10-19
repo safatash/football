@@ -1,4 +1,4 @@
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { teamSelect } from "@/lib/queries/teams";
 
@@ -13,11 +13,11 @@ export async function getTeamAccess(teamId: string) {
   const session = await getSession();
   const user = session?.user;
   if (!user) return { user: null, team: null, access: null } as const;
-  const team = await prisma.team.findUnique({ where: { id: teamId }, select: teamSelect });
+  const team = await db.team.findUnique({ where: { id: teamId }, select: teamSelect });
   if (!team) return { user, team: null, access: null } as const;
 
   const membership = user.playerId
-    ? await prisma.teamRoster.findFirst({
+    ? await db.teamRoster.findFirst({
         where: { teamId, playerId: user.playerId, leftAt: null },
         select: { isCaptain: true, membershipType: true },
         orderBy: { isCaptain: "desc" },
@@ -47,7 +47,7 @@ export async function requireCaptain(teamId: string) {
 /** Teams the user captains (active seasonal captain rows), newest season first. */
 export async function captainedTeams(playerId: string | undefined) {
   if (!playerId) return [];
-  const rows = await prisma.teamRoster.findMany({
+  const rows = await db.teamRoster.findMany({
     where: { playerId, isCaptain: true, leftAt: null, membershipType: "SEASONAL" },
     select: { team: { select: teamSelect } },
     orderBy: [{ team: { season: { startDate: "desc" } } }, { joinedAt: "asc" }],

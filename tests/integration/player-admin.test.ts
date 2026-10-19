@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
-import { playerInOrg } from "@/lib/org";
+import { NVASA_ORG_ID, playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("player and league-office admin tools (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+  // NVASA's rows, through the league-scoped client (the Demo League shares names with NVASA)
+  const prisma = (await import("@/platform/db")).clientForOrg("org_nvasa");
   const admin = await import("@/lib/actions/admin");
   const { matchPool } = await import("@/lib/queries/teams");
 
@@ -12,17 +13,18 @@ describe.skipIf(!hasDb)("player and league-office admin tools (database)", async
   const users = {} as Record<string, TestUser>;
 
   async function userFor(email: string, isAdmin = false): Promise<TestUser> {
-    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { players: playerInOrg() } });
+    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { players: playerInOrg(NVASA_ORG_ID) } });
     return { id: u.id, email: u.email, name: u.email, playerId: u.players[0]?.id, isAdmin };
   }
   const as = (who: string | null) => (auth.user = who ? users[who] : null);
+  const hannahRole = async () => (await prisma.organizationMember.findFirstOrThrow({ where: { organizationId: NVASA_ORG_ID, user: { email: "hannah.cole@example.com" } } })).role;
 
   async function cleanup() {
     // Payments are never deleted by the app; tests clean up their own
     await prisma.payment.deleteMany({ where: { player: { user: { email: NEW_EMAIL } } } });
     await prisma.registration.deleteMany({ where: { player: { user: { email: NEW_EMAIL } } } });
     await prisma.user.deleteMany({ where: { email: NEW_EMAIL } });
-    await prisma.user.updateMany({ where: { email: "hannah.cole@example.com" }, data: { role: "PLAYER" } });
+    await prisma.organizationMember.updateMany({ where: { organizationId: NVASA_ORG_ID, user: { email: "hannah.cole@example.com" } }, data: { role: "PLAYER" } });
   }
 
   beforeAll(async () => {
@@ -63,8 +65,8 @@ describe.skipIf(!hasDb)("player and league-office admin tools (database)", async
       const res = await admin.createPlayerAccount({ ...base, teamId: ids.alx, jerseyNumber: 99 });
       expect(res).toMatchObject({ ok: true });
       const user = await prisma.user.findUniqueOrThrow({ where: { email: NEW_EMAIL }, include: { players: {
-          ...playerInOrg(), include: { teamMemberships: true } } } });
-      expect(user.role).toBe("PLAYER");
+          ...playerInOrg(NVASA_ORG_ID), include: { teamMemberships: true } } } });
+      expect(await prisma.organizationMember.findFirst({ where: { userId: user.id } })).toMatchObject({ role: "PLAYER" });
       expect(user.players[0]).toMatchObject({ finalApproval: "APPROVED", status: "ACTIVE", city: "Fairfax", county: "Fairfax County, VA" });
       expect(user.players[0]!.teamMemberships).toMatchObject([{ teamId: ids.alx, jerseyNumber: 99, membershipType: "SEASONAL", leftAt: null }]);
       const token = await prisma.verificationToken.findFirstOrThrow({ where: { identifier: `reset:${user.id}` } });
@@ -121,10 +123,10 @@ describe.skipIf(!hasDb)("player and league-office admin tools (database)", async
     it("grants and revokes by email", async () => {
       as("admin");
       expect(await admin.setLeagueOfficeAccess({ email: "Hannah.Cole@example.com", admin: true })).toMatchObject({ ok: true });
-      expect((await prisma.user.findUniqueOrThrow({ where: { email: "hannah.cole@example.com" } })).role).toBe("ADMIN");
+      expect(await hannahRole()).toBe("ADMIN");
       expect(await admin.setLeagueOfficeAccess({ email: "hannah.cole@example.com", admin: true })).toMatchObject({ ok: false, status: 409 });
       expect(await admin.setLeagueOfficeAccess({ email: "hannah.cole@example.com", admin: false })).toMatchObject({ ok: true });
-      expect((await prisma.user.findUniqueOrThrow({ where: { email: "hannah.cole@example.com" } })).role).toBe("PLAYER");
+      expect(await hannahRole()).toBe("PLAYER");
     });
 
     it("a newly granted admin can use admin actions; players can't grant themselves", async () => {
@@ -138,7 +140,7 @@ describe.skipIf(!hasDb)("player and league-office admin tools (database)", async
       await admin.setLeagueOfficeAccess({ email: "hannah.cole@example.com", admin: false });
     });
 
-    it("won't remove your own access, ADMIN_EMAILS addresses, or unknown accounts", async () => {
+    it("won't remove your own access, an owner's, or unknown accounts", async () => {
       as("admin");
       expect(await admin.setLeagueOfficeAccess({ email: "safatash@gmail.com", admin: false })).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/your own/) });
       expect(await admin.setLeagueOfficeAccess({ email: "nobody.here@example.com", admin: true })).toMatchObject({ ok: false, status: 404 });

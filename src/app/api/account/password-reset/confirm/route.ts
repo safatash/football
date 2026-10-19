@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { accountPasswordErrors, hashPassword } from "@/lib/password";
 import { consumeToken } from "@/lib/tokens";
 
@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
   if (problems.length) return NextResponse.json({ error: problems.join(", ") }, { status: 400 });
   const userId = await consumeToken("reset", parsed.data.token);
   if (!userId) return NextResponse.json({ error: "This reset link has expired or was already used. Ask for a new one." }, { status: 410 });
-  const user = await prisma.user.update({ where: { id: userId }, data: { password: await hashPassword(parsed.data.password) } });
+  const user = await db.user.update({ where: { id: userId }, data: { password: await hashPassword(parsed.data.password) } });
   // Any other outstanding links for this account stop working
-  await prisma.verificationToken.deleteMany({ where: { identifier: { in: [`reset:${userId}`, `login:${userId}`] } } });
+  await db.verificationToken.deleteMany({ where: { identifier: { in: [`reset:${userId}`, `login:${userId}`] } } });
   return NextResponse.json({ ok: true, email: user.email });
 }

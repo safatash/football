@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import { AdminShell } from "@/components/shell/admin-shell";
 import { requireAdmin } from "@/lib/session";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { getActiveSeason, isSeasonClosed, listSeasons } from "@/lib/queries/season";
 import { demoSummary } from "@/lib/demo";
 import { AdminDemoNotice } from "./_components/demo";
@@ -13,8 +13,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const [seasons, active] = await Promise.all([listSeasons(), getActiveSeason()]);
   const seasonId = active?.id ?? "";
   const [pending, placement, demo] = await Promise.all([
-    prisma.registration.count({ where: { seasonId, status: { in: ["SUBMITTED", "PENDING"] } } }),
-    prisma.registration.count({ where: { seasonId, placementState: "NEW", status: { in: ["SUBMITTED", "PENDING", "APPROVED"] } } }),
+    db.registration.count({ where: { seasonId, status: { in: ["SUBMITTED", "PENDING"] } } }),
+    db.registration.count({ where: { seasonId, placementState: "NEW", status: { in: ["SUBMITTED", "PENDING", "APPROVED"] } } }),
     demoSummary(),
   ]);
   return (

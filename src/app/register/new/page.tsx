@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { EmptyState } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/button";
 import { AppBar, Screen } from "@/components/shell/layout";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { fmtDateOnly, isoDate } from "@/lib/format";
 import { ageLabel, listOpenDivisions } from "@/lib/queries/admin-league";
 import { getActiveSeason, getSettings } from "@/lib/queries/season";
@@ -33,14 +33,14 @@ export default async function NewRegistrationPage() {
   const [divisions, teams, zips, settings, session] = await Promise.all([
     listOpenDivisions(season.id),
     listTeams(season.id),
-    prisma.allowedZipCode.findMany({ select: { zipCode: true, county: true } }),
+    db.allowedZipCode.findMany({ select: { zipCode: true, county: true } }),
     getSettings(season.id),
     getSession(),
   ]);
 
   const playerId = session?.user?.playerId;
   const player = playerId
-    ? await prisma.player.findUnique({ where: { id: playerId }, include: { user: { select: { email: true } } } })
+    ? await db.player.findUnique({ where: { id: playerId }, include: { user: { select: { email: true } } } })
     : null;
   const profile: WizardProfile | null = player
     ? {

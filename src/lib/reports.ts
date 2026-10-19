@@ -1,4 +1,5 @@
-import type { Prisma, ReportStatus } from "@prisma/client";
+import type { DbTx } from "@/lib/db";
+import type { ReportStatus } from "@prisma/client";
 import { REPORT_GRACE_MS } from "@/lib/queries/matches";
 
 /**
@@ -13,7 +14,7 @@ export function summarizeReportStatus(reports: { status: ReportStatus }[], sched
   return reports.length ? "DRAFT" : "NOT_STARTED";
 }
 
-export async function syncMatchReportStatus(tx: Prisma.TransactionClient, matchId: string, at: Date) {
+export async function syncMatchReportStatus(tx: DbTx, matchId: string, at: Date) {
   const match = await tx.match.findUniqueOrThrow({ where: { id: matchId }, select: { scheduledAt: true, reports: { select: { status: true } } } });
   const reportStatus = summarizeReportStatus(match.reports, match.scheduledAt, at);
   await tx.match.update({ where: { id: matchId }, data: { reportStatus } });

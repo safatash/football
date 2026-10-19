@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "saas/**", "redesign/**"]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nvasa_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # A throwaway database in the job; the integration tests refuse non-local hosts
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nvasa_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nvasa_test
+      NEXTAUTH_SECRET: ci-only-secret
+      NEXTAUTH_URL: http://localhost:3000
+      APP_ROOT_DOMAIN: app.localhost
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npx tsx prisma/seed.ts
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      # Includes tests/integration/isolation.test.ts (NVASA vs the Demo League) and the raw-client guards
+      - run: npm test
+      - run: npm run build

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadPayLink } from "@/lib/pay-link";
 import { appUrl, stripe } from "@/lib/stripe";
+import { getOrgId } from "@/lib/db";
 
 /** Opens Stripe Checkout for a payment link's current balance. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       cancel_url: back,
       client_reference_id: reg.id,
       customer_email: reg.player.user.email,
-      metadata: { type: "registration_balance", registrationId: reg.id, playerId: reg.playerId },
+      metadata: { type: "registration_balance", organizationId: await getOrgId(), registrationId: reg.id, playerId: reg.playerId },
     });
     return NextResponse.redirect(session.url!, 303);
   } catch (err) {

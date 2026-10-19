@@ -7,6 +7,7 @@ declare module "next-auth" {
       playerId?: string
       isCaptain?: boolean
       isAdmin?: boolean
+      orgRole?: "OWNER" | "ADMIN" | "STAFF" | "PLAYER" | null
     } & DefaultSession["user"]
   }
 

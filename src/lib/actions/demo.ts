@@ -3,8 +3,8 @@
 /** Removes the seed's demo teams, matches and players. League-office only; asks for a typed confirmation. */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
-import { playerInOrg } from "@/lib/org";
+import { db } from "@/lib/db";
+import { playerInOrg, getOrgId } from "@/lib/org";
 import { CLEAR_DEMO_PHRASE, demoMatchWhere, demoUserWhere } from "@/lib/demo";
 import { requireAdminUser } from "./admin-guard";
 import { ActionError, runAction, type ActionResult } from "./result";
@@ -21,12 +21,12 @@ export async function clearDemoData(input: { confirm: string }): Promise<ActionR
     await requireAdminUser();
     if (confirm.trim().toLowerCase() !== CLEAR_DEMO_PHRASE) throw new ActionError(`Type “${CLEAR_DEMO_PHRASE}” to confirm.`, 400);
 
-    const counts = await prisma.$transaction(
+    const counts = await db.$transaction(
       async (tx) => {
         const [teams, matches, users] = await Promise.all([
           tx.team.findMany({ where: { isDemo: true }, select: { id: true } }),
           tx.match.findMany({ where: demoMatchWhere, select: { id: true } }),
-          tx.user.findMany({ where: demoUserWhere, select: { id: true, players: { ...playerInOrg(), select: { id: true } } } }),
+          tx.user.findMany({ where: demoUserWhere, select: { id: true, players: { ...playerInOrg(await getOrgId()), select: { id: true } } } }),
         ]);
         const teamIds = teams.map((t) => t.id);
         const matchIds = matches.map((m) => m.id);

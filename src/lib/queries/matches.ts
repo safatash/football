@@ -1,6 +1,6 @@
 import { cache } from "react";
 import type { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { dayKey, fmtDay, fmtTime } from "@/lib/format";
 import { fieldPlace, placeLabel } from "@/lib/public";
@@ -46,7 +46,7 @@ export function toMatchView(m: MatchRow) {
 export type MatchView = ReturnType<typeof toMatchView>;
 
 export const listMatches = cache(async (seasonId: string, opts: { teamId?: string; divisionId?: string } = {}) => {
-  const rows = await prisma.match.findMany({
+  const rows = await db.match.findMany({
     where: {
       seasonId,
       ...(opts.divisionId ? { divisionId: opts.divisionId } : {}),
@@ -60,7 +60,7 @@ export const listMatches = cache(async (seasonId: string, opts: { teamId?: strin
 
 export async function getMatchByGameNumber(seasonId: string, gameNumber: number) {
   if (!Number.isInteger(gameNumber)) return null;
-  const m = await prisma.match.findUnique({ where: { seasonId_gameNumber: { seasonId, gameNumber } }, select: matchSelect });
+  const m = await db.match.findUnique({ where: { seasonId_gameNumber: { seasonId, gameNumber } }, select: matchSelect });
   return m ? toMatchView(m) : null;
 }
 
@@ -68,7 +68,7 @@ export async function getMatchByGameNumber(seasonId: string, gameNumber: number)
 export async function findMatch(ref: string, seasonId?: string) {
   const n = Number(ref);
   if (seasonId && Number.isInteger(n) && n > 0) return getMatchByGameNumber(seasonId, n);
-  const m = await prisma.match.findFirst({
+  const m = await db.match.findFirst({
     where: Number.isInteger(n) && n > 0 ? { gameNumber: n } : { id: ref },
     select: matchSelect,
     orderBy: { season: { startDate: "desc" } },
@@ -89,7 +89,7 @@ export function nextMatchDay(matches: MatchView[], at = now()) {
 
 /** A team's next scheduled match. */
 export async function nextMatchFor(teamId: string, seasonId: string) {
-  const m = await prisma.match.findFirst({
+  const m = await db.match.findFirst({
     where: { seasonId, status: "SCHEDULED", scheduledAt: { gt: now() }, OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }] },
     select: matchSelect,
     orderBy: { scheduledAt: "asc" },

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
 export type ProfileState = { ok: true; message: string } | { ok: false; error: string; fieldErrors?: Record<string, string> } | null;
@@ -65,7 +65,7 @@ export async function updateProfile(_prev: ProfileState, formData: FormData): Pr
   }
 
   try {
-    await prisma.player.update({ where: { id: playerId }, data: parsed.data });
+    await db.player.update({ where: { id: playerId }, data: parsed.data });
   } catch {
     return { ok: false, error: "We couldn’t save your profile. Try again in a moment." };
   }

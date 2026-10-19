@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { hasDb } from "./setup";
 
 describe.skipIf(!hasDb)("login links and password reset (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+  // NVASA's rows, through the league-scoped client (the Demo League shares names with NVASA)
+  const prisma = (await import("@/platform/db")).clientForOrg("org_nvasa");
   const { consumeToken, createToken, peekToken } = await import("@/lib/tokens");
   const { verifyPassword, hashPassword } = await import("@/lib/password");
   const confirm = await import("@/app/api/account/password-reset/confirm/route");

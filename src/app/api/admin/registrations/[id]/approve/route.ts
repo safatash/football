@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { sendMail } from "@/lib/mail";
 import { registrationApprovedEmail } from "@/lib/mail-templates";
@@ -39,20 +39,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { teamId, makeCaptain } = parsed.data;
 
   try {
-    const registration = await prisma.registration.findUnique({ where: { id } });
+    const registration = await db.registration.findUnique({ where: { id } });
     if (!registration) return NextResponse.json({ error: "Registration not found." }, { status: 404 });
     await assertSeasonWritable(registration.seasonId);
     if (registration.status !== "PENDING" && registration.status !== "SUBMITTED") {
       return NextResponse.json({ error: `This registration is already ${registration.status === "REJECTED" ? "denied" : registration.status.toLowerCase()}.` }, { status: 409 });
     }
 
-    const team = teamId ? await prisma.team.findUnique({ where: { id: teamId } }) : null;
+    const team = teamId ? await db.team.findUnique({ where: { id: teamId } }) : null;
     if (teamId && !team) return NextResponse.json({ error: "Team not found." }, { status: 404 });
     if (team && team.seasonId !== registration.seasonId) {
       return NextResponse.json({ error: "That team isn’t in this registration’s season." }, { status: 400 });
     }
 
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       // Guard against a concurrent decision.
       const updated = await tx.registration.updateMany({
         where: { id, status: { in: ["PENDING", "SUBMITTED"] } },
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     });
 
-    const done = await prisma.registration.findUniqueOrThrow({
+    const done = await db.registration.findUniqueOrThrow({
       where: { id },
       include: { season: { select: { name: true } }, player: { select: { firstName: true, user: { select: { email: true } } } } },
     });

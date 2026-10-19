@@ -7,7 +7,7 @@ import { Notice } from "@/components/ui/card";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Logo } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { TZ, fullName } from "@/lib/format";
 import { passStatus } from "@/lib/game-pass";
@@ -56,7 +56,7 @@ export default async function GamePassConfirmationPage({ searchParams }: { searc
     id = res?.id;
   }
   if (!id) notFound();
-  const pass = await prisma.gamePass.findFirst({
+  const pass = await db.gamePass.findFirst({
     where: { id, playerId },
     include: { player: { select: { firstName: true, lastName: true } }, team: { select: { name: true } }, match: { select: matchSelect } },
   });

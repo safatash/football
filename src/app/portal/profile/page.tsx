@@ -3,7 +3,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/card";
 import { Crest } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { PasswordForm } from "./password-form";
 import { LogoutButton, ProfileForm } from "./profile-form";
@@ -14,7 +14,7 @@ export default async function PlayerProfilePage() {
   const session = await requireUser("/portal/profile");
   const playerId = session.user.playerId;
   const player = playerId
-    ? await prisma.player.findUnique({
+    ? await db.player.findUnique({
         where: { id: playerId },
         include: {
           user: { select: { email: true } },

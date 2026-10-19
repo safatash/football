@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { matchSelect, toMatchView } from "@/lib/queries/matches";
 import { getActiveSeason, getSettings } from "@/lib/queries/season";
@@ -15,7 +15,7 @@ export default async function GamePassPage({ searchParams }: { searchParams: Pro
   const [season, session] = await Promise.all([getActiveSeason(), getSession()]);
   const [rows, settings] = season
     ? await Promise.all([
-        prisma.match.findMany({
+        db.match.findMany({
           where: { seasonId: season.id, status: "SCHEDULED", scheduledAt: { gt: now() }, OR: [{ divisionId: null }, { division: { status: "ACTIVE" } }] },
           select: { ...matchSelect, division: { select: { ...matchSelect.division.select, gamePassFee: true } } },
           orderBy: [{ scheduledAt: "asc" }, { gameNumber: "asc" }],

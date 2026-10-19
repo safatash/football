@@ -7,7 +7,7 @@ import { Card, Notice } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/controls";
 import { Field, TextInput } from "@/components/ui/field";
 import { clearDemoData } from "@/lib/actions/demo";
-import { CLEAR_DEMO_PHRASE } from "@/lib/demo";
+import { CLEAR_DEMO_PHRASE } from "@/lib/demo-phrase";
 
 /** Settings › Demo data: what's left from the seed, and a typed-confirmation delete. */
 export function DemoData({ teams, matches, players, parks, referees }: { teams: number; matches: number; players: number; parks: number; referees: number }) {

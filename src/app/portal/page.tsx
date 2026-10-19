@@ -5,7 +5,7 @@ import { Segmented } from "@/components/ui/controls";
 import { Icon } from "@/components/ui/icon";
 import { Crest, MatchMeta, VsRow } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { passStatus } from "@/lib/game-pass";
 import { redirect } from "next/navigation";
 import { now } from "@/lib/clock";
@@ -28,11 +28,11 @@ const span = "lg:[column-span:all]";
 async function teamRecord(teamId: string) {
   try {
     const [played, players] = await Promise.all([
-      prisma.match.findMany({
+      db.match.findMany({
         where: { status: "COMPLETED", homeScore: { not: null }, awayScore: { not: null }, OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }] },
         select: { homeTeamId: true, homeScore: true, awayScore: true },
       }),
-      prisma.teamRoster.count({ where: { teamId, leftAt: null, membershipType: "SEASONAL" } }),
+      db.teamRoster.count({ where: { teamId, leftAt: null, membershipType: "SEASONAL" } }),
     ]);
     let w = 0,
       d = 0,
@@ -51,7 +51,7 @@ async function teamRecord(teamId: string) {
 
 /** The player's saved answer for a match, if any. */
 async function myAvailability(teamRosterId: string, matchId: string): Promise<Choice | null> {
-  const row = await prisma.matchAvailability.findUnique({ where: { matchId_teamRosterId: { matchId, teamRosterId } }, select: { status: true } });
+  const row = await db.matchAvailability.findUnique({ where: { matchId_teamRosterId: { matchId, teamRosterId } }, select: { status: true } });
   return row?.status === "AVAILABLE" ? "yes" : row?.status === "UNAVAILABLE" ? "no" : null;
 }
 
@@ -63,7 +63,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
   const today = now().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: TZ });
 
   const player = session.user.playerId
-    ? await prisma.player.findUnique({
+    ? await db.player.findUnique({
         where: { id: session.user.playerId },
         include: {
           user: true,
@@ -145,7 +145,7 @@ export default async function PlayerDashboardPage({ searchParams }: { searchPara
   const [record, nextMatch] = selected ? await Promise.all([teamRecord(selected.teamId), nextMatchFor(selected.teamId, selected.team.seasonId)]) : [null, null];
   const [myAnswer, captainRequestPending] = await Promise.all([
     selected && nextMatch ? myAvailability(selected.id, nextMatch.id) : null,
-    selected ? prisma.captainRequest.count({ where: { playerId: player.id, teamId: selected.teamId, status: "PENDING" } }) : 0,
+    selected ? db.captainRequest.count({ where: { playerId: player.id, teamId: selected.teamId, status: "PENDING" } }) : 0,
   ]);
 
   return (

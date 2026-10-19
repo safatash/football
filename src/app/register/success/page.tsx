@@ -5,7 +5,7 @@ import { Card, Notice } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Logo } from "@/components/league";
 import { AppBar, Screen } from "@/components/shell/layout";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { stripe } from "@/lib/stripe";
 
 export const metadata: Metadata = { title: "Registration received" };
@@ -30,7 +30,7 @@ async function loadInfo(sessionId?: string, registrationId?: string): Promise<In
       stripePaid = s.payment_status === "paid";
     }
     if (!regId) return fallback;
-    const reg = await prisma.registration.findUnique({
+    const reg = await db.registration.findUnique({
       where: { id: regId },
       include: {
         player: { include: { user: { select: { email: true } } } },

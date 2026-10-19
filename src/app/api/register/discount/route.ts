@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { getActiveSeason } from "@/lib/queries/season";
 import { priceWithCode } from "@/lib/registration";
 
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return NextResponse.json({ ok: false, message: "Enter a code first." }, { status: 400 });
   const season = await getActiveSeason();
   if (!season) return NextResponse.json({ ok: false, message: "Registration isn’t open right now." }, { status: 409 });
-  const division = await prisma.division.findUnique({ where: { seasonId_code: { seasonId: season.id, code: parsed.data.divisionCode } } });
+  const division = await db.division.findUnique({ where: { seasonId_code: { seasonId: season.id, code: parsed.data.divisionCode } } });
   if (!division || division.status !== "ACTIVE") return NextResponse.json({ ok: false, message: "Choose a division first." }, { status: 400 });
   const res = await priceWithCode({ fee: Number(division.registrationFee), code: parsed.data.code, season, teamId: parsed.data.preferredTeamId ?? null });
   if (!res.ok) return NextResponse.json({ ok: false, message: res.message });

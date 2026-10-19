@@ -6,7 +6,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { checkEligibility } from "@/lib/eligibility";
 import { fullName } from "@/lib/format";
@@ -43,7 +43,7 @@ const SeasonInput = z
 async function uniqueSeasonSlug(name: string, exceptId?: string) {
   const base = seasonSlug(name) || "season";
   let slug = base;
-  for (let i = 2; await prisma.season.findFirst({ where: { slug, ...(exceptId ? { id: { not: exceptId } } : {}) } }); i++) slug = `${base}-${i}`;
+  for (let i = 2; await db.season.findFirst({ where: { slug, ...(exceptId ? { id: { not: exceptId } } : {}) } }); i++) slug = `${base}-${i}`;
   return slug;
 }
 
@@ -52,10 +52,10 @@ export async function createSeason(input: z.input<typeof SeasonInput>): Promise<
   return runAction(async () => {
     const data = SeasonInput.parse(input);
     await requireAdminUser();
-    if (await prisma.season.findFirst({ where: { name: { equals: data.name, mode: "insensitive" } } })) throw new ActionError(`There’s already a season called ${data.name}.`, 409);
-    const active = await prisma.season.findFirst({ where: { isActive: true }, include: { settings: true } });
+    if (await db.season.findFirst({ where: { name: { equals: data.name, mode: "insensitive" } } })) throw new ActionError(`There’s already a season called ${data.name}.`, 409);
+    const active = await db.season.findFirst({ where: { isActive: true }, include: { settings: true } });
     const slug = await uniqueSeasonSlug(data.name);
-    const season = await prisma.$transaction(async (tx) => {
+    const season = await db.$transaction(async (tx) => {
       if (data.makeActive) await tx.season.updateMany({ where: { isActive: true }, data: { isActive: false } });
       const s = await tx.season.create({
         data: { name: data.name, slug, startDate: day(data.startDate), endDate: day(data.endDate), isActive: data.makeActive },
@@ -80,12 +80,12 @@ export async function updateSeason(input: z.input<typeof SeasonInput> & { id: st
     const data = SeasonInput.parse(input);
     const id = Id.parse(input.id);
     await requireAdminUser();
-    const season = await prisma.season.findUnique({ where: { id } });
+    const season = await db.season.findUnique({ where: { id } });
     if (!season) throw new ActionError("Season not found.", 404);
-    if (await prisma.season.findFirst({ where: { id: { not: id }, name: { equals: data.name, mode: "insensitive" } } })) throw new ActionError(`There’s already a season called ${data.name}.`, 409);
+    if (await db.season.findFirst({ where: { id: { not: id }, name: { equals: data.name, mode: "insensitive" } } })) throw new ActionError(`There’s already a season called ${data.name}.`, 409);
     if (season.isActive && !data.makeActive) throw new ActionError("Make another season active instead; there always has to be one.", 409);
     const slug = data.name === season.name ? season.slug : await uniqueSeasonSlug(data.name, id);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       if (data.makeActive && !season.isActive) await tx.season.updateMany({ where: { isActive: true }, data: { isActive: false } });
       await tx.season.update({ where: { id }, data: { name: data.name, slug, startDate: day(data.startDate), endDate: day(data.endDate), isActive: data.makeActive } });
     });
@@ -130,7 +130,7 @@ const DivisionInput = z
 async function uniqueDivisionCode(seasonId: string, wanted: string, exceptId?: string) {
   const base = wanted || "division";
   let code = base;
-  for (let i = 2; await prisma.division.findFirst({ where: { seasonId, code, ...(exceptId ? { id: { not: exceptId } } : {}) } }); i++) code = `${base}-${i}`;
+  for (let i = 2; await db.division.findFirst({ where: { seasonId, code, ...(exceptId ? { id: { not: exceptId } } : {}) } }); i++) code = `${base}-${i}`;
   return code;
 }
 
@@ -158,11 +158,11 @@ export async function createDivision(input: z.input<typeof DivisionInput>): Prom
     const data = DivisionInput.parse(input);
     await requireAdminUser();
     await assertSeasonWritable(data.seasonId);
-    if (await prisma.division.findFirst({ where: { seasonId: data.seasonId, name: { equals: data.name, mode: "insensitive" } } })) {
+    if (await db.division.findFirst({ where: { seasonId: data.seasonId, name: { equals: data.name, mode: "insensitive" } } })) {
       throw new ActionError(`This season already has a division called ${data.name}.`, 409);
     }
     const code = await uniqueDivisionCode(data.seasonId, data.code || seasonSlug(data.name).slice(0, 20));
-    await prisma.division.create({ data: { ...divisionData(data), seasonId: data.seasonId, code } });
+    await db.division.create({ data: { ...divisionData(data), seasonId: data.seasonId, code } });
     refreshAll();
     return { ok: true, message: `${data.name} created`, data: { code } };
   });
@@ -173,17 +173,17 @@ export async function updateDivision(input: z.input<typeof DivisionInput> & { id
     const data = DivisionInput.parse(input);
     const id = Id.parse(input.id);
     await requireAdminUser();
-    const div = await prisma.division.findUnique({ where: { id }, include: { _count: { select: { teams: true } } } });
+    const div = await db.division.findUnique({ where: { id }, include: { _count: { select: { teams: true } } } });
     if (!div || div.seasonId !== data.seasonId) throw new ActionError("Division not found.", 404);
     await assertSeasonWritable(div.seasonId);
-    if (await prisma.division.findFirst({ where: { seasonId: div.seasonId, id: { not: id }, name: { equals: data.name, mode: "insensitive" } } })) {
+    if (await db.division.findFirst({ where: { seasonId: div.seasonId, id: { not: id }, name: { equals: data.name, mode: "insensitive" } } })) {
       throw new ActionError(`This season already has a division called ${data.name}.`, 409);
     }
     if (data.maxTeams != null && data.maxTeams < div._count.teams) {
       throw new ActionError(`${div.name} already has ${div._count.teams} teams, so max teams can’t be lower than that.`, 409);
     }
     const code = data.code && data.code !== div.code ? await uniqueDivisionCode(div.seasonId, data.code, id) : div.code;
-    await prisma.division.update({ where: { id }, data: { ...divisionData(data), code } });
+    await db.division.update({ where: { id }, data: { ...divisionData(data), code } });
     refreshAll();
     return { ok: true, message: `${data.name} saved`, data: { code } };
   });
@@ -194,7 +194,7 @@ export async function deleteDivision(input: { id: string }): Promise<ActionResul
   return runAction(async () => {
     const id = Id.parse(input.id);
     await requireAdminUser();
-    const div = await prisma.division.findUnique({ where: { id }, include: { _count: { select: { teams: true, registrations: true, matches: true } } } });
+    const div = await db.division.findUnique({ where: { id }, include: { _count: { select: { teams: true, registrations: true, matches: true } } } });
     if (!div) throw new ActionError("Division not found.", 404);
     await assertSeasonWritable(div.seasonId);
     const { teams, registrations, matches } = div._count;
@@ -208,7 +208,7 @@ export async function deleteDivision(input: { id: string }): Promise<ActionResul
         .join(" and ");
       throw new ActionError(`${div.name} has ${used}, so it can’t be deleted. Set it to inactive instead.`, 409);
     }
-    await prisma.division.delete({ where: { id } });
+    await db.division.delete({ where: { id } });
     refreshAll();
     return { ok: true, message: `${div.name} deleted` };
   });
@@ -240,8 +240,8 @@ export async function copyDivisions(input: { fromSeasonId: string; toSeasonId: s
     if (fromId === toId) throw new ActionError("Pick a different season to copy from.", 400);
     await assertSeasonWritable(toId);
     const [from, to] = await Promise.all([
-      prisma.season.findUnique({ where: { id: fromId }, include: { divisions: { orderBy: [{ displayOrder: "asc" }, { name: "asc" }] } } }),
-      prisma.season.findUnique({ where: { id: toId }, include: { divisions: { select: { name: true, code: true } } } }),
+      db.season.findUnique({ where: { id: fromId }, include: { divisions: { orderBy: [{ displayOrder: "asc" }, { name: "asc" }] } } }),
+      db.season.findUnique({ where: { id: toId }, include: { divisions: { select: { name: true, code: true } } } }),
     ]);
     if (!from || !to) throw new ActionError("Season not found.", 404);
     if (!from.divisions.length) throw new ActionError(`${from.name} has no divisions to copy.`, 400);
@@ -282,7 +282,7 @@ export async function copyDivisions(input: { fromSeasonId: string; toSeasonId: s
       });
     }
     if (!rows.length) throw new ActionError(`${to.name} already has every division from ${from.name}.`, 409);
-    await prisma.division.createMany({ data: rows });
+    await db.division.createMany({ data: rows });
     refreshAll();
     return {
       ok: true,
@@ -305,12 +305,12 @@ const TeamInput = z.object({
 });
 
 async function assertTeamNameFree(seasonId: string, name: string, exceptId?: string) {
-  const clash = await prisma.team.findFirst({ where: { seasonId, name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) } });
+  const clash = await db.team.findFirst({ where: { seasonId, name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) } });
   if (clash) throw new ActionError(`There’s already a team called ${clash.name} this season.`, 409);
 }
 
 async function divisionInSeason(divisionId: string, seasonId: string) {
-  const div = await prisma.division.findUnique({ where: { id: divisionId }, include: { season: true } });
+  const div = await db.division.findUnique({ where: { id: divisionId }, include: { season: true } });
   if (!div || div.seasonId !== seasonId) throw new ActionError("Pick a division from that season.", 400);
   return div;
 }
@@ -318,7 +318,7 @@ async function divisionInSeason(divisionId: string, seasonId: string) {
 /** Refuses a new team in a division that has reached its max teams. */
 async function assertDivisionHasRoom(div: { id: string; name: string; maxTeams: number | null }) {
   if (div.maxTeams == null) return;
-  const teams = await prisma.team.count({ where: { divisionId: div.id } });
+  const teams = await db.team.count({ where: { divisionId: div.id } });
   if (teams >= div.maxTeams) throw new ActionError(`${div.name} is full (${div.maxTeams} teams). Raise its max teams first.`, 409);
 }
 
@@ -326,7 +326,7 @@ async function assertDivisionHasRoom(div: { id: string; name: string; maxTeams: 
 async function teamCode(seasonId: string, name: string) {
   const base = (name.match(/\b[A-Za-z0-9]/g) ?? ["t"]).join("").toLowerCase().slice(0, 4) || "team";
   let code = base;
-  for (let i = 2; await prisma.team.findFirst({ where: { seasonId, code } }); i++) code = `${base}${i}`;
+  for (let i = 2; await db.team.findFirst({ where: { seasonId, code } }); i++) code = `${base}${i}`;
   return code;
 }
 
@@ -339,14 +339,14 @@ export async function createTeam(input: z.input<typeof TeamInput>): Promise<Acti
     const div = await divisionInSeason(data.divisionId, data.seasonId);
     await assertTeamNameFree(data.seasonId, data.name);
     await assertDivisionHasRoom(div);
-    const captains = data.captainPlayerIds.length ? await prisma.player.findMany({ where: { id: { in: data.captainPlayerIds } } }) : [];
+    const captains = data.captainPlayerIds.length ? await db.player.findMany({ where: { id: { in: data.captainPlayerIds } } }) : [];
     if (captains.length !== new Set(data.captainPlayerIds).size) throw new ActionError("Some captains weren’t found.", 400);
     for (const p of captains) {
       const elig = checkEligibility(div, { dob: p.dob, gender: p.gender }, div.season.startDate);
       if (!elig.ok) throw new ActionError(`${fullName(p)} can’t play in ${div.name}: ${elig.reason}.`, 400);
     }
     const code = await teamCode(data.seasonId, data.name);
-    const team = await prisma.team.create({
+    const team = await db.team.create({
       data: {
         seasonId: data.seasonId,
         divisionId: div.id,
@@ -379,17 +379,17 @@ export async function updateTeam(input: z.input<typeof TeamUpdateInput>): Promis
   return runAction(async () => {
     const data = TeamUpdateInput.parse(input);
     await requireAdminUser();
-    const team = await prisma.team.findUnique({ where: { id: data.id } });
+    const team = await db.team.findUnique({ where: { id: data.id } });
     if (!team) throw new ActionError("Team not found.", 404);
     await assertSeasonWritable(team.seasonId);
     const div = await divisionInSeason(data.divisionId, team.seasonId);
     await assertTeamNameFree(team.seasonId, data.name, team.id);
     const moving = data.divisionId !== team.divisionId;
-    if (moving && (await prisma.match.count({ where: { OR: [{ homeTeamId: team.id }, { awayTeamId: team.id }] } }))) {
+    if (moving && (await db.match.count({ where: { OR: [{ homeTeamId: team.id }, { awayTeamId: team.id }] } }))) {
       throw new ActionError("This team has matches in its division. Move or delete those first, then change its division.", 409);
     }
     if (moving) await assertDivisionHasRoom(div);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.team.update({
         where: { id: team.id },
         data: { name: data.name, divisionId: data.divisionId, status: data.status, shortName: data.shortName || null, color: data.color || null, homeField: data.homeField || null },
@@ -406,13 +406,13 @@ export async function deleteTeam(input: { id: string }): Promise<ActionResult> {
   return runAction(async () => {
     const { id } = z.object({ id: Id }).parse(input);
     await requireAdminUser();
-    const team = await prisma.team.findUnique({ where: { id }, include: { _count: { select: { homeMatches: true, awayMatches: true, gamePasses: true } } } });
+    const team = await db.team.findUnique({ where: { id }, include: { _count: { select: { homeMatches: true, awayMatches: true, gamePasses: true } } } });
     if (!team) throw new ActionError("Team not found.", 404);
     await assertSeasonWritable(team.seasonId);
     const matches = team._count.homeMatches + team._count.awayMatches;
     if (matches) throw new ActionError(`${team.name} has ${matches} match${matches === 1 ? "" : "es"}, so it can’t be deleted. Set it to inactive instead.`, 409);
     if (team._count.gamePasses) throw new ActionError(`${team.name} has game passes, so it can’t be deleted. Set it to inactive instead.`, 409);
-    await prisma.team.delete({ where: { id } });
+    await db.team.delete({ where: { id } });
     refreshAll();
     return { ok: true, message: `${team.name} deleted` };
   });
@@ -425,10 +425,10 @@ export async function setJerseyNumber(input: z.input<typeof JerseyInput>): Promi
     const data = JerseyInput.parse(input);
     await requireAdminUser();
     const team = await teamForRoster(data.teamId);
-    const row = await prisma.teamRoster.findFirst({ where: { playerId: data.playerId, teamId: team.id, membershipType: "SEASONAL", leftAt: null }, include: { player: true } });
+    const row = await db.teamRoster.findFirst({ where: { playerId: data.playerId, teamId: team.id, membershipType: "SEASONAL", leftAt: null }, include: { player: true } });
     if (!row) throw new ActionError("That player isn’t on this team.", 404);
     await assertJerseyFree(team.id, data.jerseyNumber, data.playerId);
-    await prisma.teamRoster.update({ where: { id: row.id }, data: { jerseyNumber: data.jerseyNumber } });
+    await db.teamRoster.update({ where: { id: row.id }, data: { jerseyNumber: data.jerseyNumber } });
     refreshAll();
     return { ok: true, message: data.jerseyNumber == null ? `${fullName(row.player)}’s number cleared` : `${fullName(row.player)} wears #${data.jerseyNumber}` };
   });
@@ -461,19 +461,19 @@ type MatchData = z.infer<typeof MatchInput>;
 async function prepareMatch(data: MatchData, matchId?: string) {
   await assertSeasonWritable(data.seasonId);
   const div = await divisionInSeason(data.divisionId, data.seasonId);
-  const teams = await prisma.team.findMany({ where: { id: { in: [data.homeTeamId, data.awayTeamId].filter(Boolean) } }, select: { id: true, name: true, divisionId: true, seasonId: true } });
+  const teams = await db.team.findMany({ where: { id: { in: [data.homeTeamId, data.awayTeamId].filter(Boolean) } }, select: { id: true, name: true, divisionId: true, seasonId: true } });
   const errors = matchTeamErrors(data, teams);
   if (data.status === "COMPLETED" && (data.homeScore == null || data.awayScore == null)) errors.push("Enter both scores for a completed match.");
   if (errors.length) throw new ActionError(errors[0], 400, errors);
 
   const scheduledAt = easternTime(data.date, data.time);
-  const field = data.fieldId ? await prisma.field.findUnique({ where: { id: data.fieldId }, include: { park: { select: { name: true } } } }) : null;
+  const field = data.fieldId ? await db.field.findUnique({ where: { id: data.fieldId }, include: { park: { select: { name: true } } } }) : null;
   if (data.fieldId && !field) throw new ActionError("Pick a field from the list.", 400);
   const fieldId = field?.id ?? null;
   const fieldName = field ? `${field.park.name} ${field.name}` : null;
 
   if (!data.force && data.status !== "CANCELLED") {
-    const sameDay = await prisma.match.findMany({
+    const sameDay = await db.match.findMany({
       where: { seasonId: data.seasonId, scheduledAt: { gte: new Date(scheduledAt.getTime() - 3 * 3600_000), lte: new Date(scheduledAt.getTime() + 3 * 3600_000) } },
       select: { id: true, gameNumber: true, homeTeamId: true, awayTeamId: true, scheduledAt: true, fieldId: true, status: true },
     });
@@ -483,7 +483,7 @@ async function prepareMatch(data: MatchData, matchId?: string) {
 
   const gameNumber = data.gameNumber ?? null;
   if (gameNumber != null) {
-    const taken = await prisma.match.findFirst({ where: { seasonId: data.seasonId, gameNumber, ...(matchId ? { id: { not: matchId } } : {}) } });
+    const taken = await db.match.findFirst({ where: { seasonId: data.seasonId, gameNumber, ...(matchId ? { id: { not: matchId } } : {}) } });
     if (taken) throw new ActionError(`Game #${gameNumber} already exists this season.`, 409);
   }
 
@@ -514,8 +514,8 @@ export async function createMatch(input: z.input<typeof MatchInput>): Promise<Ac
     const data = MatchInput.parse(input);
     await requireAdminUser();
     const { gameNumber, write } = await prepareMatch(data);
-    const last = await prisma.match.findFirst({ where: { seasonId: data.seasonId }, orderBy: { gameNumber: "desc" }, select: { gameNumber: true } });
-    const match = await prisma.match.create({
+    const last = await db.match.findFirst({ where: { seasonId: data.seasonId }, orderBy: { gameNumber: "desc" }, select: { gameNumber: true } });
+    const match = await db.match.create({
       data: {
         ...write,
         seasonId: data.seasonId,
@@ -533,7 +533,7 @@ export async function updateMatch(input: z.input<typeof MatchInput> & { id: stri
     const data = MatchInput.parse(input);
     const id = Id.parse(input.id);
     await requireAdminUser();
-    const match = await prisma.match.findUnique({
+    const match = await db.match.findUnique({
       where: { id },
       include: { _count: { select: { gamePasses: true, reports: true, matchRosters: true } } },
     });
@@ -543,7 +543,7 @@ export async function updateMatch(input: z.input<typeof MatchInput> & { id: stri
       throw new ActionError("This match already has match rosters, reports or game passes, so its teams can’t change. Cancel it and create a new one instead.", 409);
     }
     const { gameNumber, write } = await prepareMatch(data, id);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.match.update({ where: { id }, data: { ...write, gameNumber: gameNumber ?? match.gameNumber } });
       if (write.status === "COMPLETED") await tx.match.update({ where: { id }, data: { reportStatus: "CONFIRMED" } });
       else await syncMatchReportStatus(tx, id, now());
@@ -558,13 +558,13 @@ export async function deleteMatch(input: { id: string }): Promise<ActionResult> 
   return runAction(async () => {
     const { id } = z.object({ id: Id }).parse(input);
     await requireAdminUser();
-    const match = await prisma.match.findUnique({ where: { id }, include: { _count: { select: { gamePasses: true } } } });
+    const match = await db.match.findUnique({ where: { id }, include: { _count: { select: { gamePasses: true } } } });
     if (!match) throw new ActionError("Match not found.", 404);
     await assertSeasonWritable(match.seasonId);
     if (match._count.gamePasses) {
       throw new ActionError(`Game #${match.gameNumber} has ${match._count.gamePasses} game pass${match._count.gamePasses === 1 ? "" : "es"}, so it can’t be deleted. Set it to cancelled instead.`, 409);
     }
-    await prisma.match.delete({ where: { id } });
+    await db.match.delete({ where: { id } });
     refreshAll();
     return { ok: true, message: `Game #${match.gameNumber} deleted` };
   });

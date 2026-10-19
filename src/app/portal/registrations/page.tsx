@@ -3,7 +3,7 @@ import { GamePassStatusBadge, GamePassTag, PaymentBadge, RegistrationBadge } fro
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/card";
 import { AppBar, Screen } from "@/components/shell/layout";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { passStatus } from "@/lib/game-pass";
 import { requireUser } from "@/lib/session";
@@ -43,12 +43,12 @@ export default async function PlayerRegistrationsPage() {
 
   const [registrations, passes] = playerId
     ? await Promise.all([
-        prisma.registration.findMany({
+        db.registration.findMany({
           where: { playerId },
           include: { season: true, division: true, preferredTeam: true, backupTeam: true },
           orderBy: { submittedAt: "desc" },
         }),
-        prisma.gamePass
+        db.gamePass
           .findMany({
             where: { playerId },
             include: { payment: true, match: { include: { season: true, homeTeam: true, awayTeam: true } } },
@@ -61,7 +61,7 @@ export default async function PlayerRegistrationsPage() {
   // Older registrations stored selected teams as ids or names; resolve both to "Division · Team".
   const refs = [...new Set(registrations.flatMap((r) => parseIds(r.selectedTeams)))];
   const teams = refs.length
-    ? await prisma.team
+    ? await db.team
         .findMany({ where: { OR: [{ id: { in: refs } }, { name: { in: refs } }] }, include: { division: true } })
         .catch(() => [])
     : [];

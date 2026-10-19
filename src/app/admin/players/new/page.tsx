@@ -1,5 +1,5 @@
 import { PageHeading } from "@/components/league";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { listTeams } from "@/lib/queries/teams";
 import { listDivisions } from "@/lib/queries/admin-league";
 import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
@@ -17,7 +17,7 @@ export default async function NewPlayerPage({ searchParams }: { searchParams: Se
       </>
     );
   }
-  const [teams, divisions, sizes] = await Promise.all([listTeams(season.id), listDivisions(season.id), prisma.tshirtSize.findMany({ orderBy: { displayOrder: "asc" } })]);
+  const [teams, divisions, sizes] = await Promise.all([listTeams(season.id), listDivisions(season.id), db.tshirtSize.findMany({ orderBy: { displayOrder: "asc" } })]);
   const fee = new Map(divisions.map((d) => [d.id, Number(d.registrationFee)]));
   const groups = [...new Map(teams.map((t) => [t.division.id, t.division.name])).entries()].map(([id, label]) => ({
     label,

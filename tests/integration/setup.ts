@@ -13,6 +13,10 @@ if (url) {
   process.env.NVASA_NOW = "2026-05-16T12:00:00-04:00";
 }
 
+/** The league the code under test runs as (the proxy's x-org-id header in the app). */
+export const tenant = { orgId: "org_nvasa" };
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-org-id": tenant.orgId }) }));
+
 export type TestUser = { id: string; email: string; name: string; playerId?: string; isAdmin?: boolean } | null;
 export const auth = { user: null as TestUser };
 

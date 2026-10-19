@@ -5,7 +5,8 @@ import { NVASA_ORG_ID, playerInOrg } from "@/lib/org";
 process.env.NEXTAUTH_SECRET ??= "test-secret";
 
 describe.skipIf(!hasDb)("billing and adding players with billing (database)", async () => {
-  const { default: prisma } = await import("@/lib/prisma");
+  // NVASA's rows, through the league-scoped client (the Demo League shares names with NVASA)
+  const prisma = (await import("@/platform/db")).clientForOrg("org_nvasa");
   const billing = await import("@/lib/actions/billing");
   const admin = await import("@/lib/actions/admin");
   const { playerBilling } = await import("@/lib/queries/billing");
@@ -33,7 +34,7 @@ describe.skipIf(!hasDb)("billing and adding players with billing (database)", as
     ids.nvs = (await prisma.team.findFirstOrThrow({ where: { seasonId: season.id, code: "nvs" } })).id;
     const a = await prisma.user.findUniqueOrThrow({ where: { email: "safatash@gmail.com" } });
     office = { id: a.id, email: a.email, name: "Office", isAdmin: true };
-    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg() } });
+    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg(NVASA_ORG_ID) } });
     maya = { id: m.id, email: m.email, name: "Maya", playerId: m.players[0]!.id };
   });
   afterAll(cleanup);

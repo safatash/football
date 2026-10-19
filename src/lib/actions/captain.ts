@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { fullName } from "@/lib/format";
 import { passExpired } from "@/lib/game-pass";
@@ -27,7 +27,7 @@ function revalidateTeam(teamId: string) {
 
 /** A match the team plays in, in the team's season. */
 async function teamMatch(teamId: string, seasonId: string, matchId: string) {
-  const m = await prisma.match.findFirst({
+  const m = await db.match.findFirst({
     where: { id: matchId, seasonId, OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }] },
     select: { id: true, gameNumber: true, scheduledAt: true, status: true, homeTeamId: true, awayTeamId: true },
   });
@@ -57,14 +57,14 @@ export async function setAvailability(input: z.input<typeof AvailabilityInput>):
     const session = await getSession();
     if (!session?.user) throw new UnauthorizedError("Sign in to continue.");
 
-    const team = await prisma.team.findUnique({ where: { id: data.teamId }, select: { id: true, seasonId: true } });
+    const team = await db.team.findUnique({ where: { id: data.teamId }, select: { id: true, seasonId: true } });
     if (!team) throw new ActionError("Team not found.", 404);
     const match = await teamMatch(team.id, team.seasonId, data.matchId);
     if (match.status !== "SCHEDULED") throw new ActionError("Availability is closed for this match.", 409);
 
     const row = data.teamRosterId
-      ? await prisma.teamRoster.findFirst({ where: { id: data.teamRosterId, teamId: team.id, leftAt: null } })
-      : await prisma.teamRoster.findFirst({
+      ? await db.teamRoster.findFirst({ where: { id: data.teamRosterId, teamId: team.id, leftAt: null } })
+      : await db.teamRoster.findFirst({
           where: { teamId: team.id, playerId: session.user.playerId ?? "-", leftAt: null, OR: [{ membershipType: "SEASONAL" }, { matchId: match.id }] },
         });
     if (!row) throw new ActionError("That player isn’t on this team.", 404);
@@ -73,7 +73,7 @@ export async function setAvailability(input: z.input<typeof AvailabilityInput>):
     if (!own) await requireCaptain(team.id);
     await assertSeasonWritable(team.seasonId);
 
-    await prisma.matchAvailability.upsert({
+    await db.matchAvailability.upsert({
       where: { matchId_teamRosterId: { matchId: match.id, teamRosterId: row.id } },
       update: { status: data.status, note: data.note ?? null, updatedById: session.user.id },
       create: { matchId: match.id, teamRosterId: row.id, status: data.status, note: data.note ?? null, updatedById: session.user.id },
@@ -108,12 +108,12 @@ export async function setLineupRole(input: z.input<typeof RoleInput>): Promise<A
     const data = RoleInput.parse(input);
     const { team, user } = await requireCaptain(data.teamId);
     await assertSeasonWritable(team.seasonId);
-    const row = await prisma.teamRoster.findFirst({ where: { id: data.teamRosterId, teamId: team.id, ...seasonalWhere }, include: { player: { select: { status: true } } } });
+    const row = await db.teamRoster.findFirst({ where: { id: data.teamRosterId, teamId: team.id, ...seasonalWhere }, include: { player: { select: { status: true } } } });
     if (!row) throw new ActionError("That player isn’t on this team’s season roster.", 404);
     if (row.player.status === "SUSPENDED") throw new ActionError("Suspended players can’t be given a lineup role.", 409);
 
     const next = await nextMatchFor(team.id, team.seasonId);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.teamRoster.update({
         where: { id: row.id },
         data: { lineupStatus: data.role === "Starter" ? "STARTING" : data.role === "Bench" ? "BENCH" : "INACTIVE" },
@@ -150,12 +150,12 @@ export async function sendTeamUpdate(input: z.input<typeof UpdateInput>): Promis
     const { team, user } = await requireCaptain(data.teamId);
     await assertSeasonWritable(team.seasonId);
     const next = await nextMatchFor(team.id, team.seasonId);
-    const rows = await prisma.teamRoster.findMany({
+    const rows = await db.teamRoster.findMany({
       where: { teamId: team.id, OR: [seasonalWhere, ...(next ? [{ ...activePassWhere(), matchId: next.id }] : [])] },
       select: { player: { select: { user: { select: { email: true } } } } },
     });
     const emails = [...new Set(rows.map((r) => r.player.user.email))];
-    const sender = user.playerId ? await prisma.player.findUnique({ where: { id: user.playerId }, select: { firstName: true, lastName: true } }) : null;
+    const sender = user.playerId ? await db.player.findUnique({ where: { id: user.playerId }, select: { firstName: true, lastName: true } }) : null;
     const mail = teamUpdateEmail({ teamName: team.name, captainName: sender ? fullName(sender) : "The league office", message: data.message, teamId: team.id });
     const res = await sendMail({ to: emails, ...mail, replyTo: user.email ?? undefined });
     if (res.failed && !res.sent && !res.logged) throw new ActionError("We couldn’t send the update. Try again in a moment.", 409);
@@ -182,12 +182,12 @@ export async function saveMatchRoster(input: z.input<typeof RosterInput>): Promi
     const match = await teamMatch(team.id, team.seasonId, data.matchId);
     if (match.status !== "SCHEDULED") throw new ActionError("This match has been played; its roster can’t change.", 409);
 
-    const existing = await prisma.matchRoster.findUnique({ where: { matchId_teamId: { matchId: match.id, teamId: team.id } }, include: { entries: true } });
+    const existing = await db.matchRoster.findUnique({ where: { matchId_teamId: { matchId: match.id, teamId: team.id } }, include: { entries: true } });
     if (existing?.status === "FINALIZED") throw new ActionError("This roster is finalized. Reopen it to make changes.", 409);
 
     const at = now();
     const ids = [...new Set(data.teamRosterIds)];
-    const rows = await prisma.teamRoster.findMany({
+    const rows = await db.teamRoster.findMany({
       where: { id: { in: ids }, teamId: team.id, leftAt: null },
       select: {
         id: true,
@@ -215,7 +215,7 @@ export async function saveMatchRoster(input: z.input<typeof RosterInput>): Promi
     const blocking = data.finalize ? errors : errors.filter((e) => e !== "Pick at least one goalkeeper." && e !== "Pick at least one player.");
     if (blocking.length) throw new ActionError(blocking[0], 400, blocking);
 
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       const roster =
         existing ??
         (await tx.matchRoster.create({ data: { matchId: match.id, teamId: team.id, status: "DRAFT", formation: "4-4-2" }, include: { entries: true } }));
@@ -244,7 +244,7 @@ export async function reopenMatchRoster(input: z.input<typeof MatchRef>): Promis
     await assertSeasonWritable(team.seasonId);
     const match = await teamMatch(team.id, team.seasonId, data.matchId);
     if (match.status !== "SCHEDULED") throw new ActionError("This match has been played; its roster can’t change.", 409);
-    const res = await prisma.matchRoster.updateMany({
+    const res = await db.matchRoster.updateMany({
       where: { matchId: match.id, teamId: team.id, status: "FINALIZED" },
       data: { status: "DRAFT", finalizedAt: null, finalizedById: null },
     });
@@ -274,13 +274,13 @@ export async function saveLineup(input: z.input<typeof LineupInput>): Promise<Ac
     const match = await teamMatch(team.id, team.seasonId, data.matchId);
     const shape = FORMATIONS[data.formation];
     if (!shape) throw new ActionError("Pick a formation.", 400);
-    const roster = await prisma.matchRoster.findUnique({ where: { matchId_teamId: { matchId: match.id, teamId: team.id } }, include: { entries: true } });
+    const roster = await db.matchRoster.findUnique({ where: { matchId_teamId: { matchId: match.id, teamId: team.id } }, include: { entries: true } });
     if (!roster || roster.status !== "FINALIZED") throw new ActionError("Finalize the match roster before saving the lineup.", 409);
 
     const errors = validateLineup(data.slots, new Set(roster.entries.map((e) => e.teamRosterId)), shape.map(([slot]) => slot));
     if (errors.length) throw new ActionError(errors[0], 400, errors);
 
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.matchRosterEntry.updateMany({ where: { matchRosterId: roster.id }, data: { lineupSlot: null } });
       for (const [slot, teamRosterId] of Object.entries(data.slots)) {
         if (!teamRosterId) continue;
@@ -322,14 +322,14 @@ export async function saveMatchReport(input: z.input<typeof ReportInput>): Promi
     const match = await teamMatch(team.id, team.seasonId, data.matchId);
     if (match.scheduledAt > now() || match.status === "CANCELLED") throw new ActionError("Reports open after kickoff.", 409);
 
-    const existing = await prisma.matchReport.findUnique({ where: { matchId_teamId: { matchId: match.id, teamId: team.id } } });
+    const existing = await db.matchReport.findUnique({ where: { matchId_teamId: { matchId: match.id, teamId: team.id } } });
     if (existing && (existing.status === "SUBMITTED" || existing.status === "CONFIRMED")) {
       throw new ActionError("This report has been submitted and is locked. Contact the league office to change it.", 409);
     }
 
     // Stats only for players who were on this team for the match
     const playerIds = [...new Set(data.stats.map((s) => s.playerId))];
-    const members = await prisma.teamRoster.findMany({
+    const members = await db.teamRoster.findMany({
       where: { teamId: team.id, playerId: { in: playerIds }, OR: [{ membershipType: "SEASONAL" }, { matchId: match.id }] },
       select: { playerId: true, player: { select: { firstName: true, lastName: true } } },
     });
@@ -347,7 +347,7 @@ export async function saveMatchReport(input: z.input<typeof ReportInput>): Promi
     }
 
     const at = now();
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       const report = await tx.matchReport.upsert({
         where: { matchId_teamId: { matchId: match.id, teamId: team.id } },
         update: {

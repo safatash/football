@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db, getOrgId } from "@/lib/db";
 import { computeStandings, type StandingRow } from "@/lib/standings";
 import { listDivisions, type DivisionRow } from "./admin-league";
 import { listTeams, type TeamSummary } from "./teams";
@@ -20,7 +20,7 @@ const resultsWhere = (seasonId: string, divisionId?: string) =>
   }) satisfies Prisma.MatchWhereInput;
 
 async function confirmedResults(seasonId: string, divisionId?: string) {
-  const rows = await prisma.match.findMany({
+  const rows = await db.match.findMany({
     where: resultsWhere(seasonId, divisionId),
     select: { homeTeamId: true, awayTeamId: true, homeScore: true, awayScore: true },
   });
@@ -81,7 +81,9 @@ export type Leader = {
  * team they played for. Photos only when the player allows it (`social`).
  */
 export const seasonLeaders = cache(async (seasonId: string) => {
-  const rows = await prisma.$queryRaw<
+  // Raw SQL isn't scoped by the client: limit it to this league explicitly
+  const orgId = await getOrgId();
+  const rows = await db.$queryRaw<
     {
       playerId: string;
       firstName: string;
@@ -105,7 +107,7 @@ export const seasonLeaders = cache(async (seasonId: string) => {
     JOIN "matches" m ON m."id" = r."matchId"
     JOIN "players" p ON p."id" = s."playerId"
     JOIN "teams" t ON t."id" = r."teamId"
-    WHERE m."seasonId" = ${seasonId} AND r."status" = 'CONFIRMED' AND m."divisionId" IS NOT NULL
+    WHERE s."organizationId" = ${orgId} AND m."seasonId" = ${seasonId} AND r."status" = 'CONFIRMED' AND m."divisionId" IS NOT NULL
     GROUP BY s."playerId", p."firstName", p."lastName", p."photoUrl", p."social", m."divisionId", r."teamId", t."name", t."color", t."shortName"
   `);
   return rows.map<Leader>((r) => ({

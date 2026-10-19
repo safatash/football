@@ -6,7 +6,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { audit } from "@/lib/billing";
 import { dayKey, fmtDay, fmtTime } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
@@ -54,7 +54,7 @@ const refereeData = (r: z.infer<typeof RefereeInput>) => ({
 });
 
 async function assertNameFree(name: string, exceptId?: string) {
-  const taken = await prisma.referee.findFirst({ where: { name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) } });
+  const taken = await db.referee.findFirst({ where: { name: { equals: name, mode: "insensitive" }, ...(exceptId ? { id: { not: exceptId } } : {}) } });
   if (taken) throw new ActionError(`There’s already a referee called ${taken.name}.`, 409);
 }
 
@@ -63,7 +63,7 @@ export async function createReferee(input: z.input<typeof RefereeInput>): Promis
     const data = RefereeInput.parse(input);
     const admin = await requireAdminUser();
     await assertNameFree(data.name);
-    const ref = await prisma.$transaction(async (tx) => {
+    const ref = await db.$transaction(async (tx) => {
       const r = await tx.referee.create({ data: refereeData(data) });
       await audit(tx, admin, { action: "referee.created", entityType: "referee", entityId: r.id, summary: `Added referee ${r.name}` });
       return r;
@@ -78,9 +78,9 @@ export async function updateReferee(input: z.input<typeof RefereeInput> & { id: 
     const data = RefereeInput.parse(input);
     const id = Id.parse(input.id);
     const admin = await requireAdminUser();
-    if (!(await prisma.referee.findUnique({ where: { id } }))) throw new ActionError("Referee not found.", 404);
+    if (!(await db.referee.findUnique({ where: { id } }))) throw new ActionError("Referee not found.", 404);
     await assertNameFree(data.name, id);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.referee.update({ where: { id }, data: refereeData(data) });
       await audit(tx, admin, { action: "referee.updated", entityType: "referee", entityId: id, summary: `Updated referee ${data.name}${data.active ? "" : " (inactive)"}` });
     });
@@ -94,11 +94,11 @@ export async function deleteReferee(input: { id: string }): Promise<ActionResult
   return runAction(async () => {
     const id = Id.parse(input.id);
     const admin = await requireAdminUser();
-    const ref = await prisma.referee.findUnique({ where: { id }, include: { _count: { select: { assignments: true } } } });
+    const ref = await db.referee.findUnique({ where: { id }, include: { _count: { select: { assignments: true } } } });
     if (!ref) throw new ActionError("Referee not found.", 404);
     const n = ref._count.assignments;
     if (n) throw new ActionError(`${ref.name} has ${n} assignment${n === 1 ? "" : "s"}, so they can’t be deleted. Set them to inactive instead.`, 409);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.referee.delete({ where: { id } });
       await audit(tx, admin, { action: "referee.deleted", entityType: "referee", entityId: id, summary: `Deleted referee ${ref.name}` });
     });
@@ -125,7 +125,7 @@ export async function setMatchOfficials(input: z.input<typeof CrewInput>): Promi
   return runAction(async () => {
     const data = CrewInput.parse(input);
     const admin = await requireAdminUser();
-    const match = await prisma.match.findUnique({
+    const match = await db.match.findUnique({
       where: { id: data.matchId },
       include: { officials: true, venue: { include: { park: true } } },
     });
@@ -135,7 +135,7 @@ export async function setMatchOfficials(input: z.input<typeof CrewInput>): Promi
     const chosen = data.crew.filter((c) => c.refereeId);
     const ids = chosen.map((c) => c.refereeId!);
     if (new Set(ids).size !== ids.length) throw new ActionError("Each referee can only take one role on a match.", 400);
-    const refs = await prisma.referee.findMany({ where: { id: { in: ids } } });
+    const refs = await db.referee.findMany({ where: { id: { in: ids } } });
     for (const c of chosen) {
       const r = refs.find((x) => x.id === c.refereeId);
       if (!r) throw new ActionError("Pick referees from the list.", 400);
@@ -147,7 +147,7 @@ export async function setMatchOfficials(input: z.input<typeof CrewInput>): Promi
       const day = dayKey(match.scheduledAt);
       const from = new Date(match.scheduledAt.getTime() - 18 * 3600_000);
       const to = new Date(match.scheduledAt.getTime() + 18 * 3600_000);
-      const others = await prisma.matchOfficial.findMany({
+      const others = await db.matchOfficial.findMany({
         where: { refereeId: { in: ids }, matchId: { not: match.id }, status: { not: "DECLINED" }, match: { scheduledAt: { gte: from, lte: to }, status: { not: "CANCELLED" } } },
         include: { match: { select: { id: true, gameNumber: true, scheduledAt: true, venue: { select: { park: { select: { id: true, name: true } } } } } } },
       });
@@ -164,7 +164,7 @@ export async function setMatchOfficials(input: z.input<typeof CrewInput>): Promi
       if (warnings.length) throw new ActionError("Check the referee schedule before saving.", 409, warnings);
     }
 
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       for (const c of data.crew) {
         const current = match.officials.find((o) => o.role === c.role);
         if (!c.refereeId) {
@@ -181,7 +181,7 @@ export async function setMatchOfficials(input: z.input<typeof CrewInput>): Promi
       const names = chosen.map((c) => `${ROLE_LABEL[c.role]} ${refs.find((r) => r.id === c.refereeId)!.name}`);
       await audit(tx, admin, { action: "officials.set", entityType: "match", entityId: match.id, summary: `Game #${match.gameNumber} officials: ${names.join(", ") || "none"}` });
     });
-    const after = await prisma.matchOfficial.findMany({ where: { matchId: match.id } });
+    const after = await db.matchOfficial.findMany({ where: { matchId: match.id } });
     const open = (["CENTER", "AR1", "AR2"] as Role[]).filter((r) => !after.some((o) => o.role === r && fills(o))).length;
     refresh();
     revalidatePath(`/matches/${match.gameNumber}/print`);
@@ -194,9 +194,9 @@ export async function setOfficialsPaid(input: { ids: string[]; paid: boolean }):
   return runAction(async () => {
     const data = z.object({ ids: z.array(Id).min(1).max(500), paid: z.boolean() }).parse(input);
     const admin = await requireAdminUser();
-    const rows = await prisma.matchOfficial.findMany({ where: { id: { in: data.ids } }, include: { referee: { select: { name: true } } } });
+    const rows = await db.matchOfficial.findMany({ where: { id: { in: data.ids } }, include: { referee: { select: { name: true } } } });
     if (rows.length !== data.ids.length) throw new ActionError("Some assignments weren’t found.", 404);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.matchOfficial.updateMany({ where: { id: { in: data.ids } }, data: { paidAt: data.paid ? new Date() : null } });
       const names = [...new Set(rows.map((r) => r.referee.name))].join(", ");
       await audit(tx, admin, { action: data.paid ? "officials.paid" : "officials.unpaid", entityType: "referee", entityId: rows[0].refereeId, summary: `Marked ${rows.length} assignment${rows.length === 1 ? "" : "s"} ${data.paid ? "paid" : "unpaid"} (${names})` });
@@ -217,9 +217,9 @@ export async function saveRefereeFees(input: z.input<typeof FeesInput>): Promise
     const data = FeesInput.parse(input);
     const admin = await requireAdminUser();
     await assertSeasonWritable(data.seasonId);
-    const divs = await prisma.division.findMany({ where: { seasonId: data.seasonId }, select: { id: true } });
+    const divs = await db.division.findMany({ where: { seasonId: data.seasonId }, select: { id: true } });
     if (data.divisions.some((d) => !divs.some((x) => x.id === d.id))) throw new ActionError("Some divisions aren’t in this season.", 400);
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       for (const d of data.divisions) {
         await tx.division.update({ where: { id: d.id }, data: { centerRefFee: d.center ?? null, assistantRefFee: d.assistant ?? null, fourthRefFee: d.fourth ?? null } });
       }
@@ -240,7 +240,7 @@ export async function emailWeekAssignments(input: { weekStart: string }): Promis
     const admin = await requireAdminUser();
     const from = new Date(`${weekStart}T04:00:00Z`);
     const to = new Date(from.getTime() + 7 * 864e5);
-    const rows = await prisma.matchOfficial.findMany({
+    const rows = await db.matchOfficial.findMany({
       where: { status: { not: "DECLINED" }, match: { scheduledAt: { gte: from, lt: to }, status: { not: "CANCELLED" } } },
       include: {
         referee: true,
@@ -267,7 +267,7 @@ export async function emailWeekAssignments(input: { weekStart: string }): Promis
       const res = await sendMail({ to: ref.email, replyTo: admin.email, ...refereeScheduleEmail({ name: ref.name.split(" ")[0], weekLabel, lines }) });
       if (res.sent + res.logged > 0) sent++;
     }
-    await audit(prisma, admin, { action: "officials.emailed", entityType: "week", entityId: weekStart, summary: `Emailed assignments for ${weekLabel} to ${sent} referee${sent === 1 ? "" : "s"}${skipped.length ? ` (no email: ${skipped.join(", ")})` : ""}` });
+    await audit(db, admin, { action: "officials.emailed", entityType: "week", entityId: weekStart, summary: `Emailed assignments for ${weekLabel} to ${sent} referee${sent === 1 ? "" : "s"}${skipped.length ? ` (no email: ${skipped.join(", ")})` : ""}` });
     return {
       ok: true,
       message: byRef.size ? `Schedules sent to ${sent} referee${sent === 1 ? "" : "s"}${skipped.length ? ` · no email for ${skipped.join(", ")}` : ""}` : "No assignments that week.",

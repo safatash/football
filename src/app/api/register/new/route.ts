@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import prisma from "@/lib/prisma";
-import { playerInOrg, currentOrgId } from "@/lib/org";
+import { db } from "@/lib/db";
+import { playerInOrg, getOrgId } from "@/lib/org";
 import { accountPasswordErrors, hashPassword } from "@/lib/password";
 import { checkEligibility } from "@/lib/eligibility";
 import { getActiveSeason } from "@/lib/queries/season";
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     // Who is registering
     let player: { id: string; dob: Date; gender: "MALE" | "FEMALE" | "NON_BINARY"; email: string; firstName: string; lastName: string } | null = null;
     if (returningPlayerId) {
-      const p = await prisma.player.findUnique({ where: { id: returningPlayerId }, include: { user: { select: { email: true } } } });
+      const p = await db.player.findUnique({ where: { id: returningPlayerId }, include: { user: { select: { email: true } } } });
       if (!p) return bad("We couldn’t find your player profile. Log in again.", 401);
       if (p.status === "INACTIVE") return bad("Your account isn’t active. Contact office@nvasa.org.", 403);
       player = { id: p.id, dob: p.dob, gender: p.gender, email: p.user.email, firstName: p.firstName, lastName: p.lastName };
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Division and eligibility (server-side, from Division columns)
-    const division = await prisma.division.findUnique({ where: { seasonId_code: { seasonId: season.id, code: data.divisionCode } } });
+    const division = await db.division.findUnique({ where: { seasonId_code: { seasonId: season.id, code: data.divisionCode } } });
     if (!division || division.status !== "ACTIVE") return bad("Please choose a division.");
     const elig = checkEligibility(division, { dob, gender }, season.startDate);
     if (!elig.ok) return bad(`You can’t register for ${division.name}: ${elig.reason}.`);
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     if (backupTeamId && backupTeamId === preferredTeamId) return bad("Pick a different backup team than your first choice.");
     const teamIds = [preferredTeamId, backupTeamId].filter((x): x is string => !!x);
     if (teamIds.length) {
-      const ok = await prisma.team.count({ where: { id: { in: teamIds }, divisionId: division.id, seasonId: season.id, status: { not: "INACTIVE" } } });
+      const ok = await db.team.count({ where: { id: { in: teamIds }, divisionId: division.id, seasonId: season.id, status: { not: "INACTIVE" } } });
       if (ok !== teamIds.length) return bad(`Choose teams from ${division.name}.`);
     }
 
@@ -109,37 +109,37 @@ export async function POST(req: NextRequest) {
 
     // Account checks
     if (np) {
-      const existing = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
+      const existing = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
       if (existing) return bad("That email already has an NVASA account. Log in or use Find my player info instead.");
     }
     if (await blocklistHit(email)) return bad("This email is not eligible for registration. Contact office@nvasa.org.");
 
     let registrationType: "NEW_PLAYER" | "RETURNING_PLAYER" | "ADDITIONAL_TEAM" = "NEW_PLAYER";
     if (player) {
-      const dup = await prisma.registration.findFirst({
+      const dup = await db.registration.findFirst({
         where: { playerId: player.id, seasonId: season.id, divisionId: division.id, status: { in: ["SUBMITTED", "PENDING", "APPROVED"] } },
       });
       if (dup) return bad(`You already have a ${division.name} registration for ${season.name}. Check My registrations.`);
-      const onTeam = await prisma.teamRoster.count({ where: { playerId: player.id, leftAt: null, membershipType: "SEASONAL", team: { seasonId: season.id } } });
+      const onTeam = await db.teamRoster.count({ where: { playerId: player.id, leftAt: null, membershipType: "SEASONAL", team: { seasonId: season.id } } });
       registrationType = onTeam ? "ADDITIONAL_TEAM" : "RETURNING_PLAYER";
     }
 
-    const allowedZip = np ? await prisma.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: currentOrgId(), zipCode: np.zip } } }) : null;
-    const preferredTeam = preferredTeamId ? await prisma.team.findUnique({ where: { id: preferredTeamId }, select: { name: true } }) : null;
-    const backupTeam = backupTeamId ? await prisma.team.findUnique({ where: { id: backupTeamId }, select: { name: true } }) : null;
+    const allowedZip = np ? await db.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: (await getOrgId()), zipCode: np.zip } } }) : null;
+    const preferredTeam = preferredTeamId ? await db.team.findUnique({ where: { id: preferredTeamId }, select: { name: true } }) : null;
+    const backupTeam = backupTeamId ? await db.team.findUnique({ where: { id: backupTeamId }, select: { name: true } }) : null;
     const captainNote = data.captainRequest ? data.captainNote?.trim() || null : null;
 
-    const registration = await prisma.$transaction(async (tx) => {
+    const registration = await db.$transaction(async (tx) => {
       let playerId = player?.id;
       if (np) {
         const user = await tx.user.create({
           data: {
             email,
             password: await hashPassword(np.password),
-            memberships: { create: { organizationId: currentOrgId(), role: "PLAYER", joinedAt: new Date() } },
+            memberships: { create: { organizationId: (await getOrgId()), role: "PLAYER", joinedAt: new Date() } },
             players: {
               create: {
-                organizationId: currentOrgId(),
+                organizationId: (await getOrgId()),
                 firstName: np.firstName,
                 lastName: np.lastName,
                 gender,
@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
               },
             },
           },
-          include: { players: playerInOrg() },
+          include: { players: playerInOrg(await getOrgId()) },
         });
         playerId = user.players[0]!.id;
       }
@@ -228,6 +228,7 @@ export async function POST(req: NextRequest) {
       customer_email: email,
       metadata: {
         type: "registration",
+        organizationId: await getOrgId(),
         registrationId: registration.id,
         playerId: registration.playerId,
         division: division.name,

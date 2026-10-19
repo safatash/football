@@ -4,7 +4,7 @@
  */
 import { cache } from "react";
 import { Prisma } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { db, getOrgId } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { dayKey, fmtDay, fmtTime, TZ } from "@/lib/format";
 import { fieldPlace } from "@/lib/public";
@@ -21,7 +21,7 @@ export type PublicSeason = SeasonRef & { slug: string };
 const seasonFields = { id: true, name: true, slug: true, isActive: true, startDate: true, endDate: true } satisfies Prisma.SeasonSelect;
 
 export const publicSeasons = cache(async (): Promise<PublicSeason[]> =>
-  prisma.season.findMany({ select: seasonFields, orderBy: { startDate: "desc" } }),
+  db.season.findMany({ select: seasonFields, orderBy: { startDate: "desc" } }),
 );
 
 /** `?season=` slug (or legacy datasource), defaulting to the active season. */
@@ -106,7 +106,7 @@ export async function listPublicMatches(seasonId: string, kind: "results" | "sch
         }
       : {}),
   };
-  const rows = await prisma.match.findMany({
+  const rows = await db.match.findMany({
     where,
     select: publicMatchSelect,
     orderBy: kind === "results" ? [{ scheduledAt: "desc" }, { gameNumber: "desc" }] : [{ scheduledAt: "asc" }, { gameNumber: "asc" }],
@@ -119,8 +119,8 @@ export async function getPublicMatch(ref: string, seasonId?: string) {
   const n = /^\d+$/.test(ref) ? Number(ref) : null;
   const m =
     n != null && seasonId
-      ? await prisma.match.findUnique({ where: { seasonId_gameNumber: { seasonId, gameNumber: n } }, select: publicMatchSelect })
-      : await prisma.match.findUnique({ where: { id: ref }, select: publicMatchSelect });
+      ? await db.match.findUnique({ where: { seasonId_gameNumber: { seasonId, gameNumber: n } }, select: publicMatchSelect })
+      : await db.match.findUnique({ where: { id: ref }, select: publicMatchSelect });
   return m ? toPublicMatch(m) : null;
 }
 
@@ -143,12 +143,12 @@ export const publicTeamSelect = {
 } satisfies Prisma.TeamSelect;
 
 export async function getPublicTeam(teamId: string) {
-  return prisma.team.findUnique({ where: { id: teamId }, select: publicTeamSelect });
+  return db.team.findUnique({ where: { id: teamId }, select: publicTeamSelect });
 }
 
 /** The same club in another season: matched by code, then by name. */
 export async function teamInSeason(team: { code: string | null; name: string }, seasonId: string) {
-  return prisma.team.findFirst({
+  return db.team.findFirst({
     where: { seasonId, OR: [...(team.code ? [{ code: team.code }] : []), { name: { equals: team.name, mode: "insensitive" } }] },
     select: { id: true },
   });
@@ -156,7 +156,7 @@ export async function teamInSeason(team: { code: string | null; name: string }, 
 
 /** Captain names only (never contact details). */
 export async function teamCaptains(teamId: string) {
-  const rows = await prisma.teamRoster.findMany({
+  const rows = await db.teamRoster.findMany({
     where: { teamId, ...seasonalWhere, isCaptain: true },
     select: { player: { select: { firstName: true, lastName: true } } },
     orderBy: { joinedAt: "asc" },
@@ -172,7 +172,9 @@ const emptyTotals = (): StatTotals => ({ goals: 0, assists: 0, yellow: 0, red: 0
  * Yellow counts both yellows (first and second); GP counts games the player was in.
  */
 async function statTotals(where: Prisma.Sql) {
-  const rows = await prisma.$queryRaw<{ playerId: string; teamId: string; goals: bigint; assists: bigint; yellow: bigint; red: bigint; gp: bigint }[]>(Prisma.sql`
+  // Raw SQL isn't scoped by the client: limit it to this league explicitly
+  const orgId = await getOrgId();
+  const rows = await db.$queryRaw<{ playerId: string; teamId: string; goals: bigint; assists: bigint; yellow: bigint; red: bigint; gp: bigint }[]>(Prisma.sql`
     SELECT s."playerId", r."teamId",
            SUM(s."goals") AS "goals", SUM(s."assists") AS "assists",
            SUM(s."yellow" + s."secondYellow") AS "yellow", SUM(s."red") AS "red",
@@ -180,7 +182,7 @@ async function statTotals(where: Prisma.Sql) {
     FROM "player_match_stats" s
     JOIN "match_reports" r ON r."id" = s."reportId"
     JOIN "matches" m ON m."id" = r."matchId"
-    WHERE r."status" = 'CONFIRMED' AND ${where}
+    WHERE r."status" = 'CONFIRMED' AND s."organizationId" = ${orgId} AND ${where}
     GROUP BY s."playerId", r."teamId"
   `);
   return rows.map((r) => ({ playerId: r.playerId, teamId: r.teamId, goals: Number(r.goals), assists: Number(r.assists), yellow: Number(r.yellow), red: Number(r.red), gp: Number(r.gp) }));
@@ -189,7 +191,7 @@ async function statTotals(where: Prisma.Sql) {
 /** Approved, active season roster with this season's stats for the team. Game-pass players never appear. */
 export async function teamRosterWithStats(teamId: string) {
   const [rows, totals] = await Promise.all([
-    prisma.teamRoster.findMany({
+    db.teamRoster.findMany({
       where: { teamId, ...seasonalWhere, player: { finalApproval: "APPROVED", status: { not: "INACTIVE" } } },
       select: {
         id: true,
@@ -223,7 +225,7 @@ export type RosterRow = Awaited<ReturnType<typeof teamRosterWithStats>>[number];
 
 /** Public player profile: name, position, photo (only with consent), current team and history. */
 export async function publicPlayer(playerId: string, activeSeasonId: string | null) {
-  const player = await prisma.player.findUnique({
+  const player = await db.player.findUnique({
     where: { id: playerId },
     select: {
       id: true,
@@ -265,21 +267,23 @@ export async function publicPlayer(playerId: string, activeSeasonId: string | nu
 /* ------------------------------------------------------------------ */
 
 export async function publicDivision(seasonId: string, code: string) {
-  return prisma.division.findUnique({
+  return db.division.findUnique({
     where: { seasonId_code: { seasonId, code } },
     select: divisionSelect,
   });
 }
 
 export async function divisionsOf(seasonId: string) {
-  return prisma.division.findMany({ where: { seasonId }, select: { id: true, code: true, name: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] });
+  return db.division.findMany({ where: { seasonId }, select: { id: true, code: true, name: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] });
 }
 
 /** Player stats for a division (25 a page), one query for the page and one for the count. */
 export async function divisionPlayerStats(seasonId: string, divisionId: string, page: number, perPage = 25) {
   const where = Prisma.sql`m."seasonId" = ${seasonId} AND m."divisionId" = ${divisionId}`;
+  // Raw SQL isn't scoped by the client: limit it to this league explicitly
+  const orgId = await getOrgId();
   const [rows, count] = await Promise.all([
-    prisma.$queryRaw<{ playerId: string; firstName: string; lastName: string; teamId: string; teamName: string; goals: bigint; assists: bigint; yellow: bigint; red: bigint; gp: bigint }[]>(Prisma.sql`
+    db.$queryRaw<{ playerId: string; firstName: string; lastName: string; teamId: string; teamName: string; goals: bigint; assists: bigint; yellow: bigint; red: bigint; gp: bigint }[]>(Prisma.sql`
       SELECT s."playerId", p."firstName", p."lastName", r."teamId", t."name" AS "teamName",
              SUM(s."goals") AS "goals", SUM(s."assists") AS "assists",
              SUM(s."yellow" + s."secondYellow") AS "yellow", SUM(s."red") AS "red",
@@ -289,17 +293,17 @@ export async function divisionPlayerStats(seasonId: string, divisionId: string, 
       JOIN "matches" m ON m."id" = r."matchId"
       JOIN "players" p ON p."id" = s."playerId"
       JOIN "teams" t ON t."id" = r."teamId"
-      WHERE r."status" = 'CONFIRMED' AND ${where}
+      WHERE r."status" = 'CONFIRMED' AND s."organizationId" = ${orgId} AND ${where}
       GROUP BY s."playerId", p."firstName", p."lastName", r."teamId", t."name"
       ORDER BY SUM(s."goals") DESC, SUM(s."assists") DESC, p."lastName" ASC, p."firstName" ASC
       LIMIT ${perPage} OFFSET ${(page - 1) * perPage}
     `),
-    prisma.$queryRaw<{ n: bigint }[]>(Prisma.sql`
+    db.$queryRaw<{ n: bigint }[]>(Prisma.sql`
       SELECT COUNT(*) AS "n" FROM (
         SELECT 1 FROM "player_match_stats" s
         JOIN "match_reports" r ON r."id" = s."reportId"
         JOIN "matches" m ON m."id" = r."matchId"
-        WHERE r."status" = 'CONFIRMED' AND ${where}
+        WHERE r."status" = 'CONFIRMED' AND s."organizationId" = ${orgId} AND ${where}
         GROUP BY s."playerId", r."teamId"
       ) x
     `),
@@ -329,7 +333,7 @@ export async function divisionPlayerStats(seasonId: string, divisionId: string, 
  * Drafts never show publicly.
  */
 export async function publicMatchReport(matchId: string, teamIds: string[]) {
-  const reports = await prisma.matchReport.findMany({
+  const reports = await db.matchReport.findMany({
     where: { matchId, teamId: { in: teamIds }, status: { in: ["CONFIRMED", "SUBMITTED"] } },
     select: {
       teamId: true,
@@ -339,7 +343,7 @@ export async function publicMatchReport(matchId: string, teamIds: string[]) {
       },
     },
   });
-  const jerseys = await prisma.teamRoster.findMany({
+  const jerseys = await db.teamRoster.findMany({
     where: { teamId: { in: teamIds }, OR: [{ membershipType: "SEASONAL" }, { matchId }], player: { id: { in: reports.flatMap((r) => r.stats.map((s) => s.player.id)) } } },
     select: { teamId: true, jerseyNumber: true, playerId: true },
   });

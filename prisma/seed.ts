@@ -6,11 +6,15 @@
  * reports, game passes, registrations) are only created when missing, so re-running the seed
  * never duplicates rows or overwrites changes made in the app.
  */
-import { Prisma, PrismaClient, type Gender } from '@prisma/client'
+import { Prisma, type Gender } from '@prisma/client'
 import { hashPassword } from '../src/lib/password'
 import { NVASA_ORG_ID as ORG, playerInOrg } from '../src/lib/org'
 
-const prisma = new PrismaClient()
+import { clientForOrg } from '../src/platform/db'
+import { seedDemoLeague } from './seed-demo-league'
+
+// Everything below is NVASA's: the league-scoped client sets organizationId on every row
+const prisma = clientForOrg(ORG)
 
 // ------------------------------------------------------------------
 // Helpers
@@ -300,8 +304,8 @@ async function main() {
   const adminPassword = await hashPassword('Admin123!')
   const admin = await prisma.user.upsert({
     where: { email: 'safatash@gmail.com' },
-    update: { role: 'ADMIN', isPlatformAdmin: true },
-    create: { email: 'safatash@gmail.com', password: adminPassword, role: 'ADMIN', isPlatformAdmin: true },
+    update: { isPlatformAdmin: true },
+    create: { email: 'safatash@gmail.com', password: adminPassword, isPlatformAdmin: true },
   })
   await prisma.organizationMember.upsert({
     where: { userId_organizationId: { userId: admin.id, organizationId: ORG } },
@@ -427,7 +431,7 @@ async function main() {
           },
         },
       },
-      include: { players: playerInOrg() },
+      include: { players: playerInOrg(ORG) },
     })
     if (!user.players[0]) throw new Error(`${email} exists without a player profile`)
     playerIds[name] = user.players[0].id
@@ -851,6 +855,8 @@ async function main() {
     await prisma.discountCode.upsert({ where: { organizationId_code: { organizationId: ORG, code: c.code } }, update: data, create: { ...data, code: c.code, uses: c.uses } })
   }
   console.log(`✅ Discount codes (${DISCOUNT_CODES.length})`)
+
+  await seedDemoLeague()
 
   console.log('✅ Database seeding completed!')
   console.log('   Admin:  safatash@gmail.com / Admin123!')

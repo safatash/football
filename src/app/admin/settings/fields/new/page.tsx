@@ -1,6 +1,6 @@
 import { PageHeading } from "@/components/league";
 import { Notice } from "@/components/ui/card";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { Crumbs, param, type SearchParams } from "../../../_components/season";
 import { FieldForm } from "../forms";
 
@@ -8,7 +8,7 @@ export const metadata = { title: "Add field" };
 
 export default async function NewFieldPage({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
-  const parks = await prisma.park.findMany({ select: { id: true, name: true, _count: { select: { fields: true } } }, orderBy: { name: "asc" } });
+  const parks = await db.park.findMany({ select: { id: true, name: true, _count: { select: { fields: true } } }, orderBy: { name: "asc" } });
   const park = parks.find((p) => p.id === param(sp.park)) ?? parks[0];
   return (
     <>

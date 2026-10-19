@@ -1,26 +1,26 @@
 /** Data for the admin create/edit forms (seasons, divisions, teams, matches). */
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { fieldName } from "@/lib/public";
 import { fullName } from "@/lib/format";
 import { isSeasonClosed } from "./season";
 
 /** Seasons that can still change (active, upcoming, or not yet over), newest first. */
 export async function editableSeasons() {
-  const seasons = await prisma.season.findMany({ select: { id: true, name: true, isActive: true, endDate: true }, orderBy: { startDate: "desc" } });
+  const seasons = await db.season.findMany({ select: { id: true, name: true, isActive: true, endDate: true }, orderBy: { startDate: "desc" } });
   return seasons.filter((s) => !isSeasonClosed(s)).map((s) => ({ id: s.id, name: s.name }));
 }
 
 export async function formDivisions(seasonIds: string[]) {
-  return prisma.division.findMany({ where: { seasonId: { in: seasonIds } }, select: { id: true, code: true, name: true, seasonId: true, status: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] });
+  return db.division.findMany({ where: { seasonId: { in: seasonIds } }, select: { id: true, code: true, name: true, seasonId: true, status: true }, orderBy: [{ displayOrder: "asc" }, { name: "asc" }] });
 }
 
 export async function formTeams(seasonIds: string[]) {
-  return prisma.team.findMany({ where: { seasonId: { in: seasonIds } }, select: { id: true, name: true, divisionId: true, seasonId: true, status: true }, orderBy: { name: "asc" } });
+  return db.team.findMany({ where: { seasonId: { in: seasonIds } }, select: { id: true, name: true, divisionId: true, seasonId: true, status: true }, orderBy: { name: "asc" } });
 }
 
 /** Fields for the match form, grouped by park. Inactive fields are left out, except the match's own. */
 export async function formFields(keepId?: string | null) {
-  const fields = await prisma.field.findMany({
+  const fields = await db.field.findMany({
     where: { OR: [{ active: true }, ...(keepId ? [{ id: keepId }] : [])] },
     include: { park: { select: { id: true, name: true, city: true } } },
     orderBy: [{ park: { name: "asc" } }, { name: "asc" }],
@@ -35,12 +35,12 @@ export async function formFields(keepId?: string | null) {
 
 /** Parks for the quick "add a field" form. */
 export async function formParks() {
-  return prisma.park.findMany({ select: { id: true, name: true, city: true }, orderBy: { name: "asc" } });
+  return db.park.findMany({ select: { id: true, name: true, city: true }, orderBy: { name: "asc" } });
 }
 
 /** Every player with a short hint (position and current teams) for the pickers. */
 export async function pickablePlayers(seasonId: string) {
-  const players = await prisma.player.findMany({
+  const players = await db.player.findMany({
     where: { status: { not: "INACTIVE" } },
     select: {
       id: true,

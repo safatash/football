@@ -9,7 +9,7 @@ import { now } from "@/lib/clock";
 import { matchGamePassPlayers, matchReports, matchRosters } from "@/lib/queries/admin-league";
 import { refereeOptions } from "@/lib/queries/referees";
 import { defaultFee } from "@/lib/officials";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { getMatchByGameNumber, reportOverdue } from "@/lib/queries/matches";
 import { getSettings } from "@/lib/queries/season";
 import { listTeams } from "@/lib/queries/teams";
@@ -73,8 +73,8 @@ export default async function MatchDetailPage({ params, searchParams }: { params
     getSettings(season.id),
   ]);
   const [officials, division] = await Promise.all([
-    prisma.matchOfficial.findMany({ where: { matchId: m.id }, include: { referee: { select: { name: true } } } }),
-    m.division ? prisma.division.findUnique({ where: { id: m.division.id }, select: { centerRefFee: true, assistantRefFee: true, fourthRefFee: true } }) : null,
+    db.matchOfficial.findMany({ where: { matchId: m.id }, include: { referee: { select: { name: true } } } }),
+    m.division ? db.division.findUnique({ where: { id: m.division.id }, select: { centerRefFee: true, assistantRefFee: true, fourthRefFee: true } }) : null,
   ]);
   const captainOf = (teamId: string) => teams.find((t) => t.id === teamId)?.captains[0];
   const homeCap = captainOf(home.id) ?? `${home.name}’s captain`;
