@@ -612,9 +612,6 @@ async function main() {
       field: m.field,
       location: m.field.replace(/ \d+$/, ''),
       fieldId: fieldIds[m.field],
-      ref1: m.refs[0] || null,
-      ref2: m.refs[1] || null,
-      ref3: m.refs[2] || null,
       status: m.score ? ('COMPLETED' as const) : ('SCHEDULED' as const),
       homeScore: m.score?.[0] ?? null,
       awayScore: m.score?.[1] ?? null,
@@ -628,6 +625,21 @@ async function main() {
       ? await prisma.match.update({ where: { id: existing.id }, data: { ...data, gameNumber: m.game } })
       : await prisma.match.create({ data: { ...data, gameNumber: m.game, seasonId: season.id } })
     matchIds[m.game] = row.id
+
+    // Officials: the seed's referees are sample data (demo), center / AR1 / AR2
+    for (const [i, name] of m.refs.entries()) {
+      const role = (['CENTER', 'AR1', 'AR2'] as const)[i]
+      if (!name) {
+        await prisma.matchOfficial.deleteMany({ where: { matchId: row.id, role } })
+        continue
+      }
+      const ref = (await prisma.referee.findFirst({ where: { name } })) ?? (await prisma.referee.create({ data: { name, isDemo: true, certLevel: 'USSF Grade 8' } }))
+      await prisma.matchOfficial.upsert({
+        where: { matchId_role: { matchId: row.id, role } },
+        update: { refereeId: ref.id },
+        create: { matchId: row.id, role, refereeId: ref.id, status: m.score ? 'CONFIRMED' : 'ASSIGNED' },
+      })
+    }
 
     // Reports
     const reportFor = async (teamCode: string, status: 'DRAFT' | 'SUBMITTED' | 'CONFIRMED', extra: { redCardNote?: string; stats?: Record<string, Partial<Record<'goals' | 'assists' | 'yellow' | 'red', number>>> } = {}) => {

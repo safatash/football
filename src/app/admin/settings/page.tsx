@@ -7,6 +7,7 @@ import { listTeams } from "@/lib/queries/teams";
 import { ArchivedNotice, seasonFrom, type SearchParams } from "../_components/season";
 import { SettingsForm, type DivisionSetting } from "./settings-form";
 import { DemoData } from "./demo-data";
+import { RefereeFees } from "./referee-fees";
 import { demoSummary } from "@/lib/demo";
 
 export const metadata = { title: "Fees & eligibility" };
@@ -56,7 +57,18 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
         notice={<ArchivedNotice season={season} />}
         office={<LeagueOffice members={members} selfId={session?.user?.id ?? ""} />}
       />
-      <DemoData teams={demo.teams} matches={demo.matches} players={demo.players} parks={demo.parks} />
+      <RefereeFees
+        seasonId={season.id}
+        readOnly={season.archived}
+        divisions={divisionRows.map((d) => ({
+          id: d.id,
+          name: d.name,
+          center: d.centerRefFee == null ? "" : String(Number(d.centerRefFee)),
+          assistant: d.assistantRefFee == null ? "" : String(Number(d.assistantRefFee)),
+          fourth: d.fourthRefFee == null ? "" : String(Number(d.fourthRefFee)),
+        }))}
+      />
+      <DemoData teams={demo.teams} matches={demo.matches} players={demo.players} parks={demo.parks} referees={demo.referees} />
     </>
   );
 }

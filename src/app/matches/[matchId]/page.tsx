@@ -8,6 +8,7 @@ import { Icon } from "@/components/ui/icon";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { Directions, JsonLd, PublicFrame, Score, placeOf } from "@/components/public";
 import { addressLine } from "@/lib/public";
+import { crewNames } from "@/lib/officials";
 import { one, type PublicSearchParams } from "@/components/public/matches-page";
 import { EditReportLink, ViewerProvider } from "@/components/public/viewer";
 import { gameNo } from "@/lib/public";
@@ -113,10 +114,13 @@ export default async function MatchPage({ params, searchParams }: { params: Para
   if (!m) notFound();
   const report = m.played ? await publicMatchReport(m.id, [m.homeTeam.id, m.awayTeam.id]) : {};
   const hasReport = Object.keys(report).length > 0;
+  const crew = crewNames(m.officials);
+  const fourth = m.officials.find((o) => o.role === "FOURTH" && o.status !== "DECLINED")?.referee.name;
   const refs: [string, string][] = [
-    ["Center", m.ref1 ?? "—"],
-    ["AR1", m.ref2 ?? "—"],
-    ["AR2", m.ref3 ?? "—"],
+    ["Center", crew[0] || "—"],
+    ["AR1", crew[1] || "—"],
+    ["AR2", crew[2] || "—"],
+    ...(fourth ? [["4th official", fourth] as [string, string]] : []),
   ];
 
   return (

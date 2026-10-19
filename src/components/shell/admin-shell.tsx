@@ -50,6 +50,7 @@ export function AdminShell({
         { href: "/admin/matches", label: "Matches", icon: "cal" },
         { href: "/admin/standings", label: "Standings", icon: "trophy" },
         { href: divisionsHref, label: "Divisions", icon: "list" },
+        { href: "/admin/referees", label: "Referees", icon: "whistle" },
       ],
     ],
     [

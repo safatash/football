@@ -17,7 +17,7 @@ export function AdminDemoNotice({ summary }: { summary: Awaited<ReturnType<typeo
   if (!summary.any) return null;
   return (
     <Notice tone="warn" title="Demo data">
-      {summary.teams} teams, {summary.matches} matches, {summary.players} players and {summary.parks} parks are sample data from the seed, marked <b>Demo</b>. They aren’t real.{" "}
+      {summary.teams} teams, {summary.matches} matches, {summary.players} players, {summary.parks} parks and {summary.referees} referees are sample data from the seed, marked <b>Demo</b>. They aren’t real.{" "}
       <Link href="/admin/settings#demo-data" className="font-bold underline underline-offset-4">
         Clear demo data
       </Link>

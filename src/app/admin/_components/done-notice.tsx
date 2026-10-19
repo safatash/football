@@ -18,6 +18,9 @@ const DONE: Record<string, string> = {
   "field-created": "added",
   "field-saved": "saved",
   "field-deleted": "deleted",
+  "referee-created": "added",
+  "referee-saved": "saved",
+  "referee-deleted": "deleted",
 };
 
 /** Success message after a save (from `?done=…&what=…`). */

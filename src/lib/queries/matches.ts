@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { now } from "@/lib/clock";
 import { dayKey, fmtDay, fmtTime } from "@/lib/format";
 import { fieldPlace, placeLabel } from "@/lib/public";
+import { crewNames, openRoles } from "@/lib/officials";
 import { teamSelect } from "./teams";
 
 export const matchSelect = {
@@ -17,9 +18,7 @@ export const matchSelect = {
   status: true,
   homeScore: true,
   awayScore: true,
-  ref1: true,
-  ref2: true,
-  ref3: true,
+  officials: { select: { role: true, status: true, referee: { select: { id: true, name: true } } } },
   reportStatus: true,
   division: { select: { id: true, code: true, name: true } },
   homeTeam: { select: teamSelect },
@@ -28,7 +27,7 @@ export const matchSelect = {
 type MatchRow = Prisma.MatchGetPayload<{ select: typeof matchSelect }>;
 
 export function toMatchView(m: MatchRow) {
-  const refs: [string, string, string] = [m.ref1 ?? "", m.ref2 ?? "", m.ref3 ?? ""];
+  const refs = crewNames(m.officials);
   const place = m.venue ? fieldPlace(m.venue) : null;
   return {
     ...m,
@@ -40,6 +39,7 @@ export function toMatchView(m: MatchRow) {
     day: dayKey(m.scheduledAt),
     refs,
     refsAssigned: refs.filter(Boolean).length,
+    openRoles: openRoles(m.officials),
     score: m.homeScore != null && m.awayScore != null ? ([m.homeScore, m.awayScore] as [number, number]) : null,
   };
 }

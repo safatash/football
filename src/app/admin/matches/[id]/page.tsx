@@ -6,7 +6,10 @@ import { Card, CardHeader, EmptyState, KeyValue } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { TZ, fmtShort, fullName } from "@/lib/format";
 import { now } from "@/lib/clock";
-import { matchGamePassPlayers, matchReports, matchRosters, refereeNames } from "@/lib/queries/admin-league";
+import { matchGamePassPlayers, matchReports, matchRosters } from "@/lib/queries/admin-league";
+import { refereeOptions } from "@/lib/queries/referees";
+import { defaultFee } from "@/lib/officials";
+import prisma from "@/lib/prisma";
 import { getMatchByGameNumber, reportOverdue } from "@/lib/queries/matches";
 import { getSettings } from "@/lib/queries/season";
 import { listTeams } from "@/lib/queries/teams";
@@ -66,8 +69,12 @@ export default async function MatchDetailPage({ params, searchParams }: { params
     matchReports(m.id),
     matchRosters(m.id),
     matchGamePassPlayers(m.id),
-    refereeNames(),
+    refereeOptions(),
     getSettings(season.id),
+  ]);
+  const [officials, division] = await Promise.all([
+    prisma.matchOfficial.findMany({ where: { matchId: m.id }, include: { referee: { select: { name: true } } } }),
+    m.division ? prisma.division.findUnique({ where: { id: m.division.id }, select: { centerRefFee: true, assistantRefFee: true, fourthRefFee: true } }) : null,
   ]);
   const captainOf = (teamId: string) => teams.find((t) => t.id === teamId)?.captains[0];
   const homeCap = captainOf(home.id) ?? `${home.name}’s captain`;
@@ -151,7 +158,7 @@ export default async function MatchDetailPage({ params, searchParams }: { params
         </div>
       </Card>
 
-      <div className="grid gap-[18px] md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-[18px] md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader title="Details" />
           <KeyValue
@@ -165,7 +172,13 @@ export default async function MatchDetailPage({ params, searchParams }: { params
         </Card>
         <Card>
           <CardHeader title="Officials" />
-          <OfficialsForm matchId={m.id} refs={m.refs} referees={referees} readOnly={readOnly} />
+          <OfficialsForm
+            matchId={m.id}
+            crew={officials.map((o) => ({ role: o.role, refereeId: o.refereeId, name: o.referee.name, status: o.status, fee: o.fee == null ? null : Number(o.fee) }))}
+            referees={referees}
+            defaults={{ CENTER: defaultFee(division, "CENTER"), AR1: defaultFee(division, "AR1"), AR2: defaultFee(division, "AR2"), FOURTH: defaultFee(division, "FOURTH") }}
+            readOnly={readOnly}
+          />
         </Card>
         <Card className="flex flex-col gap-3">
           <CardHeader title="Match report" action={<MatchStatusBadge status={report} />} className="mb-0" />

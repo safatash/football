@@ -16,6 +16,9 @@ export const divisionSelect = {
   maxTeams: true,
   rosterMin: true,
   rosterMax: true,
+  centerRefFee: true,
+  assistantRefFee: true,
+  fourthRefFee: true,
   genderRule: true,
   maleBornOnOrBefore: true,
   femaleBornOnOrBefore: true,
@@ -176,14 +179,6 @@ export async function extraZipCodes() {
 export async function blocklistEntries() {
   const rows = await prisma.blocklist.findMany({ orderBy: { blockedAt: "desc" }, select: { email: true } });
   return rows.map((r) => r.email);
-}
-
-/** Officials who have worked league matches, for the officials picker. */
-export async function refereeNames() {
-  const rows = await prisma.match.findMany({ select: { ref1: true, ref2: true, ref3: true } });
-  const names = new Set<string>();
-  for (const r of rows) for (const n of [r.ref1, r.ref2, r.ref3]) if (n?.trim()) names.add(n.trim());
-  return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 /** Everyone with league-office access: role ADMIN accounts plus ADMIN_EMAILS addresses. */

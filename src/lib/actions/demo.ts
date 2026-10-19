@@ -14,7 +14,7 @@ import { ActionError, runAction, type ActionResult } from "./result";
  * demo players' registrations and payments, the demo accounts themselves, then demo parks and fields. Real players'
  * registrations that pointed at a demo team keep going, with the team cleared.
  */
-export async function clearDemoData(input: { confirm: string }): Promise<ActionResult<{ teams: number; matches: number; players: number; parks: number }>> {
+export async function clearDemoData(input: { confirm: string }): Promise<ActionResult<{ teams: number; matches: number; players: number; parks: number; referees: number }>> {
   return runAction(async () => {
     const { confirm } = z.object({ confirm: z.string() }).parse(input);
     await requireAdminUser();
@@ -43,11 +43,15 @@ export async function clearDemoData(input: { confirm: string }): Promise<ActionR
         const parks = await tx.park.findMany({ where: { isDemo: true }, select: { id: true } });
         await tx.field.deleteMany({ where: { parkId: { in: parks.map((p) => p.id) } } });
         await tx.park.deleteMany({ where: { id: { in: parks.map((p) => p.id) } } });
-        return { teams: teamIds.length, matches: matchIds.length, players: playerIds.length, parks: parks.length };
+        // Demo referees, with any assignments they still have on real matches
+        const refs = await tx.referee.findMany({ where: { isDemo: true }, select: { id: true } });
+        await tx.matchOfficial.deleteMany({ where: { refereeId: { in: refs.map((r) => r.id) } } });
+        await tx.referee.deleteMany({ where: { id: { in: refs.map((r) => r.id) } } });
+        return { teams: teamIds.length, matches: matchIds.length, players: playerIds.length, parks: parks.length, referees: refs.length };
       },
       { timeout: 60_000 },
     );
     revalidatePath("/", "layout");
-    return { ok: true, message: `Removed ${counts.teams} demo teams, ${counts.matches} matches, ${counts.players} players and ${counts.parks} parks`, data: counts };
+    return { ok: true, message: `Removed ${counts.teams} demo teams, ${counts.matches} matches, ${counts.players} players, ${counts.parks} parks and ${counts.referees} referees`, data: counts };
   });
 }

@@ -136,7 +136,13 @@ describe.skipIf(!hasDb)("legacy import (database)", async () => {
   it("maps games, officials, stats and standings", async () => {
     const season = await prisma.season.findFirstOrThrow({ where: { legacyDatasource: DS } });
     const g7 = await prisma.match.findUniqueOrThrow({ where: { seasonId_legacyId: { seasonId: season.id, legacyId: 301 } }, include: { venue: { include: { park: true } } } });
-    expect(g7).toMatchObject({ gameNumber: 7, homeScore: 2, awayScore: 1, status: "COMPLETED", reportStatus: "CONFIRMED", ref1: "Daniel Kim", ref2: "Lucia Fernandes", ref3: "Omar Haddad" });
+    expect(g7).toMatchObject({ gameNumber: 7, homeScore: 2, awayScore: 1, status: "COMPLETED", reportStatus: "CONFIRMED" });
+    const crew = await prisma.matchOfficial.findMany({ where: { matchId: g7.id }, include: { referee: true }, orderBy: { role: "asc" } });
+    expect(crew.map((o) => [o.role, o.referee.name, o.status])).toEqual([
+      ["CENTER", "Daniel Kim", "CONFIRMED"],
+      ["AR1", "Lucia Fernandes", "CONFIRMED"],
+      ["AR2", "Omar Haddad", "CONFIRMED"],
+    ]);
     expect(g7.scheduledAt.toISOString()).toBe("2024-04-07T13:00:00.000Z");
     expect(g7.venue).toMatchObject({ name: "2", park: { name: "Itest Park", address: "1 Test Rd", city: "Fairfax", zip: "22030" } });
     const unplayed = await prisma.match.findUniqueOrThrow({ where: { seasonId_legacyId: { seasonId: season.id, legacyId: 303 } } });

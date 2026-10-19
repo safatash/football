@@ -14,6 +14,7 @@ import { listPlacements } from "@/lib/queries/placements";
 import { suspendedPlayers } from "@/lib/queries/players";
 import { listRegistrations, openCaptainRequests, openRegistrationStats } from "@/lib/queries/registrations";
 import { standingsByDivision } from "@/lib/queries/standings";
+import { crewGaps } from "@/lib/queries/referees";
 import { rosterWarning } from "@/lib/division-rules";
 import { listTeams } from "@/lib/queries/teams";
 import { ArchivedNotice, seasonFrom, withSeason, type SearchParams } from "./_components/season";
@@ -57,6 +58,7 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
   const overdue = matches.filter((m) => m.status !== "CANCELLED" && (m.reportStatus === "OVERDUE" || reportOverdue(m.scheduledAt, m.reportStatus, at)));
   const toConfirm = matches.filter((m) => m.reportStatus === "SUBMITTED");
   const noRefs = scheduled.filter((m) => m.refsAssigned === 0);
+  const gaps = season.archived ? [] : await crewGaps(season.id);
   const attention = suspended.length + overdue.length + toConfirm.length + noRefs.length + captainReqs.length;
 
   // Division leaders: the top team in every division that has a confirmed result
@@ -246,6 +248,38 @@ export default async function OperationsPage({ searchParams }: { searchParams: S
                 </Link>
               ))}
             </div>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Upcoming matches without full referee crew"
+              action={
+                <Link href="/admin/referees/assignments?missing=1" className="text-[13.5px] font-bold text-pitch-2 underline underline-offset-4">
+                  Assignments
+                </Link>
+              }
+            />
+            {gaps.length ? (
+              <ul className="flex flex-col">
+                {gaps.slice(0, 8).map((m) => (
+                  <li key={m.id}>
+                    <Link href={s(`/admin/matches/${m.gameNumber}`)} className="flex min-h-11 items-center gap-2.5 rounded-[10px] px-1 text-[13.5px] hover:bg-surface-2">
+                      <span className="font-mono text-muted">#{m.gameNumber}</span>
+                      <span className="min-w-0 flex-1">
+                        <b>{m.homeTeam.name}</b> vs <b>{m.awayTeam.name}</b>
+                        <span className="block text-xs text-muted">{m.when}</span>
+                      </span>
+                      <Badge tone="warn" dot={false}>
+                        Needs {m.open.map((r) => (r === "CENTER" ? "center" : r)).join(", ")}
+                      </Badge>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[13.5px] text-muted">Every match in the next two weeks has a center and two ARs.</p>
+            )}
+            {gaps.length > 8 ? <p className="mt-2 text-[13px] text-muted">+{gaps.length - 8} more on the assignments board.</p> : null}
           </Card>
 
           <Card>

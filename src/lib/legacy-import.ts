@@ -382,15 +382,26 @@ export async function importSeason(reader: LegacyReader, db: PrismaClient, opts:
       status: played ? ("COMPLETED" as const) : ("SCHEDULED" as const),
       // Results on the old site were final once entered
       reportStatus: played ? ("CONFIRMED" as const) : ("NOT_STARTED" as const),
-      ref1: ref(g.ref),
-      ref2: ref(g.refr),
-      ref3: ref(g.refl),
     };
     const existing =
       (await db.match.findUnique({ where: { seasonId_legacyId: { seasonId: season.id, legacyId: g.id } } })) ??
       (await db.match.findUnique({ where: { seasonId_gameNumber: { seasonId: season.id, gameNumber } } }));
     const row = existing ? await db.match.update({ where: { id: existing.id }, data }) : await db.match.create({ data: { ...data, seasonId: season.id } });
     matchId.set(g.id, row.id);
+    // Officials: the old site's ref / right AR / left AR, matched to referees by name
+    for (const [role, name] of [
+      ["CENTER", ref(g.ref)],
+      ["AR1", ref(g.refr)],
+      ["AR2", ref(g.refl)],
+    ] as const) {
+      if (!name) continue;
+      const official = (await db.referee.findFirst({ where: { name: { equals: name, mode: "insensitive" } } })) ?? (await db.referee.create({ data: { name } }));
+      await db.matchOfficial.upsert({
+        where: { matchId_role: { matchId: row.id, role } },
+        update: { refereeId: official.id },
+        create: { matchId: row.id, role, refereeId: official.id, status: played ? "CONFIRMED" : "ASSIGNED" },
+      });
+    }
   }
 
   // ---------- Reports + player stats (one confirmed report per team per played game) ----------

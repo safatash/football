@@ -125,3 +125,9 @@ export function paymentLinkEmail(opts: { firstName: string; seasonName: string; 
   const body = `Hi ${opts.firstName},\n\nYour ${opts.seasonName} ${opts.divisionName} registration has a balance of ${opts.amount}. You can pay it online with a card using the link below. The link always shows your current balance.`;
   return { subject, text: `${body}\n\n${opts.url}${footer}`, html: layout({ title: "Pay your registration", body: paras(body), cta: { label: `Pay ${opts.amount}`, href: opts.url } }) };
 }
+
+export function refereeScheduleEmail(opts: { name: string; weekLabel: string; lines: string[] }) {
+  const subject = `Your NVASA assignments: ${opts.weekLabel}`;
+  const body = `Hi ${opts.name},\n\nHere are your NVASA assignments for ${opts.weekLabel}:\n\n${opts.lines.map((l) => `• ${l}`).join("\n")}\n\nIf you can’t make one, reply to this email as soon as you can so we can find cover.`;
+  return { subject, text: `${body}${footer}`, html: layout({ title: "Your assignments", body: paras(body) }) };
+}

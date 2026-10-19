@@ -42,6 +42,8 @@ const admin = await import("@/lib/actions/admin");
 const structure = await import("@/lib/actions/admin-structure");
 const demo = await import("@/lib/actions/demo");
 const billing = await import("@/lib/actions/billing");
+const refs = await import("@/lib/actions/referees");
+const fields = await import("@/lib/actions/fields");
 const approve = await import("@/app/api/admin/registrations/[id]/approve/route");
 const deny = await import("@/app/api/admin/registrations/[id]/deny/route");
 
@@ -102,7 +104,15 @@ describe("admin actions and API routes", () => {
       admin.setCaptain({ playerId: "p2", teamId: "team-ffx", isCaptain: true }),
       admin.decideCaptainRequest({ requestId: "c1", approve: true }),
       admin.assignPlacement({ registrationId: "r1", teamId: "team-ffx" }),
-      admin.setOfficials({ matchId: "m1", refs: ["A", "", ""] }),
+      refs.setMatchOfficials({ matchId: "m1", crew: [{ role: "CENTER", refereeId: "r1" }] }),
+      refs.createReferee({ name: "New Ref", positions: ["CENTER"] }),
+      refs.updateReferee({ id: "r1", name: "New Ref", positions: ["CENTER"] }),
+      refs.deleteReferee({ id: "r1" }),
+      refs.setOfficialsPaid({ ids: ["o1"], paid: true }),
+      refs.saveRefereeFees({ seasonId: "s26", divisions: [] }),
+      refs.emailWeekAssignments({ weekStart: "2026-05-11" }),
+      fields.createPark({ name: "Park", fields: [{ name: "1" }] }),
+      fields.deleteField({ id: "f1" }),
       admin.confirmReport({ matchId: "m1", teamId: "team-ffx" }),
       admin.reopenRegistration({ registrationId: "r1" }),
       admin.createPlayerAccount({ firstName: "New", lastName: "Player", email: "new@example.com", dob: "1990-01-01", gender: "FEMALE", phone: "703-555-0101", zip: "" }),

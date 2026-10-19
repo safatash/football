@@ -223,22 +223,6 @@ export async function liftSuspension(input: { playerId: string }): Promise<Actio
 /* Matches: officials, reports                                         */
 /* ------------------------------------------------------------------ */
 
-export async function setOfficials(input: { matchId: string; refs: string[] }): Promise<ActionResult> {
-  return runAction(async () => {
-    const data = z.object({ matchId: Id, refs: z.array(z.string().trim().max(80)).length(3) }).parse(input);
-    await requireAdminUser();
-    const match = await prisma.match.findUnique({ where: { id: data.matchId } });
-    if (!match) throw new ActionError("Match not found.", 404);
-    await assertSeasonWritable(match.seasonId);
-    const named = data.refs.filter(Boolean);
-    if (new Set(named).size !== named.length) throw new ActionError("Each official can only take one role.", 400);
-    await prisma.match.update({ where: { id: match.id }, data: { ref1: data.refs[0] || null, ref2: data.refs[1] || null, ref3: data.refs[2] || null } });
-    refreshAdmin();
-    revalidatePath(`/matches/${match.gameNumber}/print`);
-    return { ok: true, message: `Officials saved · ${named.length} of 3 assigned` };
-  });
-}
-
 /**
  * Confirms a submitted report: it becomes the match result (scores, Completed) and counts in the
  * standings.

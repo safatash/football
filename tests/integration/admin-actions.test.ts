@@ -50,7 +50,6 @@ describe.skipIf(!hasDb)("admin actions (database)", async () => {
     it("non-admins get 403 from admin actions and API routes", async () => {
       as("maya");
       const results = await Promise.all([
-        admin.setOfficials({ matchId: ids.m205, refs: ["A", "", ""] }),
         admin.confirmReport({ matchId: ids.m205, teamId: ids.nvs }),
         admin.suspendPlayer({ playerId: ids.devonPlayer, reason: "Conduct", until: null }),
         admin.assignPlacement({ registrationId: ids.hector, teamId: ids.nvs }),
@@ -120,13 +119,6 @@ describe.skipIf(!hasDb)("admin actions (database)", async () => {
     expect(await admin.liftSuspension({ playerId: ids.devonPlayer })).toMatchObject({ ok: true });
     expect((await prisma.player.findUniqueOrThrow({ where: { id: ids.devonPlayer } })).status).toBe("ACTIVE");
     expect(await prisma.suspension.count({ where: { playerId: ids.devonPlayer, liftedAt: null } })).toBe(0);
-  });
-
-  it("officials are saved, one role each", async () => {
-    as("admin");
-    expect(await admin.setOfficials({ matchId: ids.m205, refs: ["Hugo Bell", "Hugo Bell", ""] })).toMatchObject({ ok: false, status: 400 });
-    expect(await admin.setOfficials({ matchId: ids.m205, refs: ["Hugo Bell", "Lucia Fernandes", ""] })).toMatchObject({ ok: true });
-    expect(await prisma.match.findUniqueOrThrow({ where: { id: ids.m205 } })).toMatchObject({ ref1: "Hugo Bell", ref2: "Lucia Fernandes", ref3: null });
   });
 
   it("confirming a report updates the standings", async () => {

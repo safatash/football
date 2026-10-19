@@ -208,6 +208,11 @@ model Division {
   gamePassFee     Decimal?       @db.Decimal(10, 2) // overrides LeagueSettings.gamePassFee when set
   status          DivisionStatus @default(ACTIVE) // inactive divisions are hidden from registration and game passes
 
+  // Default referee pay per role (a match can override it per official)
+  centerRefFee    Decimal? @db.Decimal(10, 2)
+  assistantRefFee Decimal? @db.Decimal(10, 2)
+  fourthRefFee    Decimal? @db.Decimal(10, 2)
+
   maxTeams  Int? // creating teams past this is refused
   rosterMin Int? // roster sizes outside min/max show as warnings
   rosterMax Int?
@@ -557,11 +562,6 @@ model Match {
 
   status MatchStatus @default(SCHEDULED)
 
-  // Officials (names; referees don't have accounts)
-  ref1 String?
-  ref2 String?
-  ref3 String?
-
   // Aggregate of the two team reports, kept in sync by the report actions
   reportStatus ReportStatus @default(NOT_STARTED)
 
@@ -574,6 +574,7 @@ model Match {
   availability MatchAvailability[]
   matchRosters MatchRoster[]
   reports      MatchReport[]
+  officials    MatchOfficial[]
 
   @@unique([seasonId, gameNumber])
   @@unique([seasonId, legacyId])
@@ -982,4 +983,65 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+/// A match official. Referees don't have accounts; the office assigns them.
+model Referee {
+  id          String            @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  certLevel   String? // e.g. "USSF Grade 8"
+  certExpires DateTime?         @db.Date
+  positions   RefereePosition[] @default([CENTER, ASSISTANT])
+  active      Boolean           @default(true) // inactive referees can't be assigned
+  notes       String?
+  isDemo      Boolean           @default(false) // sample referee from the seed; removed by Settings › Demo data
+
+  assignments MatchOfficial[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@map("referees")
+}
+
+enum RefereePosition {
+  CENTER
+  ASSISTANT
+}
+
+enum OfficialRole {
+  CENTER
+  AR1
+  AR2
+  FOURTH
+}
+
+enum OfficialStatus {
+  ASSIGNED
+  CONFIRMED
+  DECLINED
+  NO_SHOW
+}
+
+/// One referee in one role on one match, with their pay.
+model MatchOfficial {
+  id        String         @id @default(cuid())
+  matchId   String
+  match     Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  refereeId String
+  referee   Referee        @relation(fields: [refereeId], references: [id])
+  role      OfficialRole
+  status    OfficialStatus @default(ASSIGNED)
+  fee       Decimal?       @db.Decimal(10, 2) // overrides the division's fee for this role
+  paidAt    DateTime? // set when the office marks the fee paid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([matchId, role])
+  @@index([refereeId])
+  @@map("match_officials")
 }
