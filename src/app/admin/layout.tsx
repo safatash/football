@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { getActiveSeason, isSeasonClosed, listSeasons } from "@/lib/queries/season";
 import { demoSummary } from "@/lib/demo";
 import { AdminDemoNotice } from "./_components/demo";
+import { ImpersonationBanner } from "./_components/impersonation-banner";
+import { getBrand } from "@/lib/branding";
 
 export const metadata = { title: "League office" };
 
@@ -27,6 +29,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         closedSeasons={seasons.filter((s) => isSeasonClosed(s)).map((s) => s.name)}
         divisionsHref="/admin/divisions"
       >
+        {session.user.impersonating ? <ImpersonationBanner email={session.user.email ?? ""} league={(await getBrand()).name} /> : null}
         {session.user.orgRole === "STAFF" ? (
           <p role="note" className="rounded-xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-[13.5px] text-muted">
             <b className="text-fg">View only:</b> staff can see the league office. An owner or admin makes changes.

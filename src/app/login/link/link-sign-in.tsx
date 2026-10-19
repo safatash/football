@@ -11,7 +11,7 @@ import { Screen } from "@/components/shell/layout";
  * Uses the login link's token. It runs in the browser on purpose: link scanners that open
  * emails don't run scripts, so they can't use up the single-use token.
  */
-export function LinkSignIn({ token }: { token: string }) {
+export function LinkSignIn({ token, next = "/portal" }: { token: string; next?: string }) {
   const router = useRouter();
   const [failed, setFailed] = useState(!token);
   const started = useRef(false);
@@ -22,11 +22,11 @@ export function LinkSignIn({ token }: { token: string }) {
     signIn("login-link", { token, redirect: false }).then((r) => {
       if (!r || r.error) setFailed(true);
       else {
-        router.replace("/portal");
+        router.replace(next);
         router.refresh();
       }
     });
-  }, [token, router]);
+  }, [token, next, router]);
 
   return (
     <Screen>

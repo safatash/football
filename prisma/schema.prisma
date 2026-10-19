@@ -29,6 +29,7 @@ model User {
 
   isPlatformAdmin Boolean              @default(false) // the SaaS operator (not a league role)
   memberships     OrganizationMember[]
+  impersonations  Impersonation[]
 
   // Auth.js required fields
   accounts Account[]
@@ -1176,8 +1177,9 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members  OrganizationMember[]
-  settings OrganizationSettings?
+  members        OrganizationMember[]
+  settings       OrganizationSettings?
+  impersonations Impersonation[]
 
   players            Player[]
   seasons            Season[]
@@ -1294,4 +1296,21 @@ enum EligibilityMode {
   NONE // anyone can register
   ZIP_LIST // only ZIPs in the allowed list
   COUNTY_LIST // addresses in the listed counties, plus any extra ZIPs in the list
+}
+
+/// The operator acting as a league's admin for support. Shown with a banner; start and stop go to
+/// the league's audit log. Ends when stopped or at expiresAt.
+model Impersonation {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason         String?
+  startedAt      DateTime     @default(now())
+  expiresAt      DateTime
+  endedAt        DateTime?
+
+  @@index([userId, organizationId])
+  @@map("impersonations")
 }

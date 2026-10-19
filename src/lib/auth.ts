@@ -3,8 +3,8 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db";
 import { canViewOffice, isOfficeRole } from "@/lib/access"
-import { getOrgId, playerInOrg } from "@/lib/org"
 import { consumeToken } from "@/lib/tokens"
+import { canSignIn, currentOrgIdOrNull, effectiveRole, platformFlags, userByEmail, userById } from "@/platform/identity"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -18,39 +18,15 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Email and password required")
         }
-
-        // Find user with player profile
-        const user = await db.user.findFirst({
-          where: { email: { equals: credentials.email.trim(), mode: "insensitive" } },
-          include: { players: playerInOrg(await getOrgId()) }
-        })
-
-        if (!user) {
-          throw new Error("No user found with this email")
-        }
-
-        // Verify password
-        const isValid = await bcrypt.compare(credentials.password, user.password)
-
-        if (!isValid) {
-          throw new Error("Invalid password")
-        }
-
-        // Logins are per league: you need a membership here (platform operators can sign in anywhere)
-        if (!user.isPlatformAdmin && !(await db.organizationMember.findFirst({ where: { userId: user.id, status: "ACTIVE" } }))) {
-          throw new Error("No user found with this email")
-        }
-
+        const orgId = await currentOrgIdOrNull()
+        const user = await userByEmail(credentials.email, orgId)
+        if (!user) throw new Error("No user found with this email")
+        if (!(await bcrypt.compare(credentials.password, user.password))) throw new Error("Invalid password")
+        // Logins are per league: you need a membership here (the operator can sign in anywhere)
+        if (!(await canSignIn(user, orgId))) throw new Error("No user found with this email")
         // Inactive accounts can't sign in; suspended players can (they see their status)
-        if (user.players[0] && user.players[0].status === "INACTIVE") {
-          throw new Error("Account is not active")
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.players[0] ? `${user.players[0].firstName} ${user.players[0].lastName}` : user.email,
-        }
+        if (user.players[0]?.status === "INACTIVE") throw new Error("Account is not active")
+        return { id: user.id, email: user.email, name: user.players[0] ? `${user.players[0].firstName} ${user.players[0].lastName}` : user.email }
       }
     }),
     // "Email me a login link": a single-use token from /login/link signs the user in
@@ -61,9 +37,10 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         const userId = await consumeToken("login", credentials?.token ?? "")
         if (!userId) throw new Error("This login link has expired or was already used.")
-        const user = await db.user.findUnique({ where: { id: userId }, include: { players: playerInOrg(await getOrgId()) } })
+        const orgId = await currentOrgIdOrNull()
+        const user = await userById(userId, orgId)
         if (!user || user.players[0]?.status === "INACTIVE") throw new Error("This account isn’t active.")
-        if (!user.isPlatformAdmin && !(await db.organizationMember.findFirst({ where: { userId: user.id, status: "ACTIVE" } }))) throw new Error("This account isn’t active.")
+        if (!(await canSignIn(user, orgId))) throw new Error("This account isn’t active.")
         return { id: user.id, email: user.email, name: user.players[0] ? `${user.players[0].firstName} ${user.players[0].lastName}` : user.email }
       },
     }),
@@ -73,32 +50,30 @@ export const authOptions: NextAuthOptions = {
       if (token && session.user) {
         session.user.id = token.sub as string
         
-        // League-specific: membership role, player profile and captaincy in the current league
-        let orgId: string | null = null
-        try {
-          orgId = await getOrgId()
-        } catch {
-          // A platform route (no league): nothing league-specific in the session
-        }
+        const flags = await platformFlags(token.sub as string)
+        session.user.isPlatformAdmin = !!flags?.isPlatformAdmin
+        // League-specific: role (membership, or the operator impersonating), player profile and captaincy
+        const orgId = await currentOrgIdOrNull()
+        session.user.isAdmin = false
+        session.user.canViewOffice = false
+        session.user.impersonating = false
         if (orgId) {
-          const [member, player] = await Promise.all([
-            db.organizationMember.findFirst({ where: { userId: token.sub as string, status: "ACTIVE" } }),
+          const [role, player] = await Promise.all([
+            effectiveRole(token.sub as string, orgId),
             db.player.findFirst({
               where: { userId: token.sub as string },
               include: { teamMemberships: { where: { isCaptain: true, leftAt: null } } },
             }),
           ])
-          session.user.isAdmin = isOfficeRole(member?.role)
-          session.user.canViewOffice = canViewOffice(member?.role)
-          session.user.orgRole = member?.role ?? null
+          session.user.isAdmin = isOfficeRole(role?.role)
+          session.user.canViewOffice = canViewOffice(role?.role)
+          session.user.orgRole = role?.role ?? null
+          session.user.impersonating = !!role?.impersonating
           if (player) {
             session.user.playerId = player.id
             session.user.name = `${player.firstName} ${player.lastName}`
             session.user.isCaptain = player.teamMemberships.length > 0
           }
-        } else {
-          session.user.isAdmin = false
-          session.user.canViewOffice = false
         }
       }
       return session

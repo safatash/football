@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Crest } from "@/components/league";
 import { Card, EmptyState } from "@/components/ui/card";
-import { PageTitle, PublicFrame, RedirectNotice, SeasonTabs } from "@/components/public";
+import { PageTitle, PublicFrame, RedirectNotice, SeasonTabs, NoSeasonYet } from "@/components/public";
 import { one, type PublicSearchParams } from "@/components/public/matches-page";
 import { resolvePublicSeason } from "@/lib/queries/public";
 import { loadSeasonStandings } from "@/lib/queries/standings";
@@ -18,7 +18,10 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function TeamsPage({ searchParams }: { searchParams: PublicSearchParams }) {
   const sp = await searchParams;
   const { season, active, seasons } = await resolvePublicSeason(one(sp.season));
-  if (!season) notFound();
+  if (!season) {
+    if (!seasons.length) return <NoSeasonYet title="Teams" />;
+    notFound();
+  }
   const divisions = await loadSeasonStandings(season.id);
 
   return (

@@ -145,14 +145,16 @@ export function DeleteButton({ label, title, body, action, doneHref }: { label: 
 
 export type SeasonFormValues = { id?: string; name: string; startDate: string; endDate: string; isActive: boolean };
 
-export function SeasonForm({ season, activeName }: { season?: SeasonFormValues; activeName: string }) {
+export function SeasonForm({ season, activeName, templates }: { season?: SeasonFormValues; activeName: string; templates?: { key: "ADULT_REC" | "BLANK"; label: string; description: string }[] }) {
   const { pending, error, errors, run } = useSave();
-  const [active, setActive] = useState(season?.isActive ?? false);
+  // A league's first season is active right away
+  const [active, setActive] = useState(season?.isActive ?? !!templates);
+  const [template, setTemplate] = useState<"ADULT_REC" | "BLANK">(templates?.[0]?.key ?? "BLANK");
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     const input = { name: str(f, "name"), startDate: str(f, "startDate"), endDate: str(f, "endDate"), makeActive: active };
-    run(() => (season?.id ? updateSeason({ ...input, id: season.id }) : createSeason(input)), () => `/admin/seasons?done=${season?.id ? "season-saved" : "season-created"}&what=${encodeURIComponent(input.name)}`);
+    run(() => (season?.id ? updateSeason({ ...input, id: season.id }) : createSeason({ ...input, template })), () => `/admin/seasons?done=${season?.id ? "season-saved" : "season-created"}&what=${encodeURIComponent(input.name)}`);
   }
   return (
     <form onSubmit={submit} noValidate className="flex max-w-[640px] flex-col gap-4">
@@ -176,6 +178,26 @@ export function SeasonForm({ season, activeName }: { season?: SeasonFormValues; 
           sub={season?.isActive ? "This is the active season. Make another season active to change it." : `Registration, the portal and public pages switch to this season (now ${activeName}).`}
         />
       </Card>
+      {templates ? (
+        <Card className="flex flex-col gap-3">
+          <h2 className="text-xl">Start from a template</h2>
+          <div role="radiogroup" aria-label="Season template" className="grid gap-3 sm:grid-cols-2">
+            {templates.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="radio"
+                aria-checked={template === t.key}
+                onClick={() => setTemplate(t.key)}
+                className={`flex flex-col gap-1 rounded-xl border p-3.5 text-left ${template === t.key ? "border-pitch bg-pitch-tint" : "border-line hover:bg-surface-2"}`}
+              >
+                <b>{t.label}</b>
+                <span className="text-[13px] text-muted">{t.description}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      ) : null}
       <FormActions pending={pending} label={season?.id ? "Save season" : "Create season"} cancelHref="/admin/seasons" />
     </form>
   );

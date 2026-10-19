@@ -153,9 +153,9 @@ export async function refereeScheduleEmail(opts: { name: string; weekLabel: stri
   return { subject, text: `${body}${footer(b)}`, html: layout(b, { title: "Your assignments", body: paras(body) }) };
 }
 
-export async function staffInviteEmail(opts: { role: "ADMIN" | "STAFF"; invitedBy: string; url: string | null }) {
+export async function staffInviteEmail(opts: { role: "OWNER" | "ADMIN" | "STAFF"; invitedBy: string; url: string | null }) {
   const b = await getBrand();
-  const what = opts.role === "ADMIN" ? "an admin of the league office" : "staff with view-only access to the league office";
+  const what = opts.role === "OWNER" ? "the owner of the league office" : opts.role === "ADMIN" ? "an admin of the league office" : "staff with view-only access to the league office";
   const subject = `You’re invited to the ${b.name} league office`;
   const body = `Hi,\n\n${opts.invitedBy} added you as ${what} for ${b.name}.${
     opts.url ? " Use this link to choose your password. It works once and expires in 7 days." : " Log in with your existing account to get started."

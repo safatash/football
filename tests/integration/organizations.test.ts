@@ -25,7 +25,7 @@ describe.skipIf(!hasDb)("organizations: every row belongs to a league (database)
     const tables = await prisma.$queryRawUnsafe<{ table_name: string }[]>(
       `SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'organizationId' AND table_name NOT IN ('organization_members', 'organization_settings')`,
     );
-    expect(tables.length).toBe(27);
+    expect(tables.length).toBe(28); // 27 league tables + impersonations
     // Rows must name their league: no organizationId column defaults to one
     const defaults = await prisma.$queryRawUnsafe<{ table_name: string }[]>(
       `SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'organizationId' AND column_default IS NOT NULL`,

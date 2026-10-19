@@ -3,7 +3,7 @@ import { getBrand } from "@/lib/branding";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/card";
-import { Leaders, PageTitle, PublicFrame, PublicStandings, RedirectNotice, SeasonTabs } from "@/components/public";
+import { Leaders, PageTitle, PublicFrame, PublicStandings, RedirectNotice, SeasonTabs, NoSeasonYet } from "@/components/public";
 import { one, type PublicSearchParams } from "@/components/public/matches-page";
 import { resolvePublicSeason } from "@/lib/queries/public";
 import { loadSeasonStandings, seasonLeaders, topBy } from "@/lib/queries/standings";
@@ -17,7 +17,10 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function StandingsPage({ searchParams }: { searchParams: PublicSearchParams }) {
   const sp = await searchParams;
   const { season, active, seasons } = await resolvePublicSeason(one(sp.season));
-  if (!season) notFound();
+  if (!season) {
+    if (!seasons.length) return <NoSeasonYet title="Standings" />;
+    notFound();
+  }
   const [divisions, leaders] = await Promise.all([loadSeasonStandings(season.id), seasonLeaders(season.id)]);
 
   return (

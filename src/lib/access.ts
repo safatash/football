@@ -3,7 +3,8 @@
  * admin in one league gives nothing in another. (Captains are team-scoped; see team-access.ts.)
  */
 import type { OrgRole } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, getOrgId } from "@/lib/db";
+import { effectiveRole } from "@/platform/identity";
 import { getSession } from "@/lib/session";
 import { ForbiddenError, UnauthorizedError } from "@/lib/team-access";
 
@@ -14,10 +15,9 @@ export const isOfficeRole = (role: OrgRole | null | undefined) => !!role && OFFI
 export const VIEW_OFFICE_ROLES: OrgRole[] = ["OWNER", "ADMIN", "STAFF"];
 export const canViewOffice = (role: OrgRole | null | undefined) => !!role && VIEW_OFFICE_ROLES.includes(role);
 
-/** A user's active membership in the current league, or null. */
+/** A user's role in the current league (membership, or the operator impersonating), or null. */
 export async function currentMembership(userId: string) {
-  const m = await db.organizationMember.findFirst({ where: { userId, status: "ACTIVE" } });
-  return m ?? null;
+  return effectiveRole(userId, await getOrgId());
 }
 
 /**

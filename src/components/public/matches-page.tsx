@@ -4,7 +4,7 @@ import { Icon } from "@/components/ui/icon";
 import { FilterChip } from "@/components/ui/table";
 import { divisionsOf, listPublicMatches, resolvePublicSeason } from "@/lib/queries/public";
 import { listTeams } from "@/lib/queries/teams";
-import { MatchList, PageTitle, PublicFrame, RedirectNotice, SeasonTabs } from "./index";
+import { MatchList, NoSeasonYet, PageTitle, PublicFrame, RedirectNotice, SeasonTabs } from "./index";
 
 export type PublicSearchParams = Promise<Record<string, string | string[] | undefined>>;
 export const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
@@ -13,7 +13,10 @@ export const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0
 export async function MatchesPage({ kind, searchParams }: { kind: "results" | "schedule"; searchParams: PublicSearchParams }) {
   const sp = await searchParams;
   const { season, active, seasons } = await resolvePublicSeason(one(sp.season));
-  if (!season) notFound();
+  if (!season) {
+    if (!seasons.length) return <NoSeasonYet title={kind === "results" ? "Results" : "Schedule"} />;
+    notFound();
+  }
   const division = one(sp.division);
   const team = one(sp.team);
   const q = one(sp.q).trim().slice(0, 60);

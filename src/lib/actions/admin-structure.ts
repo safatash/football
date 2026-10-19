@@ -6,6 +6,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { applySeasonTemplate } from "@/lib/season-templates";
 import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { checkEligibility } from "@/lib/eligibility";
@@ -37,6 +38,8 @@ const SeasonInput = z
     startDate: IsoDate,
     endDate: IsoDate,
     makeActive: z.boolean().default(false),
+    /** Starter divisions, positions and sizes (offered for a league's first season) */
+    template: z.enum(["ADULT_REC", "BLANK"]).default("BLANK"),
   })
   .refine((s) => s.endDate >= s.startDate, { message: "The season can’t end before it starts.", path: ["endDate"] });
 
@@ -68,10 +71,12 @@ export async function createSeason(input: z.input<typeof SeasonInput>): Promise<
           maxMatchRoster: active?.settings?.maxMatchRoster ?? null,
         },
       });
-      return s;
+      const added = await applySeasonTemplate(tx, data.template, s);
+      return { ...s, added };
     });
     refreshAll();
-    return { ok: true, message: `${season.name} created${data.makeActive ? " and made active" : ""}`, data: { id: season.id } };
+    const extra = season.added.divisions ? ` with ${season.added.divisions} starter divisions` : "";
+    return { ok: true, message: `${season.name} created${extra}${data.makeActive ? " and made active" : ""}`, data: { id: season.id } };
   });
 }
 

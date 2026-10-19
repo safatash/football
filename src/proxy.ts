@@ -4,6 +4,10 @@ import { isUnavailable, orgByDomain, orgBySlug, type OrgRef } from "@/platform/o
 
 /** Platform routes that don't belong to a league (they find the league themselves). */
 const PLATFORM_PATHS = [/^\/api\/stripe\/webhook$/, /^\/api\/cron\//];
+/** What the root domain (and admin.<root>) serves: signup, the operator area and sign-in. */
+const PLATFORM_HOST_PATHS = [/^\/$/, /^\/platform(\/|$)/, /^\/signup(\/|$)/, /^\/login(\/|$)/, /^\/api\/auth\//, /^\/favicon\.ico$/];
+/** Never on a league's own address. */
+const PLATFORM_ONLY = [/^\/platform(\/|$)/, /^\/signup(\/|$)/];
 /** Still open while a league is suspended, so its office can sign in and sort out billing. */
 const OPEN_WHEN_UNAVAILABLE = [/^\/login(\/|$)/, /^\/api\/auth\//, /^\/admin(\/|$)/, /^\/favicon\.ico$/];
 
@@ -36,6 +40,13 @@ export async function proxy(req: NextRequest) {
   if (PLATFORM_PATHS.some((p) => p.test(pathname))) return NextResponse.next({ request: { headers } });
 
   const match = parseHost(req.headers.get("host"));
+  if (match.kind === "root") {
+    // The platform: no league here
+    if (!PLATFORM_HOST_PATHS.some((p) => p.test(pathname))) return page(404, "Not found", "This page belongs to a league. Open it on the league’s own address.");
+    if (pathname === "/") return NextResponse.redirect(new URL("/signup", `${req.nextUrl.protocol}//${req.headers.get("host")}`));
+    return NextResponse.next({ request: { headers } });
+  }
+  if (PLATFORM_ONLY.some((p) => p.test(pathname))) return page(404, "Not found", "There’s nothing here.");
   let org: OrgRef | null = null;
   let remember: string | null = null;
   if (match.kind === "subdomain") org = await orgBySlug(match.slug);

@@ -396,3 +396,16 @@ export function RedirectNotice({ code }: { code: string }) {
   const text = NOTICES[code];
   return text ? <NoticeBox>{text}</NoticeBox> : null;
 }
+
+/** A new league before its first season: say so instead of a 404. */
+export async function NoSeasonYet({ title }: { title: string }) {
+  const brand = await getBrand();
+  return (
+    <PublicFrame>
+      <PageTitle title={title} />
+      <EmptyState icon="cal" title="The first season isn’t posted yet">
+        {brand.name} hasn’t published a season yet. Check back soon.
+      </EmptyState>
+    </PublicFrame>
+  );
+}

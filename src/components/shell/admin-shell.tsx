@@ -56,6 +56,7 @@ export function AdminShell({
     [
       "Settings",
       [
+        { href: "/admin/setup", label: "Setup checklist", icon: "check" },
         { href: "/admin/settings/league", label: "League profile", icon: "shield" },
         { href: "/admin/settings/staff", label: "Staff", icon: "users" },
         { href: "/admin/seasons", label: "Seasons", icon: "cal" },

@@ -10,7 +10,7 @@ import { Notice } from "@/components/ui/card";
 import { Field, TextInput } from "@/components/ui/field";
 import { Screen } from "@/components/shell/layout";
 
-export function LoginForm() {
+export function LoginForm({ platform = false }: { platform?: boolean }) {
   const brand = useBrand();
   const router = useRouter();
   const params = useSearchParams();
@@ -85,22 +85,33 @@ export function LoginForm() {
         </Button>
       </form>
 
-      <div className="flex flex-col gap-2 rounded-[var(--radius-card)] bg-surface-2 p-4">
-        <b>Can’t remember which email you used?</b>
-        <p className="text-[13.5px] text-muted">
-          Look yourself up with your date of birth and we’ll send a login link to the email on file.
+      {platform ? (
+        <p className="text-center text-[13.5px] text-muted">
+          Running a league?{" "}
+          <Link href="/signup" className="font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
+            Start one
+          </Link>
         </p>
-        <ButtonLink href="/retrieve" variant="ghost" size="sm" className="self-start">
-          Retrieve my player info
-        </ButtonLink>
-      </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-2 rounded-[var(--radius-card)] bg-surface-2 p-4">
+            <b>Can’t remember which email you used?</b>
+            <p className="text-[13.5px] text-muted">
+              Look yourself up with your date of birth and we’ll send a login link to the email on file.
+            </p>
+            <ButtonLink href="/retrieve" variant="ghost" size="sm" className="self-start">
+              Retrieve my player info
+            </ButtonLink>
+          </div>
 
-      <p className="text-center text-[13.5px] text-muted">
-        New to {brand.name}?{" "}
-        <Link href="/register" className="font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
-          Create an account
-        </Link>
-      </p>
+          <p className="text-center text-[13.5px] text-muted">
+            New to {brand.name}?{" "}
+            <Link href="/register" className="font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
+              Create an account
+            </Link>
+          </p>
+        </>
+      )}
     </Screen>
   );
 }

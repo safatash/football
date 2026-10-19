@@ -258,8 +258,35 @@ emails, social links, timezone and waiver come from the organization (`src/lib/b
 The timezone is saved per league, but dates still display in Eastern time: the formatters in
 `src/lib/format.ts` use one fixed zone, and making them per-league is a separate change.
 
-Planned: Postgres row-level security as a second layer (after measuring its cost), a
-platform/operator area, and per-league payments.
+**Platform layer (Phase 4).** The root domain (`APP_ROOT_DOMAIN`, also `admin.<root>`) is the
+platform, not a league: it serves `/signup`, `/platform` and sign-in, and nothing else. League
+addresses never serve `/platform` or `/signup`. Slugs such as `admin`, `www`, `api` and `platform`
+are reserved.
+
+- `/platform` (only `isPlatformAdmin`; everyone else gets a 404): every league with status, plan,
+  players, created date and last activity; a league page to change status or plan, extend the
+  trial, see usage, and **Impersonate admin**; and **New league** for manual onboarding (the owner
+  is emailed a link to set a password).
+- Impersonation makes the operator an ADMIN of that league for up to 60 minutes. A red banner
+  shows the whole time, with **Stop impersonating**; start and stop, and everything done meanwhile,
+  are in the league's audit log under the operator's email (`src/platform/organizations.ts`,
+  `Impersonation` model).
+- `/signup`: league name and address (checked as you type), email and password (or an existing
+  login with its password). It creates the league in `TRIAL` with `trialEndsAt` 30 days out, its
+  settings and an OWNER membership, then signs the owner in on the league's own address and opens
+  **Admin › Setup checklist** (profile, first season, divisions and fees, fields, staff, payments:
+  coming in Phase 5). A hidden honeypot field and a per-IP limit slow down scripted signups; there
+  is no email verification or CAPTCHA yet.
+- A league's first season can **start from a template**: "Adult rec league" (five adult divisions
+  with sample fees and age rules, positions, shirt sizes) or "Blank" (`src/lib/season-templates.ts`).
+- Sessions are per host, so moving between the platform and a league uses a short-lived one-time
+  sign-in link (`/login/link?token=…&next=…`).
+
+To try it locally: open `http://app.localhost:3000/signup`, or sign in at
+`http://app.localhost:3000/login?next=/platform` as `safatash@gmail.com` (seeded operator).
+
+Planned: Postgres row-level security as a second layer (after measuring its cost), and per-league
+payments (Phase 5 design).
 
 ### Checks
 
