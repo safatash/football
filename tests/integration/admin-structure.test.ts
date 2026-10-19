@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
+import { playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", async () => {
   const { default: prisma } = await import("@/lib/prisma");
@@ -41,8 +42,8 @@ describe.skipIf(!hasDb)("seasons, divisions, teams and matches (database)", asyn
     await cleanup();
     const a = await prisma.user.findUniqueOrThrow({ where: { email: "safatash@gmail.com" } });
     admin = { id: a.id, email: a.email, name: "Admin", isAdmin: true };
-    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { player: true } });
-    maya = { id: m.id, email: m.email, name: "Maya", playerId: m.player!.id };
+    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg() } });
+    maya = { id: m.id, email: m.email, name: "Maya", playerId: m.players[0]!.id };
     const season = await prisma.season.findFirstOrThrow({ where: { name: "Spring 2026" } });
     ids.season = season.id;
     ids.wp = (await prisma.division.findUniqueOrThrow({ where: { seasonId_code: { seasonId: season.id, code: "wp" } } })).id;

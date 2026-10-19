@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { DEFAULT_GAME_PASS_FEE, DEFAULT_MAX_MATCH_ROSTER } from "@/lib/league-data";
 import prisma from "@/lib/prisma";
+import { currentOrgId } from "@/lib/org";
 import { now } from "@/lib/clock";
 
 export type SeasonRef = { id: string; name: string; isActive: boolean; startDate: Date; endDate: Date };
@@ -31,12 +32,23 @@ export async function resolveSeason(name?: string | null): Promise<ResolvedSeaso
   return { ...picked, archived: isSeasonClosed(picked), activeName: active.name };
 }
 
+/**
+ * Settings for a season: the league-wide OrganizationSettings with this season's overrides
+ * (LeagueSettings) applied.
+ */
 export const getSettings = cache(async (seasonId: string) => {
-  const s = await prisma.leagueSettings.findUnique({ where: { seasonId } });
+  const [season, org] = await Promise.all([
+    prisma.leagueSettings.findUnique({ where: { seasonId } }),
+    prisma.organizationSettings.findUnique({ where: { organizationId: currentOrgId() } }),
+  ]);
   return {
-    gamePassFee: s ? Number(s.gamePassFee) : DEFAULT_GAME_PASS_FEE,
-    maxMatchRoster: s?.maxMatchRoster ?? DEFAULT_MAX_MATCH_ROSTER,
-    fairfaxCountyAllowed: s?.fairfaxCountyAllowed ?? true,
+    gamePassFee: season?.gamePassFee != null ? Number(season.gamePassFee) : org ? Number(org.gamePassFee) : DEFAULT_GAME_PASS_FEE,
+    maxMatchRoster: season?.maxMatchRoster ?? org?.maxMatchRoster ?? DEFAULT_MAX_MATCH_ROSTER,
+    gamePassesEnabled: org?.gamePassesEnabled ?? true,
+    eligibilityMode: org?.eligibilityMode ?? ("NONE" as const),
+    eligibleCounties: org?.eligibleCounties ?? [],
+    /** True when any address in the league's counties is eligible (NVASA: Fairfax County). */
+    countyAllowed: org?.eligibilityMode === "COUNTY_LIST",
   };
 });
 

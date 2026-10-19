@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
+import { playerInOrg, currentOrgId } from "@/lib/org";
 import { now } from "@/lib/clock";
 import { fullName, money as fmtMoney } from "@/lib/format";
 import { normalizeCode } from "@/lib/fees";
@@ -307,8 +308,13 @@ export async function saveSettings(input: z.input<typeof SettingsInput>): Promis
       }
       await tx.leagueSettings.upsert({
         where: { seasonId: data.seasonId },
-        update: { gamePassFee: data.gamePassFee, fairfaxCountyAllowed: data.fairfaxCountyAllowed },
-        create: { seasonId: data.seasonId, gamePassFee: data.gamePassFee, fairfaxCountyAllowed: data.fairfaxCountyAllowed },
+        update: { gamePassFee: data.gamePassFee },
+        create: { seasonId: data.seasonId, gamePassFee: data.gamePassFee },
+      });
+      // The county rule is league-wide (Phase 3 gives it its own settings page)
+      await tx.organizationSettings.update({
+        where: { organizationId: currentOrgId() },
+        data: { eligibilityMode: data.fairfaxCountyAllowed ? "COUNTY_LIST" : "ZIP_LIST" },
       });
     });
     refreshAdmin();
@@ -342,7 +348,7 @@ export async function createDiscountCode(input: z.input<typeof CodeInput>): Prom
     await requireAdminUser();
     await assertSeasonWritable(data.seasonId);
     const code = normalizeCode(data.code);
-    if (await prisma.discountCode.findUnique({ where: { code } })) throw new ActionError(`${code} already exists.`, 409);
+    if (await prisma.discountCode.findUnique({ where: { organizationId_code: { organizationId: currentOrgId(), code } } })) throw new ActionError(`${code} already exists.`, 409);
     if (data.teamId) {
       const team = await prisma.team.findUnique({ where: { id: data.teamId } });
       if (!team || team.seasonId !== data.seasonId) throw new ActionError("Pick a team from this season.", 400);
@@ -391,9 +397,9 @@ export async function addAllowedZip(input: { zip: string }): Promise<ActionResul
   return runAction(async () => {
     const { zip } = z.object({ zip: z.string().trim().regex(/^\d{5}$/, "Enter a 5-digit ZIP code.") }).parse(input);
     await requireAdminUser();
-    const existing = await prisma.allowedZipCode.findUnique({ where: { zipCode: zip } });
-    if (existing) throw new ActionError(existing.fairfaxCounty ? `${zip} is in Fairfax County.` : `${zip} is already allowed.`, 409);
-    await prisma.allowedZipCode.create({ data: { zipCode: zip, fairfaxCounty: false } });
+    const existing = await prisma.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: currentOrgId(), zipCode: zip } } });
+    if (existing) throw new ActionError(existing.county ? `${zip} is in ${existing.county}.` : `${zip} is already allowed.`, 409);
+    await prisma.allowedZipCode.create({ data: { zipCode: zip, county: null } });
     refreshAdmin();
     return { ok: true, message: `${zip} added` };
   });
@@ -403,7 +409,7 @@ export async function removeAllowedZip(input: { zip: string }): Promise<ActionRe
   return runAction(async () => {
     const { zip } = z.object({ zip: z.string().trim().regex(/^\d{5}$/) }).parse(input);
     await requireAdminUser();
-    const res = await prisma.allowedZipCode.deleteMany({ where: { zipCode: zip, fairfaxCounty: false } });
+    const res = await prisma.allowedZipCode.deleteMany({ where: { zipCode: zip, county: null } });
     if (!res.count) throw new ActionError(`${zip} isn’t on the extra list.`, 404);
     refreshAdmin();
     return { ok: true, message: `${zip} removed` };
@@ -421,7 +427,7 @@ export async function addBlock(input: { entry: string; reason?: string }): Promi
   return runAction(async () => {
     const data = z.object({ entry: BlockEntry, reason: z.string().trim().max(200).optional() }).parse(input);
     const admin = await requireAdminUser();
-    if (await prisma.blocklist.findUnique({ where: { email: data.entry } })) throw new ActionError(`${data.entry} is already blocked.`, 409);
+    if (await prisma.blocklist.findUnique({ where: { organizationId_email: { organizationId: currentOrgId(), email: data.entry } } })) throw new ActionError(`${data.entry} is already blocked.`, 409);
     await prisma.blocklist.create({ data: { email: data.entry, reason: data.reason || null, blockedBy: admin.email } });
     refreshAdmin();
     return { ok: true, message: `${data.entry} blocked` };
@@ -518,11 +524,11 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
     }
     const team = data.teamId ? await teamForRoster(data.teamId) : null;
     if (team) await assertJerseyFree(team.id, data.jerseyNumber ?? null);
-    const zip = data.zip ? await prisma.allowedZipCode.findUnique({ where: { zipCode: data.zip } }) : null;
+    const zip = data.zip ? await prisma.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: currentOrgId(), zipCode: data.zip } } }) : null;
 
     const warnings: string[] = [];
     if (await blocklistHit(data.email)) warnings.push(`${data.email} is on the blocklist.`);
-    if (data.zip && !(await zipEligible(team?.seasonId ?? (await prisma.season.findFirst({ where: { isActive: true }, select: { id: true } }))?.id ?? "", { zip: data.zip, fairfaxCounty: !!zip?.fairfaxCounty }))) {
+    if (data.zip && !(await zipEligible(team?.seasonId ?? (await prisma.season.findFirst({ where: { isActive: true }, select: { id: true } }))?.id ?? "", { zip: data.zip, county: zip?.county ?? null }))) {
       warnings.push(`ZIP ${data.zip} isn’t in the league’s eligible area.`);
     }
     if (team) {
@@ -541,8 +547,10 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
         data: {
           email: data.email,
           password: await hashPassword(randomBytes(24).toString("base64url")),
-          player: {
+          memberships: { create: { organizationId: currentOrgId(), role: "PLAYER", joinedAt: new Date() } },
+          players: {
             create: {
+              organizationId: currentOrgId(),
               firstName: data.firstName,
               lastName: data.lastName,
               gender: data.gender,
@@ -552,7 +560,7 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
               city: data.city || zip?.city || "",
               state: data.state,
               zip: data.zip,
-              fairfaxCounty: Boolean(zip?.fairfaxCounty),
+              county: zip?.county ?? null,
               position: data.position,
               tshirtSize: data.tshirtSize,
               emergencyContactName: data.emergencyName || null,
@@ -568,9 +576,9 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
             },
           },
         },
-        include: { player: true },
+        include: { players: playerInOrg() },
       });
-      const player = user.player!;
+      const player = user.players[0]!;
       await audit(tx, admin, {
         action: "player.created",
         entityType: "player",
@@ -754,7 +762,14 @@ export async function setLeagueOfficeAccess(input: { email: string; admin: boole
       throw new ActionError(`${user.email} is listed in ADMIN_EMAILS, so it stays an admin. Remove it from that setting to revoke access.`, 409);
     }
     if ((user.role === "ADMIN") === data.admin) throw new ActionError(data.admin ? `${user.email} already has league-office access.` : `${user.email} isn’t an admin.`, 409);
-    await prisma.user.update({ where: { id: user.id }, data: { role: data.admin ? "ADMIN" : "PLAYER" } });
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: user.id }, data: { role: data.admin ? "ADMIN" : "PLAYER" } }),
+      // Keep the league membership in step (Phase 2 makes memberships the source of truth); owners stay owners
+      prisma.organizationMember.updateMany({
+        where: { userId: user.id, organizationId: currentOrgId(), role: { not: "OWNER" } },
+        data: { role: data.admin ? "ADMIN" : "PLAYER" },
+      }),
+    ]);
     refreshAdmin();
     return { ok: true, message: data.admin ? `${user.email} can now use the league office` : `League-office access removed for ${user.email}` };
   });

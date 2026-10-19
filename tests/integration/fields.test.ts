@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
+import { NVASA_ORG_ID, playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("parks and fields (database)", async () => {
   const { default: prisma } = await import("@/lib/prisma");
@@ -24,9 +25,9 @@ describe.skipIf(!hasDb)("parks and fields (database)", async () => {
     await cleanup();
     const a = await prisma.user.findUniqueOrThrow({ where: { email: "safatash@gmail.com" } });
     office = { id: a.id, email: a.email, name: "Office", isAdmin: true };
-    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { player: true } });
-    maya = { id: m.id, email: m.email, name: "Maya", playerId: m.player!.id };
-    const wak = await prisma.park.findUniqueOrThrow({ where: { name: "Wakefield Park" } });
+    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg() } });
+    maya = { id: m.id, email: m.email, name: "Maya", playerId: m.players[0]!.id };
+    const wak = await prisma.park.findUniqueOrThrow({ where: { organizationId_name: { organizationId: NVASA_ORG_ID, name: "Wakefield Park" } } });
     ids.wakefield = wak.id;
     ids.wak3 = (await prisma.field.findUniqueOrThrow({ where: { parkId_name: { parkId: wak.id, name: "3" } } })).id;
   });

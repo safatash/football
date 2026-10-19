@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
+import { NVASA_ORG_ID, playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("admin actions (database)", async () => {
   const { default: prisma } = await import("@/lib/prisma");
@@ -13,8 +14,8 @@ describe.skipIf(!hasDb)("admin actions (database)", async () => {
   const users = {} as Record<string, TestUser>;
 
   async function userFor(email: string, isAdmin = false): Promise<TestUser> {
-    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { player: true } });
-    return { id: u.id, email: u.email, name: u.email, playerId: u.player?.id, isAdmin };
+    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { players: playerInOrg() } });
+    return { id: u.id, email: u.email, name: u.email, playerId: u.players[0]?.id, isAdmin };
   }
   const as = (who: string | null) => (auth.user = who ? users[who] : null);
   const post = (handler: (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => Promise<Response>, id: string, body: unknown) =>
@@ -150,10 +151,10 @@ describe.skipIf(!hasDb)("admin actions (database)", async () => {
 
     expect(await admin.createDiscountCode({ seasonId: ids.season, code: "itest5", kind: "PROMO", type: "PERCENT", value: 150 })).toMatchObject({ ok: false, status: 400 });
     expect(await admin.createDiscountCode({ seasonId: ids.season, code: "itest5", kind: "PROMO", type: "AMOUNT", value: 5, maxUses: 10 })).toMatchObject({ ok: true });
-    const created = await prisma.discountCode.findUniqueOrThrow({ where: { code: "ITEST5" } });
+    const created = await prisma.discountCode.findUniqueOrThrow({ where: { organizationId_code: { organizationId: NVASA_ORG_ID, code: "ITEST5" } } });
     expect(await admin.setDiscountCodeActive({ id: created.id, active: false })).toMatchObject({ ok: true });
     expect(await admin.deleteDiscountCode({ id: created.id })).toMatchObject({ ok: true });
-    const used = await prisma.discountCode.findUniqueOrThrow({ where: { code: "SPRING10" } });
+    const used = await prisma.discountCode.findUniqueOrThrow({ where: { organizationId_code: { organizationId: NVASA_ORG_ID, code: "SPRING10" } } });
     expect(await admin.deleteDiscountCode({ id: used.id })).toMatchObject({ ok: false, status: 409 });
 
     expect(await admin.addAllowedZip({ zip: "22030" })).toMatchObject({ ok: false, status: 409 });

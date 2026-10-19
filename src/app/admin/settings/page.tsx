@@ -50,7 +50,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
         divisions={divisions}
         gamePassFee={settings.gamePassFee}
         discountCodes={codes}
-        fairfaxCountyAllowed={settings.fairfaxCountyAllowed}
+        fairfaxCountyAllowed={settings.countyAllowed}
         zips={zips}
         blocklist={blocklist}
         readOnly={season.archived}

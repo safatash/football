@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
+import { playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("player and league-office admin tools (database)", async () => {
   const { default: prisma } = await import("@/lib/prisma");
@@ -11,8 +12,8 @@ describe.skipIf(!hasDb)("player and league-office admin tools (database)", async
   const users = {} as Record<string, TestUser>;
 
   async function userFor(email: string, isAdmin = false): Promise<TestUser> {
-    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { player: true } });
-    return { id: u.id, email: u.email, name: u.email, playerId: u.player?.id, isAdmin };
+    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { players: playerInOrg() } });
+    return { id: u.id, email: u.email, name: u.email, playerId: u.players[0]?.id, isAdmin };
   }
   const as = (who: string | null) => (auth.user = who ? users[who] : null);
 
@@ -61,10 +62,11 @@ describe.skipIf(!hasDb)("player and league-office admin tools (database)", async
       as("admin");
       const res = await admin.createPlayerAccount({ ...base, teamId: ids.alx, jerseyNumber: 99 });
       expect(res).toMatchObject({ ok: true });
-      const user = await prisma.user.findUniqueOrThrow({ where: { email: NEW_EMAIL }, include: { player: { include: { teamMemberships: true } } } });
+      const user = await prisma.user.findUniqueOrThrow({ where: { email: NEW_EMAIL }, include: { players: {
+          ...playerInOrg(), include: { teamMemberships: true } } } });
       expect(user.role).toBe("PLAYER");
-      expect(user.player).toMatchObject({ finalApproval: "APPROVED", status: "ACTIVE", city: "Fairfax", fairfaxCounty: true });
-      expect(user.player!.teamMemberships).toMatchObject([{ teamId: ids.alx, jerseyNumber: 99, membershipType: "SEASONAL", leftAt: null }]);
+      expect(user.players[0]).toMatchObject({ finalApproval: "APPROVED", status: "ACTIVE", city: "Fairfax", county: "Fairfax County, VA" });
+      expect(user.players[0]!.teamMemberships).toMatchObject([{ teamId: ids.alx, jerseyNumber: 99, membershipType: "SEASONAL", leftAt: null }]);
       const token = await prisma.verificationToken.findFirstOrThrow({ where: { identifier: `reset:${user.id}` } });
       expect(token.expires.getTime() - Date.now()).toBeGreaterThan(6 * 24 * 3600_000);
     });

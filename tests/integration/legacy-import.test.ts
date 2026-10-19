@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasDb } from "./setup";
+import { NVASA_ORG_ID } from "@/lib/org";
 import type { LegacyReader } from "@/lib/legacy-import";
 
 const DS = "itestspring2024";
@@ -66,7 +67,7 @@ describe.skipIf(!hasDb)("legacy import (database)", async () => {
       await prisma.season.delete({ where: { id: season.id } });
     }
     await prisma.suspension.deleteMany({ where: { reason: { contains: "Itest Spring 2024" } } });
-    await prisma.user.deleteMany({ where: { player: { legacyKey: { in: ["legacy:501", "legacy:502", "legacy:503", "legacy:504"] } } } });
+    await prisma.user.deleteMany({ where: { players: { some: { legacyKey: { in: ["legacy:501", "legacy:502", "legacy:503", "legacy:504"] } } } } });
     await prisma.field.deleteMany({ where: { legacyId: 7001 } });
     await prisma.park.deleteMany({ where: { name: "Itest Park", fields: { none: {} } } });
   }
@@ -116,17 +117,17 @@ describe.skipIf(!hasDb)("legacy import (database)", async () => {
   });
 
   it("maps players and roster without importing passwords", async () => {
-    const ivy = await prisma.player.findUniqueOrThrow({ where: { legacyKey: "legacy:501" }, include: { user: true, teamMemberships: true } });
+    const ivy = await prisma.player.findUniqueOrThrow({ where: { organizationId_legacyKey: { organizationId: NVASA_ORG_ID, legacyKey: "legacy:501" } }, include: { user: true, teamMemberships: true } });
     expect(ivy.user.email).toBe("ivy.testa@example.com");
     expect(ivy.teamMemberships).toMatchObject([{ jerseyNumber: 9, isCaptain: true, membershipType: "SEASONAL" }]);
-    const bea = await prisma.player.findUniqueOrThrow({ where: { legacyKey: "legacy:502" }, include: { user: true, suspensions: true } });
+    const bea = await prisma.player.findUniqueOrThrow({ where: { organizationId_legacyKey: { organizationId: NVASA_ORG_ID, legacyKey: "legacy:502" } }, include: { user: true, suspensions: true } });
     expect(bea.user.email).toBe("legacy-player-502@nvasa.invalid");
     expect(bea.suspensions).toHaveLength(1);
     expect(bea.suspensions[0].endsAt?.toISOString().slice(0, 10)).toBe("2024-06-30");
-    const cara = await prisma.player.findUniqueOrThrow({ where: { legacyKey: "legacy:503" } });
+    const cara = await prisma.player.findUniqueOrThrow({ where: { organizationId_legacyKey: { organizationId: NVASA_ORG_ID, legacyKey: "legacy:503" } } });
     expect(cara.dob.toISOString().slice(0, 10)).toBe("1900-01-01");
     // Unapproved roster rows don't become roster spots
-    const dee = await prisma.player.findUniqueOrThrow({ where: { legacyKey: "legacy:504" }, include: { teamMemberships: true } });
+    const dee = await prisma.player.findUniqueOrThrow({ where: { organizationId_legacyKey: { organizationId: NVASA_ORG_ID, legacyKey: "legacy:504" } }, include: { teamMemberships: true } });
     expect(dee.teamMemberships).toHaveLength(0);
     // The existing account was adopted by email, not duplicated
     expect(await prisma.user.count({ where: { email: { equals: "maya.johnson@example.com", mode: "insensitive" } } })).toBe(1);
@@ -147,7 +148,7 @@ describe.skipIf(!hasDb)("legacy import (database)", async () => {
     expect(g7.venue).toMatchObject({ name: "2", park: { name: "Itest Park", address: "1 Test Rd", city: "Fairfax", zip: "22030" } });
     const unplayed = await prisma.match.findUniqueOrThrow({ where: { seasonId_legacyId: { seasonId: season.id, legacyId: 303 } } });
     expect(unplayed).toMatchObject({ gameNumber: 100303, status: "SCHEDULED", homeScore: null });
-    const cara = await prisma.player.findUniqueOrThrow({ where: { legacyKey: "legacy:503" } });
+    const cara = await prisma.player.findUniqueOrThrow({ where: { organizationId_legacyKey: { organizationId: NVASA_ORG_ID, legacyKey: "legacy:503" } } });
     const line = await prisma.playerMatchStat.findFirstOrThrow({ where: { playerId: cara.id, report: { matchId: g7.id } } });
     expect(line).toMatchObject({ assists: 1, red: 1, inGame: "IN", note: "Ref note · Cards: R SFP" });
 

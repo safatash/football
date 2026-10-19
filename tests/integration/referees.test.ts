@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
+import { playerInOrg } from "@/lib/org";
 
 describe.skipIf(!hasDb)("referees and match officials (database)", async () => {
   const { default: prisma } = await import("@/lib/prisma");
@@ -26,8 +27,8 @@ describe.skipIf(!hasDb)("referees and match officials (database)", async () => {
     ids.wp = (await prisma.division.findUniqueOrThrow({ where: { seasonId_code: { seasonId: season.id, code: "wp" } } })).id;
     const a = await prisma.user.findUniqueOrThrow({ where: { email: "safatash@gmail.com" } });
     office = { id: a.id, email: a.email, name: "Office", isAdmin: true };
-    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { player: true } });
-    maya = { id: m.id, email: m.email, name: "Maya", playerId: m.player!.id };
+    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg() } });
+    maya = { id: m.id, email: m.email, name: "Maya", playerId: m.players[0]!.id };
     const matches = await prisma.match.findMany({ where: { seasonId: season.id, gameNumber: { in: games } }, include: { officials: true } });
     saved = matches.flatMap((x) => x.officials.map((o) => ({ matchId: o.matchId, role: o.role, refereeId: o.refereeId, status: o.status })));
     await prisma.referee.deleteMany({ where: { name: { startsWith: "Itest" }, assignments: { none: {} } } });

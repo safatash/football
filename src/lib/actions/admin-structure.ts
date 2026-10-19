@@ -64,9 +64,8 @@ export async function createSeason(input: z.input<typeof SeasonInput>): Promise<
       await tx.leagueSettings.create({
         data: {
           seasonId: s.id,
-          gamePassFee: active?.settings?.gamePassFee ?? 15,
-          maxMatchRoster: active?.settings?.maxMatchRoster ?? 18,
-          fairfaxCountyAllowed: active?.settings?.fairfaxCountyAllowed ?? true,
+          gamePassFee: active?.settings?.gamePassFee ?? null,
+          maxMatchRoster: active?.settings?.maxMatchRoster ?? null,
         },
       });
       return s;

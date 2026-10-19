@@ -23,10 +23,13 @@ model User {
   updatedAt DateTime @updatedAt
 
   // One-to-one relationship with Player profile
-  player Player?
+  players Player[] // one profile per league
 
   paymentsRecorded Payment[]  @relation("PaymentRecordedBy")
   auditEntries     AuditLog[]
+
+  isPlatformAdmin Boolean              @default(false) // the SaaS operator (not a league role)
+  memberships     OrganizationMember[]
 
   // Auth.js required fields
   accounts Account[]
@@ -84,9 +87,11 @@ model VerificationToken {
 // ============================================
 
 model Player {
-  id     String @id @default(cuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Personal Information
   firstName String
@@ -96,11 +101,11 @@ model Player {
   phone     String
 
   // Address
-  address       String
-  city          String
-  state         String
-  zip           String
-  fairfaxCounty Boolean @default(false) // Geographic restriction
+  address String
+  city    String
+  state   String
+  zip     String
+  county  String? // county of the home address (from the ZIP), used by county eligibility
 
   emergencyContactName  String?
   emergencyContactPhone String?
@@ -115,7 +120,7 @@ model Player {
   photoUrl String? // shown publicly only when `social` is true
 
   /// Stable key from the old site (email, or legacy id when there's no email)
-  legacyKey String? @unique
+  legacyKey String?
 
   // Registration Status
   finalApproval ApprovalStatus @default(NEEDS_REVIEW)
@@ -145,6 +150,10 @@ model Player {
   captainRequests CaptainRequest[]
   suspensions     Suspension[]
 
+  @@unique([userId, organizationId]) // one profile per person per league
+  @@unique([organizationId, legacyKey])
+  @@unique([id, organizationId])
+  @@index([organizationId])
   @@map("players")
 }
 
@@ -172,14 +181,16 @@ enum PlayerStatus {
 // ============================================
 
 model Season {
-  id               String   @id @default(cuid())
-  name             String   @unique // e.g., "Fall 2024"
-  slug             String   @unique // URL form, e.g. "spring-2026"
+  id               String       @id @default(cuid())
+  organizationId   String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  name             String // e.g., "Fall 2024"
+  slug             String // URL form, e.g. "spring-2026"
   /// The old site's per-season MySQL database name, e.g. "spring2026"
-  legacyDatasource String?  @unique
+  legacyDatasource String?
   startDate        DateTime
   endDate          DateTime
-  isActive         Boolean  @default(false) // Only one season should be active
+  isActive         Boolean      @default(false) // Only one season should be active
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -192,13 +203,20 @@ model Season {
   discountCodes DiscountCode[]
   settings      LeagueSettings?
 
+  @@unique([organizationId, name])
+  @@unique([organizationId, slug])
+  @@unique([organizationId, legacyDatasource])
+  @@unique([id, organizationId])
+  @@index([organizationId])
   @@map("seasons")
 }
 
 model Division {
-  id       String @id @default(cuid())
-  seasonId String
-  season   Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  seasonId       String
+  season         Season       @relation(fields: [seasonId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   code            String // short code used in URLs, e.g. "wp"
   name            String
@@ -240,6 +258,8 @@ model Division {
   @@unique([seasonId, name])
   @@unique([seasonId, code])
   @@unique([seasonId, legacyId])
+  @@unique([id, organizationId])
+  @@index([organizationId])
   @@map("divisions")
 }
 
@@ -250,11 +270,13 @@ enum GenderRule {
 }
 
 model Team {
-  id         String   @id @default(cuid())
-  seasonId   String
-  season     Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  divisionId String
-  division   Division @relation(fields: [divisionId], references: [id])
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  seasonId       String
+  season         Season       @relation(fields: [seasonId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  divisionId     String
+  division       Division     @relation(fields: [divisionId, organizationId], references: [id, organizationId])
 
   code      String? // short code, unique per season, e.g. "ffx"
   name      String
@@ -275,7 +297,7 @@ model Team {
   legacyId   Int? // teamdiv.id in the old site's season database
 
   // Team paid in full code
-  paidInFullCode String? @unique // pf code for free registration
+  paidInFullCode String? // pf code for free registration
 
   maxPlayers Int @default(20) // Team capacity
 
@@ -298,7 +320,10 @@ model Team {
   @@unique([seasonId, name]) // team names are unique within a season
   @@unique([seasonId, code])
   @@unique([seasonId, legacyId])
+  @@unique([organizationId, paidInFullCode])
+  @@unique([id, organizationId])
   @@index([divisionId])
+  @@index([organizationId])
   @@map("teams")
 }
 
@@ -318,13 +343,15 @@ enum TeamStatus {
 // ============================================
 
 model TeamRoster {
-  id         String   @id @default(cuid())
-  playerId   String
-  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  teamId     String
-  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  divisionId String
-  division   Division @relation(fields: [divisionId], references: [id])
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  playerId       String
+  player         Player       @relation(fields: [playerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  teamId         String
+  team           Team         @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  divisionId     String
+  division       Division     @relation(fields: [divisionId, organizationId], references: [id, organizationId])
 
   // Membership Type
   membershipType MembershipType @default(SEASONAL)
@@ -352,8 +379,10 @@ model TeamRoster {
   matchRosterEntries MatchRosterEntry[]
 
   @@unique([playerId, teamId, membershipType, matchId])
+  @@unique([id, organizationId])
   @@index([teamId, leftAt])
   @@index([matchId])
+  @@index([organizationId])
   @@map("team_rosters")
 }
 
@@ -379,11 +408,13 @@ enum LineupStatus {
 // ============================================
 
 model Registration {
-  id       String @id @default(cuid())
-  playerId String
-  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  seasonId String
-  season   Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  playerId       String
+  player         Player       @relation(fields: [playerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  seasonId       String
+  season         Season       @relation(fields: [seasonId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   // Registration Type
   registrationType RegistrationType @default(NEW_PLAYER)
@@ -395,7 +426,7 @@ model Registration {
   backupTeamId    String?
   backupTeam      Team?     @relation("BackupTeam", fields: [backupTeamId], references: [id], onDelete: SetNull)
 
-  number Int @unique @default(autoincrement()) // shown as "R-2041"
+  number Int @default(autoincrement()) // shown as "R-2041"
 
   background  PlayerBackground @default(NEW)
   level       String? // self-reported playing level
@@ -423,6 +454,8 @@ model Registration {
 
   createdByAdminId String? // set when the league office created it (Add player)
 
+  waiverAcceptedAt DateTime? // when the player accepted the league waiver
+
   submittedAt DateTime  @default(now())
   approvedAt  DateTime?
   rejectedAt  DateTime?
@@ -432,9 +465,11 @@ model Registration {
 
   captainRequestRows CaptainRequest[]
 
+  @@unique([organizationId, number])
   @@index([seasonId, status])
   @@index([playerId])
   @@index([placementState])
+  @@index([organizationId])
   @@map("registrations")
 }
 
@@ -489,17 +524,19 @@ enum PaymentMethod {
 // ============================================
 
 model GamePass {
-  id       String  @id @default(cuid())
-  playerId String
-  player   Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  matchId  String
-  match    Match   @relation(fields: [matchId], references: [id])
-  teamId   String?
-  team     Team?   @relation(fields: [teamId], references: [id])
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  playerId       String
+  player         Player       @relation(fields: [playerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  matchId        String
+  match          Match        @relation(fields: [matchId, organizationId], references: [id, organizationId])
+  teamId         String?
+  team           Team?        @relation(fields: [teamId], references: [id])
 
   // Payment
   paymentId String  @unique
-  payment   Payment @relation(fields: [paymentId], references: [id])
+  payment   Payment @relation(fields: [paymentId, organizationId], references: [id, organizationId])
 
   // Status
   status GamePassStatus @default(ACTIVE)
@@ -516,8 +553,10 @@ model GamePass {
   teamRoster TeamRoster?
 
   @@unique([playerId, matchId])
+  @@unique([paymentId, organizationId])
   @@index([matchId, status])
   @@index([status, validUntil])
+  @@index([organizationId])
   @@map("game_passes")
 }
 
@@ -533,18 +572,20 @@ enum GamePassStatus {
 // ============================================
 
 model Match {
-  id         String    @id @default(cuid())
-  seasonId   String
-  season     Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  divisionId String?
-  division   Division? @relation(fields: [divisionId], references: [id], onDelete: SetNull)
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  seasonId       String
+  season         Season       @relation(fields: [seasonId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  divisionId     String?
+  division       Division?    @relation(fields: [divisionId], references: [id], onDelete: SetNull)
 
   gameNumber Int // shown as "Game #204", unique per season
 
   homeTeamId String
-  homeTeam   Team   @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  homeTeam   Team   @relation("HomeTeam", fields: [homeTeamId, organizationId], references: [id, organizationId])
   awayTeamId String
-  awayTeam   Team   @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  awayTeam   Team   @relation("AwayTeam", fields: [awayTeamId, organizationId], references: [id, organizationId])
 
   scheduledAt DateTime
   startTime   DateTime?
@@ -578,10 +619,12 @@ model Match {
 
   @@unique([seasonId, gameNumber])
   @@unique([seasonId, legacyId])
+  @@unique([id, organizationId])
   @@index([seasonId, scheduledAt])
   @@index([fieldId])
   @@index([homeTeamId])
   @@index([awayTeamId])
+  @@index([organizationId])
   @@map("matches")
 }
 
@@ -598,33 +641,38 @@ enum ReportStatus {
 // ============================================
 
 model MatchAvailability {
-  id           String             @id @default(cuid())
-  matchId      String
-  match        Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  teamRosterId String
-  teamRoster   TeamRoster         @relation(fields: [teamRosterId], references: [id], onDelete: Cascade)
-  status       AvailabilityStatus
-  note         String?
-  updatedById  String? // user who set it (the player or a captain)
+  id             String             @id @default(cuid())
+  organizationId String             @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  matchId        String
+  match          Match              @relation(fields: [matchId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  teamRosterId   String
+  teamRoster     TeamRoster         @relation(fields: [teamRosterId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  status         AvailabilityStatus
+  note           String?
+  updatedById    String? // user who set it (the player or a captain)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([matchId, teamRosterId])
   @@index([teamRosterId])
+  @@index([organizationId])
   @@map("match_availability")
 }
 
 model MatchRoster {
-  id            String            @id @default(cuid())
-  matchId       String
-  match         Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  teamId        String
-  team          Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  status        MatchRosterStatus @default(DRAFT)
-  formation     String? // e.g. "4-4-2"
-  finalizedAt   DateTime?
-  finalizedById String?
+  id             String            @id @default(cuid())
+  organizationId String            @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  matchId        String
+  match          Match             @relation(fields: [matchId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  teamId         String
+  team           Team              @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  status         MatchRosterStatus @default(DRAFT)
+  formation      String? // e.g. "4-4-2"
+  finalizedAt    DateTime?
+  finalizedById  String?
 
   entries MatchRosterEntry[]
 
@@ -632,7 +680,9 @@ model MatchRoster {
   updatedAt DateTime @updatedAt
 
   @@unique([matchId, teamId])
+  @@unique([id, organizationId])
   @@index([teamId])
+  @@index([organizationId])
   @@map("match_rosters")
 }
 
@@ -642,33 +692,38 @@ enum MatchRosterStatus {
 }
 
 model MatchRosterEntry {
-  id            String      @id @default(cuid())
-  matchRosterId String
-  matchRoster   MatchRoster @relation(fields: [matchRosterId], references: [id], onDelete: Cascade)
-  teamRosterId  String
-  teamRoster    TeamRoster  @relation(fields: [teamRosterId], references: [id], onDelete: Cascade)
-  lineupSlot    String? // e.g. "GK", "LCB"; null = bench
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  matchRosterId  String
+  matchRoster    MatchRoster  @relation(fields: [matchRosterId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  teamRosterId   String
+  teamRoster     TeamRoster   @relation(fields: [teamRosterId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  lineupSlot     String? // e.g. "GK", "LCB"; null = bench
 
   @@unique([matchRosterId, teamRosterId])
   @@unique([matchRosterId, lineupSlot])
   @@index([teamRosterId])
+  @@index([organizationId])
   @@map("match_roster_entries")
 }
 
 model MatchReport {
-  id            String       @id @default(cuid())
-  matchId       String
-  match         Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  teamId        String // the reporting team
-  team          Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  homeScore     Int?
-  awayScore     Int?
-  redCardNote   String?
-  status        ReportStatus @default(DRAFT)
-  submittedById String?
-  submittedAt   DateTime?
-  confirmedById String?
-  confirmedAt   DateTime?
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  matchId        String
+  match          Match        @relation(fields: [matchId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  teamId         String // the reporting team
+  team           Team         @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  homeScore      Int?
+  awayScore      Int?
+  redCardNote    String?
+  status         ReportStatus @default(DRAFT)
+  submittedById  String?
+  submittedAt    DateTime?
+  confirmedById  String?
+  confirmedAt    DateTime?
 
   stats PlayerMatchStat[]
 
@@ -676,27 +731,32 @@ model MatchReport {
   updatedAt DateTime @updatedAt
 
   @@unique([matchId, teamId])
+  @@unique([id, organizationId])
   @@index([teamId])
   @@index([status])
+  @@index([organizationId])
   @@map("match_reports")
 }
 
 model PlayerMatchStat {
-  id           String      @id @default(cuid())
-  reportId     String
-  report       MatchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  playerId     String
-  player       Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  goals        Int         @default(0)
-  assists      Int         @default(0)
-  yellow       Int         @default(0)
-  secondYellow Int         @default(0)
-  red          Int         @default(0)
-  inGame       InGame      @default(IN)
-  note         String?
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reportId       String
+  report         MatchReport  @relation(fields: [reportId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  playerId       String
+  player         Player       @relation(fields: [playerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  goals          Int          @default(0)
+  assists        Int          @default(0)
+  yellow         Int          @default(0)
+  secondYellow   Int          @default(0)
+  red            Int          @default(0)
+  inGame         InGame       @default(IN)
+  note           String?
 
   @@unique([reportId, playerId])
   @@index([playerId])
+  @@index([organizationId])
   @@map("player_match_stats")
 }
 
@@ -709,35 +769,42 @@ enum InGame {
 /// A playing field. Matches point here for directions on public pages.
 /// A park or complex. The address lives here once; its fields are the playing surfaces.
 model Park {
-  id      String  @id @default(cuid())
-  name    String  @unique // e.g. "Wakefield Park"
-  address String? // street
-  city    String?
-  state   String? // VA / MD / DC
-  zip     String?
-  mapUrl  String? // optional map link; otherwise one is built from the address
-  notes   String? // parking and directions, shown to players
-  isDemo  Boolean @default(false) // sample park from the seed; removed by Settings › Demo data
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  name           String // e.g. "Wakefield Park"
+  address        String? // street
+  city           String?
+  state          String? // VA / MD / DC
+  zip            String?
+  mapUrl         String? // optional map link; otherwise one is built from the address
+  notes          String? // parking and directions, shown to players
+  isDemo         Boolean      @default(false) // sample park from the seed; removed by Settings › Demo data
 
   fields Field[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([organizationId, name])
+  @@unique([id, organizationId])
+  @@index([organizationId])
   @@map("parks")
 }
 
 model Field {
-  id       String       @id @default(cuid())
-  parkId   String
-  park     Park         @relation(fields: [parkId], references: [id])
-  name     String // field within the park, e.g. "3" or "North"
-  surface  FieldSurface @default(GRASS)
-  lights   Boolean      @default(false)
-  size     FieldSize    @default(FULL)
-  active   Boolean      @default(true) // inactive fields are hidden when scheduling
-  notes    String?
-  legacyId Int?         @unique // fields.id in the old site (shared across seasons)
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parkId         String
+  park           Park         @relation(fields: [parkId, organizationId], references: [id, organizationId])
+  name           String // field within the park, e.g. "3" or "North"
+  surface        FieldSurface @default(GRASS)
+  lights         Boolean      @default(false)
+  size           FieldSize    @default(FULL)
+  active         Boolean      @default(true) // inactive fields are hidden when scheduling
+  notes          String?
+  legacyId       Int? // fields.id in the old site (shared across seasons)
 
   matches Match[]
 
@@ -745,6 +812,8 @@ model Field {
   updatedAt DateTime @updatedAt
 
   @@unique([parkId, name])
+  @@unique([organizationId, legacyId])
+  @@index([organizationId])
   @@map("fields")
 }
 
@@ -764,10 +833,12 @@ enum FieldSize {
 
 model CaptainRequest {
   id             String               @id @default(cuid())
+  organizationId String               @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   playerId       String
-  player         Player               @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  player         Player               @relation(fields: [playerId, organizationId], references: [id, organizationId], onDelete: Cascade)
   teamId         String
-  team           Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team           Team                 @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Cascade)
   registrationId String?
   registration   Registration?        @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   note           String?
@@ -781,6 +852,7 @@ model CaptainRequest {
   @@index([status])
   @@index([playerId])
   @@index([teamId])
+  @@index([organizationId])
   @@map("captain_requests")
 }
 
@@ -793,18 +865,21 @@ enum CaptainRequestStatus {
 /// A player is suspended while a suspension is active (startsAt <= now, endsAt null or in the
 /// future, not lifted). Player.status is kept in sync by the suspend / lift actions.
 model Suspension {
-  id          String    @id @default(cuid())
-  playerId    String
-  player      Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  reason      String
-  startsAt    DateTime  @default(now())
-  endsAt      DateTime?
-  liftedAt    DateTime?
-  createdById String?
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  playerId       String
+  player         Player       @relation(fields: [playerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  reason         String
+  startsAt       DateTime     @default(now())
+  endsAt         DateTime?
+  liftedAt       DateTime?
+  createdById    String?
 
   createdAt DateTime @default(now())
 
   @@index([playerId, endsAt])
+  @@index([organizationId])
   @@map("suspensions")
 }
 
@@ -813,25 +888,29 @@ model Suspension {
 // ============================================
 
 model DiscountCode {
-  id       String       @id @default(cuid())
-  code     String       @unique // stored uppercase
-  kind     DiscountKind
-  type     DiscountType
-  value    Decimal      @db.Decimal(10, 2) // percent (0-100) or dollars
-  maxUses  Int?
-  uses     Int          @default(0)
-  active   Boolean      @default(true)
-  seasonId String
-  season   Season       @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  teamId   String? // TEAM_PAID codes only work for this team
-  team     Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  code           String // stored uppercase
+  kind           DiscountKind
+  type           DiscountType
+  value          Decimal      @db.Decimal(10, 2) // percent (0-100) or dollars
+  maxUses        Int?
+  uses           Int          @default(0)
+  active         Boolean      @default(true)
+  seasonId       String
+  season         Season       @relation(fields: [seasonId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  teamId         String? // TEAM_PAID codes only work for this team
+  team           Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
   registrations Registration[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([organizationId, code])
   @@index([seasonId])
+  @@index([organizationId])
   @@map("discount_codes")
 }
 
@@ -847,16 +926,19 @@ enum DiscountType {
 }
 
 model LeagueSettings {
-  id                   String  @id @default(cuid())
-  seasonId             String  @unique
-  season               Season  @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  gamePassFee          Decimal @default(15) @db.Decimal(10, 2)
-  maxMatchRoster       Int     @default(18)
-  fairfaxCountyAllowed Boolean @default(true) // any Fairfax County address is eligible
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  seasonId       String       @unique
+  season         Season       @relation(fields: [seasonId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  gamePassFee    Decimal?     @db.Decimal(10, 2) // overrides OrganizationSettings for this season
+  maxMatchRoster Int? // overrides OrganizationSettings for this season
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([seasonId, organizationId])
+  @@index([organizationId])
   @@map("league_settings")
 }
 
@@ -873,8 +955,10 @@ enum MatchStatus {
 // ============================================
 
 model Payment {
-  id     String @id @default(cuid())
-  userId String
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userId         String
 
   // Stripe IDs
   stripePaymentIntentId String? @unique
@@ -905,10 +989,12 @@ model Payment {
   updatedAt DateTime  @updatedAt
 
   // Relationships
-  player       Player        @relation(fields: [userId], references: [id])
+  player       Player        @relation(fields: [userId, organizationId], references: [id, organizationId])
   registration Registration?
   gamePass     GamePass?
 
+  @@unique([id, organizationId])
+  @@index([organizationId])
   @@map("payments")
 }
 
@@ -924,12 +1010,16 @@ enum PaymentType {
 // ============================================
 
 model Blocklist {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  reason    String?
-  blockedAt DateTime @default(now())
-  blockedBy String? // Admin who blocked them
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  email          String
+  reason         String?
+  blockedAt      DateTime     @default(now())
+  blockedBy      String? // Admin who blocked them
 
+  @@unique([organizationId, email])
+  @@index([organizationId])
   @@map("blocklist")
 }
 
@@ -938,12 +1028,16 @@ model Blocklist {
 // ============================================
 
 model AllowedZipCode {
-  id            String  @id @default(cuid())
-  zipCode       String  @unique
-  city          String?
-  state         String?
-  fairfaxCounty Boolean @default(false) // false = an extra ZIP outside the county
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  zipCode        String
+  city           String?
+  state          String?
+  county         String? // county the ZIP is in; null = an extra ZIP allowed on its own
 
+  @@unique([organizationId, zipCode])
+  @@index([organizationId])
   @@map("allowed_zip_codes")
 }
 
@@ -952,58 +1046,73 @@ model AllowedZipCode {
 // ============================================
 
 model Position {
-  id       String  @id @default(cuid())
-  name     String  @unique
-  category String? // Defender, Midfielder, Forward, Goalkeeper
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  name           String
+  category       String? // Defender, Midfielder, Forward, Goalkeeper
 
+  @@unique([organizationId, name])
+  @@index([organizationId])
   @@map("positions")
 }
 
 model TshirtSize {
-  id           String @id @default(cuid())
-  size         String @unique
-  displayOrder Int    @default(0)
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  size           String
+  displayOrder   Int          @default(0)
 
+  @@unique([organizationId, size])
+  @@index([organizationId])
   @@map("tshirt_sizes")
 }
 
 /// What the league office did, for billing and other admin actions. Rows are never edited.
 model AuditLog {
-  id          String   @id @default(cuid())
-  actorUserId String?
-  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
-  actorEmail  String // kept even if the account is deleted
-  action      String // e.g. "payment.recorded", "payment.refunded", "player.created"
-  entityType  String // "registration", "player", "payment"
-  entityId    String
-  summary     String // one line for people, e.g. "Recorded $50 check #1042"
-  data        Json?
-  createdAt   DateTime @default(now())
+  id             String       @id @default(cuid())
+  organizationId String       @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actorUserId    String?
+  actor          User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorEmail     String // kept even if the account is deleted
+  action         String // e.g. "payment.recorded", "payment.refunded", "player.created"
+  entityType     String // "registration", "player", "payment"
+  entityId       String
+  summary        String // one line for people, e.g. "Recorded $50 check #1042"
+  data           Json?
+  createdAt      DateTime     @default(now())
 
   @@index([entityType, entityId])
   @@index([createdAt])
+  @@index([organizationId])
   @@map("audit_log")
 }
 
 /// A match official. Referees don't have accounts; the office assigns them.
 model Referee {
-  id          String            @id @default(cuid())
-  name        String
-  email       String?
-  phone       String?
-  certLevel   String? // e.g. "USSF Grade 8"
-  certExpires DateTime?         @db.Date
-  positions   RefereePosition[] @default([CENTER, ASSISTANT])
-  active      Boolean           @default(true) // inactive referees can't be assigned
-  notes       String?
-  isDemo      Boolean           @default(false) // sample referee from the seed; removed by Settings › Demo data
+  id             String            @id @default(cuid())
+  organizationId String            @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  name           String
+  email          String?
+  phone          String?
+  certLevel      String? // e.g. "USSF Grade 8"
+  certExpires    DateTime?         @db.Date
+  positions      RefereePosition[] @default([CENTER, ASSISTANT])
+  active         Boolean           @default(true) // inactive referees can't be assigned
+  notes          String?
+  isDemo         Boolean           @default(false) // sample referee from the seed; removed by Settings › Demo data
 
   assignments MatchOfficial[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([id, organizationId])
   @@index([name])
+  @@index([organizationId])
   @@map("referees")
 }
 
@@ -1028,20 +1137,159 @@ enum OfficialStatus {
 
 /// One referee in one role on one match, with their pay.
 model MatchOfficial {
-  id        String         @id @default(cuid())
-  matchId   String
-  match     Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  refereeId String
-  referee   Referee        @relation(fields: [refereeId], references: [id])
-  role      OfficialRole
-  status    OfficialStatus @default(ASSIGNED)
-  fee       Decimal?       @db.Decimal(10, 2) // overrides the division's fee for this role
-  paidAt    DateTime? // set when the office marks the fee paid
+  id             String         @id @default(cuid())
+  organizationId String         @default("org_nvasa") // owning league; the default is removed once the scoped client sets it
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  matchId        String
+  match          Match          @relation(fields: [matchId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  refereeId      String
+  referee        Referee        @relation(fields: [refereeId, organizationId], references: [id, organizationId])
+  role           OfficialRole
+  status         OfficialStatus @default(ASSIGNED)
+  fee            Decimal?       @db.Decimal(10, 2) // overrides the division's fee for this role
+  paidAt         DateTime? // set when the office marks the fee paid
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([matchId, role])
   @@index([refereeId])
+  @@index([organizationId])
   @@map("match_officials")
+}
+
+/// A league using the app (NVASA is the first). Everything league-owned has an organizationId.
+model Organization {
+  id           String             @id @default(cuid())
+  name         String
+  slug         String             @unique // subdomain: <slug>.<APP_ROOT_DOMAIN>
+  customDomain String?            @unique // e.g. nvasa.org
+  logoUrl      String?
+  primaryColor String? // hex; falls back to the app's green
+  accentColor  String?
+  timezone     String             @default("America/New_York")
+  contactEmail String?
+  supportEmail String?
+  status       OrganizationStatus @default(TRIAL)
+  plan         String             @default("pilot")
+  trialEndsAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members  OrganizationMember[]
+  settings OrganizationSettings?
+
+  players            Player[]
+  seasons            Season[]
+  divisions          Division[]
+  teams              Team[]
+  teamRosters        TeamRoster[]
+  registrations      Registration[]
+  gamePasses         GamePass[]
+  matches            Match[]
+  matchAvailability  MatchAvailability[]
+  matchRosters       MatchRoster[]
+  matchRosterEntries MatchRosterEntry[]
+  matchReports       MatchReport[]
+  playerMatchStats   PlayerMatchStat[]
+  parks              Park[]
+  fields             Field[]
+  captainRequests    CaptainRequest[]
+  suspensions        Suspension[]
+  discountCodes      DiscountCode[]
+  leagueSettings     LeagueSettings[]
+  payments           Payment[]
+  blocklist          Blocklist[]
+  allowedZipCodes    AllowedZipCode[]
+  positions          Position[]
+  tshirtSizes        TshirtSize[]
+  auditLog           AuditLog[]
+  referees           Referee[]
+  matchOfficials     MatchOfficial[]
+
+  @@map("organizations")
+}
+
+enum OrganizationStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+/// A user's role in one league. Being an admin in one league gives nothing in another.
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           OrgRole      @default(PLAYER)
+  status         MemberStatus @default(ACTIVE)
+  invitedAt      DateTime?
+  joinedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("organization_members")
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  STAFF
+  PLAYER
+}
+
+enum MemberStatus {
+  INVITED
+  ACTIVE
+  REMOVED
+}
+
+/// League-wide settings. Seasons can override some of them in LeagueSettings.
+model OrganizationSettings {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  gamePassesEnabled Boolean @default(true)
+  gamePassFee       Decimal @default(15) @db.Decimal(10, 2)
+  maxMatchRoster    Int     @default(18)
+
+  pointsWin   Int          @default(3)
+  pointsDraw  Int          @default(1)
+  pointsLoss  Int          @default(0)
+  tieBreakers TieBreaker[] @default([GOAL_DIFFERENCE, GOALS_FOR])
+
+  eligibilityMode  EligibilityMode @default(NONE)
+  eligibleCounties String[]        @default([]) // e.g. ["Fairfax County, VA"] for COUNTY_LIST
+
+  waiverText     String?
+  waiverRequired Boolean @default(true)
+
+  registrationOpen Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("organization_settings")
+}
+
+enum TieBreaker {
+  GOAL_DIFFERENCE
+  GOALS_FOR
+  HEAD_TO_HEAD
+  FEWEST_GOALS_AGAINST
+}
+
+enum EligibilityMode {
+  NONE // anyone can register
+  ZIP_LIST // only ZIPs in the allowed list
+  COUNTY_LIST // addresses in the listed counties, plus any extra ZIPs in the list
 }

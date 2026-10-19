@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { playerInOrg } from "@/lib/org";
 
 function maskEmail(email: string) {
   const [local, domain] = email.split("@");
@@ -24,7 +25,8 @@ export async function POST(req: NextRequest) {
     const user = await prisma.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
       include: {
-        player: {
+        players: {
+          ...playerInOrg(),
           include: {
             teamMemberships: { include: { team: { select: { name: true } } }, orderBy: { joinedAt: "desc" }, take: 1 },
           },
@@ -32,7 +34,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    const player = user?.player;
+    const player = user?.players[0];
     if (!user || !player || player.dob.toISOString().slice(0, 10) !== dob) {
       return NextResponse.json({ found: false });
     }

@@ -1,6 +1,7 @@
 import { cache } from "react";
 import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { playerInOrg } from "@/lib/org";
 
 /* ---------- Divisions ---------- */
 
@@ -170,9 +171,9 @@ export async function listDiscountCodes(seasonId: string) {
 }
 export type DiscountCodeView = Awaited<ReturnType<typeof listDiscountCodes>>[number];
 
-/** ZIP codes outside Fairfax County that are also allowed. */
+/** Extra allowed ZIP codes (rows without a county; county rows are lookups for county eligibility). */
 export async function extraZipCodes() {
-  const rows = await prisma.allowedZipCode.findMany({ where: { fairfaxCounty: false }, orderBy: { zipCode: "asc" }, select: { zipCode: true } });
+  const rows = await prisma.allowedZipCode.findMany({ where: { county: null }, orderBy: { zipCode: "asc" }, select: { zipCode: true } });
   return rows.map((r) => r.zipCode);
 }
 
@@ -189,13 +190,13 @@ export async function leagueOfficeMembers() {
     .filter(Boolean);
   const users = await prisma.user.findMany({
     where: { OR: [{ role: "ADMIN" }, ...listed.map((email) => ({ email: { equals: email, mode: "insensitive" as const } }))] },
-    select: { id: true, email: true, role: true, player: { select: { id: true, firstName: true, lastName: true } } },
+    select: { id: true, email: true, role: true, players: { ...playerInOrg(), select: { id: true, firstName: true, lastName: true } } },
     orderBy: { email: "asc" },
   });
   const rows = users.map((u) => ({
     email: u.email,
-    name: u.player ? `${u.player.firstName} ${u.player.lastName}` : null,
-    playerId: u.player?.id ?? null,
+    name: u.players[0] ? `${u.players[0].firstName} ${u.players[0].lastName}` : null,
+    playerId: (u.players[0]?.id ?? null) as string | null,
     viaSetting: listed.includes(u.email.toLowerCase()),
     hasAccount: true,
     userId: u.id,

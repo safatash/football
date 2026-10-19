@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
+import { currentOrgId } from "@/lib/org";
 import { ageOn } from "@/lib/eligibility";
 import { accountPasswordErrors, hashPassword } from "@/lib/password";
 import { getActiveSeason } from "@/lib/queries/season";
@@ -41,8 +42,10 @@ export async function POST(req: NextRequest) {
     data: {
       email,
       password: await hashPassword(password),
-      player: {
+      memberships: { create: { organizationId: currentOrgId(), role: "PLAYER", joinedAt: new Date() } },
+      players: {
         create: {
+          organizationId: currentOrgId(),
           firstName,
           lastName: rest.join(" "),
           gender: GENDER[gender],

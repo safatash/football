@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs"
 import prisma from "@/lib/prisma"
 import { Adapter } from "next-auth/adapters"
 import { isAdminUser } from "@/lib/admin"
+import { playerInOrg } from "@/lib/org"
 import { consumeToken } from "@/lib/tokens"
 
 export const authOptions: NextAuthOptions = {
@@ -24,7 +25,7 @@ export const authOptions: NextAuthOptions = {
         // Find user with player profile
         const user = await prisma.user.findFirst({
           where: { email: { equals: credentials.email.trim(), mode: "insensitive" } },
-          include: { player: true }
+          include: { players: playerInOrg() }
         })
 
         if (!user) {
@@ -39,14 +40,14 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Inactive accounts can't sign in; suspended players can (they see their status)
-        if (user.player && user.player.status === "INACTIVE") {
+        if (user.players[0] && user.players[0].status === "INACTIVE") {
           throw new Error("Account is not active")
         }
 
         return {
           id: user.id,
           email: user.email,
-          name: user.player ? `${user.player.firstName} ${user.player.lastName}` : user.email,
+          name: user.players[0] ? `${user.players[0].firstName} ${user.players[0].lastName}` : user.email,
         }
       }
     }),
@@ -58,9 +59,9 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         const userId = await consumeToken("login", credentials?.token ?? "")
         if (!userId) throw new Error("This login link has expired or was already used.")
-        const user = await prisma.user.findUnique({ where: { id: userId }, include: { player: true } })
-        if (!user || user.player?.status === "INACTIVE") throw new Error("This account isn’t active.")
-        return { id: user.id, email: user.email, name: user.player ? `${user.player.firstName} ${user.player.lastName}` : user.email }
+        const user = await prisma.user.findUnique({ where: { id: userId }, include: { players: playerInOrg() } })
+        if (!user || user.players[0]?.status === "INACTIVE") throw new Error("This account isn’t active.")
+        return { id: user.id, email: user.email, name: user.players[0] ? `${user.players[0].firstName} ${user.players[0].lastName}` : user.email }
       },
     }),
   ],
@@ -73,7 +74,8 @@ export const authOptions: NextAuthOptions = {
         const user = await prisma.user.findUnique({
           where: { id: token.sub as string },
           include: {
-            player: {
+            players: {
+              ...playerInOrg(),
               include: {
                 teamMemberships: {
                   where: { 
@@ -87,10 +89,10 @@ export const authOptions: NextAuthOptions = {
         })
 
         session.user.isAdmin = isAdminUser(user)
-        if (user?.player) {
-          session.user.playerId = user.player.id
-          session.user.name = `${user.player.firstName} ${user.player.lastName}`
-          session.user.isCaptain = user.player.teamMemberships.length > 0
+        if (user?.players[0]) {
+          session.user.playerId = user.players[0].id
+          session.user.name = `${user.players[0].firstName} ${user.players[0].lastName}`
+          session.user.isCaptain = user.players[0].teamMemberships.length > 0
         }
       }
       return session

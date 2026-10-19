@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
+import { playerInOrg, currentOrgId } from "@/lib/org";
 import { accountPasswordErrors, hashPassword } from "@/lib/password";
 import { checkEligibility } from "@/lib/eligibility";
 import { getActiveSeason } from "@/lib/queries/season";
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
       registrationType = onTeam ? "ADDITIONAL_TEAM" : "RETURNING_PLAYER";
     }
 
-    const allowedZip = np ? await prisma.allowedZipCode.findUnique({ where: { zipCode: np.zip } }) : null;
+    const allowedZip = np ? await prisma.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: currentOrgId(), zipCode: np.zip } } }) : null;
     const preferredTeam = preferredTeamId ? await prisma.team.findUnique({ where: { id: preferredTeamId }, select: { name: true } }) : null;
     const backupTeam = backupTeamId ? await prisma.team.findUnique({ where: { id: backupTeamId }, select: { name: true } }) : null;
     const captainNote = data.captainRequest ? data.captainNote?.trim() || null : null;
@@ -135,8 +136,10 @@ export async function POST(req: NextRequest) {
           data: {
             email,
             password: await hashPassword(np.password),
-            player: {
+            memberships: { create: { organizationId: currentOrgId(), role: "PLAYER", joinedAt: new Date() } },
+            players: {
               create: {
+                organizationId: currentOrgId(),
                 firstName: np.firstName,
                 lastName: np.lastName,
                 gender,
@@ -146,7 +149,7 @@ export async function POST(req: NextRequest) {
                 city: np.city,
                 state: np.state.toUpperCase(),
                 zip: np.zip,
-                fairfaxCounty: Boolean(allowedZip?.fairfaxCounty),
+                county: allowedZip?.county ?? null,
                 position: np.position,
                 tshirtSize: np.tshirtSize,
                 contactMe: np.contactMe,
@@ -157,9 +160,9 @@ export async function POST(req: NextRequest) {
               },
             },
           },
-          include: { player: true },
+          include: { players: playerInOrg() },
         });
-        playerId = user.player!.id;
+        playerId = user.players[0]!.id;
       }
 
       const reg = await tx.registration.create({

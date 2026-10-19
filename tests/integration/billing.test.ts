@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auth, hasDb, type TestUser } from "./setup";
+import { NVASA_ORG_ID, playerInOrg } from "@/lib/org";
 
 process.env.NEXTAUTH_SECRET ??= "test-secret";
 
@@ -32,8 +33,8 @@ describe.skipIf(!hasDb)("billing and adding players with billing (database)", as
     ids.nvs = (await prisma.team.findFirstOrThrow({ where: { seasonId: season.id, code: "nvs" } })).id;
     const a = await prisma.user.findUniqueOrThrow({ where: { email: "safatash@gmail.com" } });
     office = { id: a.id, email: a.email, name: "Office", isAdmin: true };
-    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { player: true } });
-    maya = { id: m.id, email: m.email, name: "Maya", playerId: m.player!.id };
+    const m = await prisma.user.findUniqueOrThrow({ where: { email: "maya.johnson@example.com" }, include: { players: playerInOrg() } });
+    maya = { id: m.id, email: m.email, name: "Maya", playerId: m.players[0]!.id };
   });
   afterAll(cleanup);
 
@@ -113,7 +114,7 @@ describe.skipIf(!hasDb)("billing and adding players with billing (database)", as
 
   it("warns about the blocklist, ZIP and age rules, and adds anyway on override", async () => {
     as(office);
-    await prisma.blocklist.upsert({ where: { email: EMAILS[4] }, create: { email: EMAILS[4], reason: "itest" }, update: {} });
+    await prisma.blocklist.upsert({ where: { organizationId_email: { organizationId: NVASA_ORG_ID, email: EMAILS[4] } }, create: { email: EMAILS[4], reason: "itest" }, update: {} });
     try {
       const warn = await admin.createPlayerAccount(person(EMAILS[4], { zip: "90210", teamId: ids.nvs }));
       expect(warn).toMatchObject({ ok: false, status: 409 });

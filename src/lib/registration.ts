@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { currentOrgId } from "@/lib/org";
 import { normalizeCode, priceRegistration, validateDiscount, type DiscountRule } from "@/lib/fees";
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -7,7 +8,7 @@ type Db = Prisma.TransactionClient | typeof prisma;
 export async function loadDiscount(code: string, db: Db = prisma): Promise<(DiscountRule & { id: string }) | null> {
   const c = normalizeCode(code);
   if (!c) return null;
-  const row = await db.discountCode.findUnique({ where: { code: c } });
+  const row = await db.discountCode.findUnique({ where: { organizationId_code: { organizationId: currentOrgId(), code: c } } });
   if (!row) return null;
   return { ...row, value: Number(row.value) };
 }

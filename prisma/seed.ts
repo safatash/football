@@ -8,6 +8,7 @@
  */
 import { Prisma, PrismaClient, type Gender } from '@prisma/client'
 import { hashPassword } from '../src/lib/password'
+import { NVASA_ORG_ID as ORG, playerInOrg } from '../src/lib/org'
 
 const prisma = new PrismaClient()
 
@@ -229,6 +230,8 @@ const DISCOUNT_CODES = [
   { code: 'FALL25', kind: 'PROMO', type: 'PERCENT', value: 15, maxUses: 100, uses: 88, active: false },
 ] as const
 
+const FAIRFAX = 'Fairfax County, VA'
+
 const EXTRA_ZIPS: [string, string][] = [
   ['22201', 'Arlington'], ['22202', 'Arlington'], ['22203', 'Arlington'], ['22204', 'Arlington'], ['22205', 'Arlington'], ['22206', 'Arlington'],
   ['22207', 'Arlington'], ['22209', 'Arlington'], ['22301', 'Alexandria'], ['22302', 'Alexandria'], ['22304', 'Alexandria'], ['22305', 'Alexandria'], ['22314', 'Alexandria'],
@@ -246,6 +249,18 @@ const BLOCKLIST = [
 async function main() {
   console.log('🌱 Starting database seed...')
 
+  // The league (created by the organizations migration; kept here for fresh databases) --------
+  await prisma.organization.upsert({
+    where: { id: ORG },
+    update: {},
+    create: { id: ORG, name: 'NVASA', slug: 'nvasa', status: 'ACTIVE', plan: 'founding', contactEmail: 'office@nvasa.org', supportEmail: 'office@nvasa.org' },
+  })
+  await prisma.organizationSettings.upsert({
+    where: { organizationId: ORG },
+    update: {},
+    create: { organizationId: ORG, gamePassFee: 15, maxMatchRoster: 18, eligibilityMode: 'COUNTY_LIST', eligibleCounties: [FAIRFAX] },
+  })
+
   // Reference data ----------------------------------------------------
   const positions = [
     { name: 'Goalkeeper', category: 'Goalkeeper' },
@@ -260,10 +275,10 @@ async function main() {
     { name: 'Striker', category: 'Forward' },
     { name: 'Center Forward', category: 'Forward' },
   ]
-  for (const position of positions) await prisma.position.upsert({ where: { name: position.name }, update: {}, create: position })
+  for (const position of positions) await prisma.position.upsert({ where: { organizationId_name: { organizationId: ORG, name: position.name } }, update: {}, create: position })
 
   const sizes = ['Youth S', 'Youth M', 'Youth L', 'Adult S', 'Adult M', 'Adult L', 'Adult XL', 'Adult 2XL', 'Adult 3XL']
-  for (const [i, size] of sizes.entries()) await prisma.tshirtSize.upsert({ where: { size }, update: {}, create: { size, displayOrder: i + 1 } })
+  for (const [i, size] of sizes.entries()) await prisma.tshirtSize.upsert({ where: { organizationId_size: { organizationId: ORG, size } }, update: {}, create: { size, displayOrder: i + 1 } })
 
   const fairfaxZips: [string, string][] = [
     ['22003', 'Annandale'], ['22015', 'Burke'], ['22030', 'Fairfax'], ['22031', 'Fairfax'], ['22032', 'Fairfax'], ['22033', 'Fairfax'],
@@ -273,38 +288,43 @@ async function main() {
     ['22153', 'Springfield'], ['22180', 'Vienna'], ['22181', 'Vienna'], ['22182', 'Vienna'], ['22309', 'Alexandria'], ['22312', 'Alexandria'],
   ]
   for (const [zipCode, city] of fairfaxZips) {
-    await prisma.allowedZipCode.upsert({ where: { zipCode }, update: { fairfaxCounty: true }, create: { zipCode, city, state: 'VA', fairfaxCounty: true } })
+    await prisma.allowedZipCode.upsert({ where: { organizationId_zipCode: { organizationId: ORG, zipCode } }, update: { county: FAIRFAX }, create: { zipCode, city, state: 'VA', county: FAIRFAX } })
   }
   for (const [zipCode, city] of EXTRA_ZIPS) {
-    await prisma.allowedZipCode.upsert({ where: { zipCode }, update: {}, create: { zipCode, city, state: 'VA', fairfaxCounty: false } })
+    await prisma.allowedZipCode.upsert({ where: { organizationId_zipCode: { organizationId: ORG, zipCode } }, update: {}, create: { zipCode, city, state: 'VA', county: null } })
   }
-  for (const b of BLOCKLIST) await prisma.blocklist.upsert({ where: { email: b.email }, update: {}, create: { ...b, blockedBy: 'safatash@gmail.com' } })
+  for (const b of BLOCKLIST) await prisma.blocklist.upsert({ where: { organizationId_email: { organizationId: ORG, email: b.email } }, update: {}, create: { ...b, blockedBy: 'safatash@gmail.com' } })
   console.log('✅ Positions, shirt sizes, ZIP codes, blocklist')
 
   // Admin (league office; no player profile needed) --------------------
   const adminPassword = await hashPassword('Admin123!')
-  await prisma.user.upsert({
+  const admin = await prisma.user.upsert({
     where: { email: 'safatash@gmail.com' },
-    update: { role: 'ADMIN' },
-    create: { email: 'safatash@gmail.com', password: adminPassword, role: 'ADMIN' },
+    update: { role: 'ADMIN', isPlatformAdmin: true },
+    create: { email: 'safatash@gmail.com', password: adminPassword, role: 'ADMIN', isPlatformAdmin: true },
+  })
+  await prisma.organizationMember.upsert({
+    where: { userId_organizationId: { userId: admin.id, organizationId: ORG } },
+    update: { role: 'OWNER' },
+    create: { userId: admin.id, organizationId: ORG, role: 'OWNER', joinedAt: new Date() },
   })
   console.log('✅ Admin: safatash@gmail.com (password: Admin123! — change it after first login)')
 
   // Seasons --------------------------------------------------------------
   const seasonKeys = (name: string) => ({ slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), legacyDatasource: name.toLowerCase().replace(/[^a-z0-9]/g, '') })
   const season = await prisma.season.upsert({
-    where: { name: 'Spring 2026' },
+    where: { organizationId_name: { organizationId: ORG, name: 'Spring 2026' } },
     update: { startDate: day(OPENING_DAY), endDate: day('2026-06-28'), isActive: true, ...seasonKeys('Spring 2026') },
     create: { name: 'Spring 2026', startDate: day(OPENING_DAY), endDate: day('2026-06-28'), isActive: true, ...seasonKeys('Spring 2026') },
   })
   for (const [name, start, end] of [['Fall 2025', '2025-08-31', '2025-11-23'], ['Spring 2025', '2025-03-30', '2025-06-29']]) {
-    await prisma.season.upsert({ where: { name }, update: seasonKeys(name), create: { name, startDate: day(start), endDate: day(end), isActive: false, ...seasonKeys(name) } })
+    await prisma.season.upsert({ where: { organizationId_name: { organizationId: ORG, name } }, update: seasonKeys(name), create: { name, startDate: day(start), endDate: day(end), isActive: false, ...seasonKeys(name) } })
   }
   await prisma.season.updateMany({ where: { isActive: true, id: { not: season.id } }, data: { isActive: false } })
   await prisma.leagueSettings.upsert({
     where: { seasonId: season.id },
     update: {},
-    create: { seasonId: season.id, gamePassFee: 15, maxMatchRoster: 18, fairfaxCountyAllowed: true },
+    create: { seasonId: season.id, gamePassFee: 15, maxMatchRoster: 18 },
   })
 
   // Divisions --------------------------------------------------------------
@@ -377,15 +397,17 @@ async function main() {
     const year = 1986 + Math.floor(rand() * 16)
     const dob = info.dob ?? `${year}-${String(1 + Math.floor(rand() * 12)).padStart(2, '0')}-${String(1 + Math.floor(rand() * 28)).padStart(2, '0')}`
     const since = info.since ?? 2019 + Math.floor(rand() * 7)
-    const fairfaxCounty = Boolean(await prisma.allowedZipCode.findFirst({ where: { zipCode: zip, fairfaxCounty: true } }))
+    const county = (await prisma.allowedZipCode.findFirst({ where: { organizationId: ORG, zipCode: zip, county: { not: null } } }))?.county ?? null
     const user = await prisma.user.upsert({
       where: { email },
       update: {},
       create: {
         email,
         password: email === 'maya.johnson@example.com' ? mayaPassword : playerPassword,
-        player: {
+        memberships: { create: { organizationId: ORG, role: 'PLAYER', joinedAt: new Date() } },
+        players: {
           create: {
+            organizationId: ORG,
             firstName,
             lastName: rest.join(' '),
             gender: info.gender ?? opts.gender,
@@ -395,7 +417,7 @@ async function main() {
             city,
             state: 'VA',
             zip,
-            fairfaxCounty,
+            county,
             position: info.pos ?? opts.pos ?? 'MID',
             tshirtSize: pick(['Adult S', 'Adult M', 'Adult L', 'Adult XL']),
             finalApproval: 'APPROVED',
@@ -405,11 +427,11 @@ async function main() {
           },
         },
       },
-      include: { player: true },
+      include: { players: playerInOrg() },
     })
-    if (!user.player) throw new Error(`${email} exists without a player profile`)
-    playerIds[name] = user.player.id
-    return user.player.id
+    if (!user.players[0]) throw new Error(`${email} exists without a player profile`)
+    playerIds[name] = user.players[0].id
+    return user.players[0].id
   }
 
   // Season rosters
@@ -439,7 +461,7 @@ async function main() {
 
   const registrationPayment = async (playerId: string, amount: number, paidAt: Date) =>
     (await prisma.payment.create({ data: { userId: playerId, amount, status: 'PAID', paymentType: 'REGISTRATION_FEE', relatedEntityType: 'registration', paidAt } })).id
-  const regNumberTaken = async (number: number) => Boolean(await prisma.registration.findUnique({ where: { number } }))
+  const regNumberTaken = async (number: number) => Boolean(await prisma.registration.findUnique({ where: { organizationId_number: { organizationId: ORG, number } } }))
 
   // Registrations queue + placements
   for (const r of REGISTRATIONS) {
@@ -585,7 +607,7 @@ async function main() {
     const [, complex, name] = label.match(/^(.*?)\s+(\S+)$/) ?? [label, label, '1']
     const city = FIELD_CITIES[complex] ?? null
     const park = await prisma.park.upsert({
-      where: { name: complex },
+      where: { organizationId_name: { organizationId: ORG, name: complex } },
       update: { city, state: 'VA', isDemo: true },
       create: { name: complex, city, state: 'VA', isDemo: true },
     })
@@ -826,7 +848,7 @@ async function main() {
       seasonId: season.id,
       teamId: 'team' in c ? teamIds[c.team] : null,
     }
-    await prisma.discountCode.upsert({ where: { code: c.code }, update: data, create: { ...data, code: c.code, uses: c.uses } })
+    await prisma.discountCode.upsert({ where: { organizationId_code: { organizationId: ORG, code: c.code } }, update: data, create: { ...data, code: c.code, uses: c.uses } })
   }
   console.log(`✅ Discount codes (${DISCOUNT_CODES.length})`)
 

@@ -4,6 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
+import { playerInOrg } from "@/lib/org";
 import { CLEAR_DEMO_PHRASE, demoMatchWhere, demoUserWhere } from "@/lib/demo";
 import { requireAdminUser } from "./admin-guard";
 import { ActionError, runAction, type ActionResult } from "./result";
@@ -25,11 +26,11 @@ export async function clearDemoData(input: { confirm: string }): Promise<ActionR
         const [teams, matches, users] = await Promise.all([
           tx.team.findMany({ where: { isDemo: true }, select: { id: true } }),
           tx.match.findMany({ where: demoMatchWhere, select: { id: true } }),
-          tx.user.findMany({ where: demoUserWhere, select: { id: true, player: { select: { id: true } } } }),
+          tx.user.findMany({ where: demoUserWhere, select: { id: true, players: { ...playerInOrg(), select: { id: true } } } }),
         ]);
         const teamIds = teams.map((t) => t.id);
         const matchIds = matches.map((m) => m.id);
-        const playerIds = users.flatMap((u) => (u.player ? [u.player.id] : []));
+        const playerIds = users.flatMap((u) => (u.players[0] ? [u.players[0].id] : []));
         const passIds = (await tx.gamePass.findMany({ where: { OR: [{ matchId: { in: matchIds } }, { playerId: { in: playerIds } }] }, select: { id: true } })).map((p) => p.id);
 
         await tx.teamRoster.deleteMany({ where: { OR: [{ gamePassId: { in: passIds } }, { matchId: { in: matchIds } }] } });

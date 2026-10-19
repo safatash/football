@@ -33,7 +33,7 @@ export default async function NewRegistrationPage() {
   const [divisions, teams, zips, settings, session] = await Promise.all([
     listOpenDivisions(season.id),
     listTeams(season.id),
-    prisma.allowedZipCode.findMany({ select: { zipCode: true, fairfaxCounty: true } }),
+    prisma.allowedZipCode.findMany({ select: { zipCode: true, county: true } }),
     getSettings(season.id),
     getSession(),
   ]);
@@ -70,7 +70,7 @@ export default async function NewRegistrationPage() {
       season={{ name: season.name, openingDay: isoDate(season.startDate), openingLabel: fmtDateOnly(season.startDate) }}
       divisions={wizardDivisions}
       teams={teams.filter((t) => t.division).map((t) => ({ id: t.id, name: t.name, div: t.division.code, size: t.rosterSize }))}
-      eligibleZips={zips.filter((z) => settings.fairfaxCountyAllowed || !z.fairfaxCounty).map((z) => z.zipCode)}
+      eligibleZips={zips.filter((z) => !z.county || (settings.countyAllowed && settings.eligibleCounties.includes(z.county))).map((z) => z.zipCode)}
       profile={profile}
     />
   );

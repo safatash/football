@@ -1,5 +1,6 @@
 import type { Prisma, RegistrationStatus } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { currentOrgId } from "@/lib/org";
 import { ageOn, checkEligibility } from "@/lib/eligibility";
 import { fmtDateOnly, fmtShort, fullName, money, regNumber } from "@/lib/format";
 import { getSettings, type SeasonRef } from "./season";
@@ -174,14 +175,21 @@ export async function blocklistHit(email: string) {
   });
 }
 
-/** ZIP rule: an extra allowed ZIP, or any Fairfax County address when the league allows it. */
-export async function zipEligible(seasonId: string, player: { zip: string; fairfaxCounty: boolean }) {
+/**
+ * Address rule from the league's eligibility mode: NONE (anyone), ZIP_LIST (a listed ZIP), or
+ * COUNTY_LIST (an address in one of the league's counties, or an extra listed ZIP).
+ * ZIP rows with a county are county lookups; rows without one are extra allowed ZIPs.
+ */
+export async function zipEligible(seasonId: string, player: { zip: string; county: string | null }) {
   const [settings, zip] = await Promise.all([
     getSettings(seasonId),
-    prisma.allowedZipCode.findUnique({ where: { zipCode: player.zip.trim() }, select: { fairfaxCounty: true } }),
+    prisma.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: currentOrgId(), zipCode: player.zip.trim() } }, select: { county: true } }),
   ]);
-  if (zip && !zip.fairfaxCounty) return true;
-  return settings.fairfaxCountyAllowed && (player.fairfaxCounty || !!zip?.fairfaxCounty);
+  if (settings.eligibilityMode === "NONE") return true;
+  if (zip && !zip.county) return true;
+  if (settings.eligibilityMode === "ZIP_LIST") return false;
+  const counties = settings.eligibleCounties;
+  return (!!player.county && counties.includes(player.county)) || (!!zip?.county && counties.includes(zip.county));
 }
 
 /** Everything the registration review screen needs. Null when the id isn't in this season. */
@@ -234,7 +242,7 @@ export async function getRegistrationReview(id: string, season: Pick<SeasonRef, 
   const discount = reg.discountCode ? ` · ${reg.discountCode.code} applied` : "";
   const checks: Check[] = [
     eligibility,
-    [zipOk, zipOk ? `ZIP ${p.zip} is in the eligible area` : `ZIP ${p.zip} (${p.city}) is outside Fairfax County and eligible ZIPs`],
+    [zipOk, zipOk ? `ZIP ${p.zip} is in the eligible area` : `ZIP ${p.zip} (${p.city}) is outside the league’s eligible area`],
     blocked ? [false, `Email is on the blocklist${blocked.reason ? ` · ${blocked.reason}` : ""}`] : [true, "Email not on the blocklist"],
     [
       paid,
