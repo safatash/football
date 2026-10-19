@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { EmptyState } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/button";
+import { getBrand } from "@/lib/branding";
 import { AppBar, Screen } from "@/components/shell/layout";
 import { db } from "@/lib/db";
 import { fmtDateOnly, isoDate } from "@/lib/format";
@@ -22,7 +23,7 @@ export default async function NewRegistrationPage() {
       <>
         <AppBar title="Season registration" backHref="/register" />
         <Screen>
-          <EmptyState icon="cal" title="Registration isn’t open right now" action={<ButtonLink href="/" size="sm">Back to NVASA</ButtonLink>}>
+          <EmptyState icon="cal" title="Registration isn’t open right now" action={<ButtonLink href="/" size="sm">Back to {(await getBrand()).name}</ButtonLink>}>
             Check back when the next season opens.
           </EmptyState>
         </Screen>
@@ -72,6 +73,7 @@ export default async function NewRegistrationPage() {
       teams={teams.filter((t) => t.division).map((t) => ({ id: t.id, name: t.name, div: t.division.code, size: t.rosterSize }))}
       eligibleZips={zips.filter((z) => !z.county || (settings.countyAllowed && settings.eligibleCounties.includes(z.county))).map((z) => z.zipCode)}
       profile={profile}
+      waiverText={(await db.organizationSettings.findFirst({ select: { waiverText: true } }))?.waiverText ?? null}
     />
   );
 }

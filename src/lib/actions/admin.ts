@@ -14,7 +14,7 @@ import { randomBytes } from "node:crypto";
 import { checkEligibility } from "@/lib/eligibility";
 import { hashPassword } from "@/lib/password";
 import { blocklistHit, zipEligible } from "@/lib/queries/registrations";
-import { appUrl } from "@/lib/stripe";
+import { appUrl } from "@/lib/branding";
 import { createToken } from "@/lib/tokens";
 import { assertSeasonWritable } from "@/lib/queries/season";
 import { syncMatchReportStatus } from "@/lib/reports";
@@ -71,7 +71,7 @@ export async function decideCaptainRequest(input: { requestId: string; approve: 
       await tx.captainRequest.update({ where: { id: req.id }, data: { status: data.approve ? "APPROVED" : "DENIED", decidedById: admin.id, decidedAt: now() } });
       if (data.approve && membership) await tx.teamRoster.update({ where: { id: membership.id }, data: { isCaptain: true, captainRequest: true } });
     });
-    await sendMail({ to: req.player.user.email, ...captainDecisionEmail({ firstName: req.player.firstName, teamName: req.team.name, approved: data.approve, teamId: req.team.id }) });
+    await sendMail({ to: req.player.user.email, ...(await captainDecisionEmail({ firstName: req.player.firstName, teamName: req.team.name, approved: data.approve, teamId: req.team.id })) });
     refreshAdmin();
     revalidatePath(`/captain/${req.teamId}`, "layout");
     return { ok: true, message: data.approve ? `${fullName(req.player)} is now a captain of ${req.team.name}` : "Captain request denied" };
@@ -169,7 +169,7 @@ export async function requestPlacementInfo(input: { registrationId: string; mess
     const data = z.object({ registrationId: Id, message: z.string().trim().min(1, "Write a message first.").max(2000) }).parse(input);
     const admin = await requireAdminUser();
     const reg = await placementRegistration(data.registrationId);
-    await sendMail({ to: reg.player.user.email, replyTo: admin.email, ...placementInfoEmail({ firstName: reg.player.firstName, message: data.message }) });
+    await sendMail({ to: reg.player.user.email, replyTo: admin.email, ...(await placementInfoEmail({ firstName: reg.player.firstName, message: data.message })) });
     await db.registration.update({ where: { id: reg.id }, data: { placementState: "INFO_REQUESTED" } });
     refreshAdmin();
     return { ok: true, message: "Request sent" };
@@ -260,7 +260,7 @@ export async function sendReportReminder(input: { matchId: string; teamId: strin
     });
     if (!captains.length) throw new ActionError("This team doesn’t have a captain to remind.", 409);
     for (const c of captains) {
-      await sendMail({ to: c.player.user.email, replyTo: admin.email, ...reportReminderEmail({ firstName: c.player.firstName, teamName: c.team.name, gameNumber: match.gameNumber, teamId: data.teamId }) });
+      await sendMail({ to: c.player.user.email, replyTo: admin.email, ...(await reportReminderEmail({ firstName: c.player.firstName, teamName: c.team.name, gameNumber: match.gameNumber, teamId: data.teamId })) });
     }
     return { ok: true, message: `Reminder sent to ${captains.map((c) => fullName(c.player)).join(" & ")}` };
   });
@@ -519,7 +519,7 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
     const data = NewPlayerInput.parse(input);
     const admin = await requireAdminUser();
     if (await db.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } })) {
-      throw new ActionError("That email already has an NVASA account. Search for the player instead.", 409);
+      throw new ActionError("That email already has an account. Search for the player instead.", 409);
     }
     const team = data.teamId ? await teamForRoster(data.teamId) : null;
     if (team) await assertJerseyFree(team.id, data.jerseyNumber ?? null);
@@ -658,7 +658,7 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
       const res = await sendMail({
         to: created.user.email,
         replyTo: admin.email,
-        ...accountInviteEmail({ firstName: data.firstName, url: `${appUrl()}/login/reset?token=${token}`, teamName: team?.name ?? null }),
+        ...(await accountInviteEmail({ firstName: data.firstName, url: `${(await appUrl())}/login/reset?token=${token}`, teamName: team?.name ?? null })),
       });
       if (res.sent + res.logged > 0) notes.push("invitation sent");
     }
@@ -666,7 +666,7 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
       const res = await sendMail({
         to: created.user.email,
         replyTo: admin.email,
-        ...paymentLinkEmail({ firstName: data.firstName, seasonName: team!.season.name, divisionName: team!.division.name, amount: fmtMoney(due), url: payLinkUrl(created.registrationId) }),
+        ...(await paymentLinkEmail({ firstName: data.firstName, seasonName: team!.season.name, divisionName: team!.division.name, amount: fmtMoney(due), url: await payLinkUrl(created.registrationId) })),
       });
       await audit(db, admin, {
         action: "payment.link_sent",

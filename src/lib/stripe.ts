@@ -12,4 +12,3 @@ export function stripe() {
   return client;
 }
 
-export const appUrl = () => (process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");

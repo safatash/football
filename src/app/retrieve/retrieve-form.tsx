@@ -1,5 +1,6 @@
 "use client";
 
+import { HelpEmailLink } from "@/components/brand";
 import { useState, type FormEvent } from "react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Notice } from "@/components/ui/card";
@@ -128,7 +129,7 @@ export function RetrieveForm() {
               <b>No profile matches those details</b>
             </div>
             <p className="text-[13.5px] text-muted">
-              Check for a typo, or try another email you might have used. Players from before 2018 may need help from the league office.
+              Check for a typo, or try another email you might have used. Players from older seasons may need help from the league office.
             </p>
             <Button variant="ghost" block onClick={reset}>
               Try different details
@@ -138,9 +139,7 @@ export function RetrieveForm() {
             </ButtonLink>
             <p className="text-center text-xs text-muted">
               League office:{" "}
-              <a href="mailto:office@nvasa.org" className="font-bold text-fg">
-                office@nvasa.org
-              </a>
+              <HelpEmailLink className="font-bold text-fg" />
             </p>
           </div>
         ) : null}

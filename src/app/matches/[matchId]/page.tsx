@@ -13,7 +13,7 @@ import { one, type PublicSearchParams } from "@/components/public/matches-page";
 import { EditReportLink, ViewerProvider } from "@/components/public/viewer";
 import { gameNo } from "@/lib/public";
 import { getPublicMatch, publicMatchReport, resolvePublicSeason, type PublicMatch } from "@/lib/queries/public";
-import { appUrl } from "@/lib/stripe";
+import { appUrl } from "@/lib/branding";
 
 export const revalidate = 60;
 
@@ -133,9 +133,9 @@ export default async function MatchPage({ params, searchParams }: { params: Para
           sport: "Soccer",
           startDate: m.scheduledAt.toISOString(),
           eventStatus: m.status === "CANCELLED" ? "https://schema.org/EventCancelled" : m.status === "POSTPONED" ? "https://schema.org/EventPostponed" : "https://schema.org/EventScheduled",
-          url: `${appUrl()}/matches/${m.id}`,
-          homeTeam: { "@type": "SportsTeam", name: m.homeTeam.name, url: `${appUrl()}/teams/${m.homeTeam.id}` },
-          awayTeam: { "@type": "SportsTeam", name: m.awayTeam.name, url: `${appUrl()}/teams/${m.awayTeam.id}` },
+          url: `${(await appUrl())}/matches/${m.id}`,
+          homeTeam: { "@type": "SportsTeam", name: m.homeTeam.name, url: `${(await appUrl())}/teams/${m.homeTeam.id}` },
+          awayTeam: { "@type": "SportsTeam", name: m.awayTeam.name, url: `${(await appUrl())}/teams/${m.awayTeam.id}` },
           ...(placeOf(m) ? { location: { "@type": "Place", name: placeOf(m), ...(m.venue && addressLine(m.venue) ? { address: addressLine(m.venue) } : {}) } } : {}),
         }}
       />

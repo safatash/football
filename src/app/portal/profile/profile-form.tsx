@@ -1,5 +1,6 @@
 "use client";
 
+import { useBrand } from "@/components/brand";
 import { signOut } from "next-auth/react";
 import { startTransition, useActionState, useEffect, useState, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ const SIZES = ["Adult XS", "Adult S", "Adult M", "Adult L", "Adult XL", "Adult X
 const withCurrent = (list: string[], v: string) => (v && !list.includes(v) ? [v, ...list] : list);
 
 export function ProfileForm({ values }: { values: ProfileValues }) {
+  const brand = useBrand();
   const [state, action, pending] = useActionState<ProfileState, FormData>(updateProfile, null);
   const [toast, showToast] = useToast();
   const [prefs, setPrefs] = useState({ contactMe: values.contactMe, social: values.social, tournaments: values.tournaments });
@@ -115,8 +117,8 @@ export function ProfileForm({ values }: { values: ProfileValues }) {
 
       <Card className="flex flex-col gap-1">
         <h3 className="mb-1 text-[19px] font-bold">Preferences</h3>
-        <CheckRow checked={prefs.contactMe} onChange={(v) => setPrefs((p) => ({ ...p, contactMe: v }))} title="NVASA news" sub="Season dates, registration openings and league updates by email" />
-        <CheckRow checked={prefs.social} onChange={(v) => setPrefs((p) => ({ ...p, social: v }))} title="Social media posts" sub="Photos of you may appear on NVASA’s social accounts" />
+        <CheckRow checked={prefs.contactMe} onChange={(v) => setPrefs((p) => ({ ...p, contactMe: v }))} title={`${brand.name} news`} sub="Season dates, registration openings and league updates by email" />
+        <CheckRow checked={prefs.social} onChange={(v) => setPrefs((p) => ({ ...p, social: v }))} title="Social media posts" sub={`Photos of you may appear on ${brand.name}’s social accounts`} />
         <CheckRow checked={prefs.tournaments} onChange={(v) => setPrefs((p) => ({ ...p, tournaments: v }))} title="Tournament interest" sub="Hear about tournaments and select teams" />
         {prefs.contactMe ? <input type="hidden" name="contactMe" value="on" /> : null}
         {prefs.social ? <input type="hidden" name="social" value="on" /> : null}

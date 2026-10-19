@@ -1,3 +1,4 @@
+import { contactLine, getBrand } from "@/lib/branding";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -8,7 +9,8 @@ import { getActiveSeason } from "@/lib/queries/season";
 import { blocklistHit } from "@/lib/queries/registrations";
 import { priceWithCode, countDiscountUse } from "@/lib/registration";
 import { getSession } from "@/lib/session";
-import { appUrl, stripe } from "@/lib/stripe";
+import { appUrl } from "@/lib/branding";
+import { stripe } from "@/lib/stripe";
 import { regNumber } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
 import { registrationReceivedEmail } from "@/lib/mail-templates";
@@ -73,7 +75,7 @@ export async function POST(req: NextRequest) {
     if (returningPlayerId) {
       const p = await db.player.findUnique({ where: { id: returningPlayerId }, include: { user: { select: { email: true } } } });
       if (!p) return bad("We couldn’t find your player profile. Log in again.", 401);
-      if (p.status === "INACTIVE") return bad("Your account isn’t active. Contact office@nvasa.org.", 403);
+      if (p.status === "INACTIVE") return bad(`Your account isn’t active. ${await contactLine()}`, 403);
       player = { id: p.id, dob: p.dob, gender: p.gender, email: p.user.email, firstName: p.firstName, lastName: p.lastName };
     }
     const np = returningPlayerId ? null : (data as z.infer<typeof NewPlayer>);
@@ -110,9 +112,9 @@ export async function POST(req: NextRequest) {
     // Account checks
     if (np) {
       const existing = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
-      if (existing) return bad("That email already has an NVASA account. Log in or use Find my player info instead.");
+      if (existing) return bad("That email already has an account. Log in or use Find my player info instead.");
     }
-    if (await blocklistHit(email)) return bad("This email is not eligible for registration. Contact office@nvasa.org.");
+    if (await blocklistHit(email)) return bad(`This email is not eligible for registration. ${await contactLine()}`);
 
     let registrationType: "NEW_PLAYER" | "RETURNING_PLAYER" | "ADDITIONAL_TEAM" = "NEW_PLAYER";
     if (player) {
@@ -197,13 +199,13 @@ export async function POST(req: NextRequest) {
     if (free) {
       await sendMail({
         to: email,
-        ...registrationReceivedEmail({
+        ...(await registrationReceivedEmail({
           firstName: player?.firstName ?? np!.firstName,
           seasonName: season.name,
           divisionName: division.name,
           number: regNumber(registration.number),
           paid: true,
-        }),
+        })),
       });
       return NextResponse.json({ success: true, checkoutUrl: `/register/success?registration=${registration.id}` });
     }
@@ -215,15 +217,15 @@ export async function POST(req: NextRequest) {
         {
           price_data: {
             currency: "usd",
-            product_data: { name: `NVASA ${season.name} · ${division.name}`, description: `${season.name} · ${name}` },
+            product_data: { name: `${(await getBrand()).name} ${season.name} · ${division.name}`, description: `${season.name} · ${name}` },
             unit_amount: Math.round(priced.total * 100),
           },
           quantity: 1,
         },
       ],
       mode: "payment",
-      success_url: `${appUrl()}/register/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl()}/register/new`,
+      success_url: `${(await appUrl())}/register/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${(await appUrl())}/register/new`,
       client_reference_id: registration.id,
       customer_email: email,
       metadata: {
@@ -239,6 +241,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, checkoutUrl: checkout.url });
   } catch (error) {
     console.error("Registration error:", error);
-    return bad("We couldn’t finish your registration. Please try again, or email office@nvasa.org.", 500);
+    return bad(`We couldn’t finish your registration. Please try again. ${await contactLine()}`, 500);
   }
 }

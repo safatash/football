@@ -1,5 +1,6 @@
 "use client";
 
+import { useBrand } from "@/components/brand";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -172,13 +173,17 @@ export function RegistrationWizard({
   teams,
   eligibleZips,
   profile,
+  waiverText,
 }: {
   season: { name: string; openingDay: string; openingLabel: string };
   divisions: WizardDivision[];
   teams: WizardTeam[];
   eligibleZips: string[];
   profile: WizardProfile | null;
+  /** The league's waiver and code of conduct (League profile). */
+  waiverText: string | null;
 }) {
+  const brand = useBrand();
   const returning = !!profile;
   // Returning players skip account and contact details: those carry over from their profile.
   const order = returning ? [2, 4, 5, 6, 7] : [1, 2, 3, 4, 5, 6, 7];
@@ -359,7 +364,7 @@ export function RegistrationWizard({
             <h2 ref={headingRef} tabIndex={-1} className="text-[30px] outline-none">
               Taking you to secure checkout
             </h2>
-            <p className="text-muted">Payments are processed by Stripe. NVASA never sees your card number.</p>
+            <p className="text-muted">Payments are processed by Stripe. {brand.name} never sees your card number.</p>
           </div>
           <Card className="w-full text-left">
             <div className="flex items-center justify-between gap-3">
@@ -606,15 +611,15 @@ export function RegistrationWizard({
         {step === 4 ? (
           <>
             {head("Your soccer background", "Helps us place you on a team that plays at your level.")}
-            <Field label="Have you played in NVASA before?" error={err("background")}>
+            <Field label={`Have you played in ${brand.name} before?`} error={err("background")}>
               <div data-error={err("background") ? true : undefined} tabIndex={err("background") ? -1 : undefined}>
                 <ChoiceGroup<"New" | "Returning">
-                  name="Have you played in NVASA before?"
+                  name={`Have you played in ${brand.name} before?`}
                   columns={2}
                   value={f.background}
                   onChange={(v) => set("background", v)}
                   options={[
-                    { value: "New", label: "I’m new", sub: "First NVASA season" },
+                    { value: "New", label: "I’m new", sub: `First ${brand.name} season` },
                     { value: "Returning", label: "Returning", sub: "Played a past season" },
                   ]}
                 />
@@ -711,7 +716,7 @@ export function RegistrationWizard({
             </Card>
             <div className="flex flex-col gap-1">
               <h3 className="text-[22px]">Stay in the loop</h3>
-              <CheckRow checked={f.optNews} onChange={(v) => set("optNews", v)} title="NVASA news" sub="Schedules, field closures and season announcements" />
+              <CheckRow checked={f.optNews} onChange={(v) => set("optNews", v)} title={`${brand.name} news`} sub="Schedules, field closures and season announcements" />
               <CheckRow checked={f.optSocial} onChange={(v) => set("optSocial", v)} title="Social media posts" sub="OK to appear in match photos we share" />
               <CheckRow checked={f.optTourney} onChange={(v) => set("optTourney", v)} title="Tournament interest" sub="Tell me about summer and fall tournaments" />
             </div>
@@ -786,7 +791,7 @@ export function RegistrationWizard({
                   ]}
                 />
                 {returning ? null : <Summary title="Contact" onEdit={() => edit(3)} rows={[["Phone", f.phone], ["Address", `${f.street}, ${f.city}, ${f.state} ${f.zip}`]]} />}
-                <Summary title="Background" onEdit={() => edit(4)} rows={[["NVASA", f.background], ["Level", LEVEL_LABEL[f.level] ?? f.level]]} />
+                <Summary title="Background" onEdit={() => edit(4)} rows={[[brand.name, f.background], ["Level", LEVEL_LABEL[f.level] ?? f.level]]} />
                 <Summary
                   title="Team"
                   onEdit={() => edit(5)}
@@ -802,8 +807,14 @@ export function RegistrationWizard({
                 />
               </div>
             </div>
+            {waiverText ? (
+              <details className="rounded-xl border border-line bg-surface-2 px-4 py-3 text-[13.5px]">
+                <summary className="cursor-pointer font-bold">Read the waiver and code of conduct</summary>
+                <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-line text-muted">{waiverText}</div>
+              </details>
+            ) : null}
             <div data-error={err("agree") ? true : undefined} tabIndex={err("agree") ? -1 : undefined} className="flex flex-col">
-              <CheckRow checked={f.agree} onChange={(v) => set("agree", v)} title="I agree to the NVASA player waiver and code of conduct" sub="Required to play" />
+              <CheckRow checked={f.agree} onChange={(v) => set("agree", v)} title={`I agree to the ${brand.name} player waiver and code of conduct`} sub="Required to play" />
               {err("agree") ? <span className="pl-[34px] text-[12.5px] font-semibold text-bad">{err("agree")}</span> : null}
             </div>
             <p className="text-xs text-muted">

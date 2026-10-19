@@ -5,9 +5,12 @@ import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap
 import { AppBar, Screen } from "@/components/shell/layout";
 import { db } from "@/lib/db";
 import { money } from "@/lib/format";
+import { getBrand } from "@/lib/branding";
 import { getActiveSeason, getSettings } from "@/lib/queries/season";
 
-export const metadata: Metadata = { title: "Join NVASA" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: `Join ${(await getBrand()).name}` };
+}
 
 // Fees come from the active season's settings.
 export const dynamic = "force-dynamic";
@@ -91,7 +94,7 @@ export default async function RegisterBranchPage() {
   const PATHS = paths({ season: season?.name ?? "", minFee, gamePassFee });
   return (
     <>
-      <AppBar title="Join NVASA" backHref="/" />
+      <AppBar title={`Join ${(await getBrand()).name}`} backHref="/" />
       <Screen>
         <div className="flex flex-col gap-1.5">
           <h1 className="text-[34px] lg:text-[42px]">How do you want to play?</h1>

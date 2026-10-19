@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadPayLink } from "@/lib/pay-link";
-import { appUrl, stripe } from "@/lib/stripe";
+import { appUrl, getBrand } from "@/lib/branding";
+import { stripe } from "@/lib/stripe";
 import { getOrgId } from "@/lib/db";
 
 /** Opens Stripe Checkout for a payment link's current balance. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const sig = String((await req.formData()).get("sig") ?? "");
-  const back = `${appUrl()}/pay/${id}?sig=${encodeURIComponent(sig)}`;
+  const back = `${(await appUrl())}/pay/${id}?sig=${encodeURIComponent(sig)}`;
   const link = await loadPayLink(id, sig);
   if (!link) return NextResponse.redirect(back, 303);
   if (link.summary.balance <= 0) return NextResponse.redirect(back, 303);
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         {
           price_data: {
             currency: "usd",
-            product_data: { name: `NVASA ${reg.season.name}${reg.division ? ` · ${reg.division.name}` : ""}`, description: `Balance for ${reg.player.firstName} ${reg.player.lastName}` },
+            product_data: { name: `${(await getBrand()).name} ${reg.season.name}${reg.division ? ` · ${reg.division.name}` : ""}`, description: `Balance for ${reg.player.firstName} ${reg.player.lastName}` },
             unit_amount: Math.round(summary.balance * 100),
           },
           quantity: 1,

@@ -37,3 +37,13 @@ export function devFallbackSlug(opts: { query?: string | null; cookie?: string |
 }
 
 export const isValidSlug = (s: string) => /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(s);
+
+/**
+ * A league's public origin, e.g. https://nvasa.example.com or https://nvasa.org.
+ * APP_ROOT_URL gives the scheme and port of the root domain (default http://<APP_ROOT_DOMAIN>:3000).
+ */
+export function leagueOrigin(org: { slug: string; customDomain: string | null }) {
+  const root = new URL(process.env.APP_ROOT_URL || `http://${rootDomain()}:3000`);
+  if (org.customDomain) return `https://${org.customDomain}`;
+  return `${root.protocol}//${org.slug}.${root.host}`;
+}

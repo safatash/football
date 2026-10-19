@@ -27,6 +27,11 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         closedSeasons={seasons.filter((s) => isSeasonClosed(s)).map((s) => s.name)}
         divisionsHref="/admin/divisions"
       >
+        {session.user.orgRole === "STAFF" ? (
+          <p role="note" className="rounded-xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-[13.5px] text-muted">
+            <b className="text-fg">View only:</b> staff can see the league office. An owner or admin makes changes.
+          </p>
+        ) : null}
         <AdminDemoNotice summary={demo} />
         {children}
       </AdminShell>

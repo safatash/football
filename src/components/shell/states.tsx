@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useHelpEmail } from "@/components/brand";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/card";
 
@@ -23,6 +24,7 @@ export function LoadingBlocks({ rows = 3, wide = false }: { rows?: number; wide?
 
 /** Error boundary content: what happened, and a way to try again or go back. */
 export function ErrorState({ error, retry, homeHref, homeLabel }: { error: Error & { digest?: string }; retry: () => void; homeHref: string; homeLabel: string }) {
+  const help = useHelpEmail();
   useEffect(() => {
     console.error(error);
   }, [error]);
@@ -42,7 +44,8 @@ export function ErrorState({ error, retry, homeHref, homeLabel }: { error: Error
           </div>
         }
       >
-        This page didn’t load. Try again, and if it keeps happening, email office@nvasa.org{error.digest ? ` with code ${error.digest}` : ""}.
+        This page didn’t load. Try again, and if it keeps happening, {help ? `email ${help}` : "contact the league office"}
+        {error.digest ? ` with code ${error.digest}` : ""}.
       </EmptyState>
     </div>
   );

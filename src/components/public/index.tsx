@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Avatar, Crest, type CrestTeam } from "@/components/league";
 import { demoSummary } from "@/lib/demo";
+import { getBrand } from "@/lib/branding";
 import { Badge } from "@/components/ui/badge";
 import { Card, EmptyState, Notice as NoticeBox } from "@/components/ui/card";
 import { Segmented } from "@/components/ui/controls";
@@ -33,20 +34,21 @@ export function PublicFrame({ children }: { children: ReactNode }) {
 
 /** While seed data is in the database, say so: the teams, players and results aren't real. */
 async function PublicDemoNotice() {
-  const { teams } = await demoSummary();
+  const [{ teams }, brand] = await Promise.all([demoSummary(), getBrand()]);
   if (!teams) return null;
   return (
     <p role="note" className="rounded-xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-[13.5px] text-muted">
-      <b className="text-fg">Preview:</b> the teams, players and results on these pages are demo data, not real NVASA teams.
+      <b className="text-fg">Preview:</b> the teams, players and results on these pages are demo data, not real {brand.name} teams.
     </p>
   );
 }
 
-export function PublicFooter() {
+export async function PublicFooter() {
+  const brand = await getBrand();
   return (
     <footer className="border-t border-line bg-surface">
       <div className="mx-auto flex max-w-[1120px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-5 text-[13.5px] text-muted">
-        <span className="font-bold text-fg">NVASA</span>
+        <span className="font-bold text-fg">{brand.name}</span>
         <Link href="/standings" className="hover:text-fg">
           Standings
         </Link>
@@ -57,12 +59,11 @@ export function PublicFooter() {
           Register
         </Link>
         <span className="flex-1" />
-        <a href="https://www.facebook.com/groups/nvasa/" target="_blank" rel="noopener noreferrer" className="font-bold hover:text-fg">
-          Facebook
-        </a>
-        <a href="https://twitter.com/NVASA" target="_blank" rel="noopener noreferrer" className="font-bold hover:text-fg">
-          X (Twitter)
-        </a>
+        {brand.social.map((s) => (
+          <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="font-bold hover:text-fg">
+            {s.label}
+          </a>
+        ))}
       </div>
     </footer>
   );

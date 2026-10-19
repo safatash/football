@@ -105,11 +105,11 @@ export async function sendPaymentLink(input: { registrationId: string }): Promis
     const reg = await loadRegistration(registrationId);
     const { balance } = await balanceOf(reg);
     if (balance <= 0) throw new ActionError("Nothing is owed on this registration.", 409);
-    const url = payLinkUrl(reg.id);
+    const url = await payLinkUrl(reg.id);
     const res = await sendMail({
       to: reg.player.user.email,
       replyTo: admin.email,
-      ...paymentLinkEmail({ firstName: reg.player.firstName, seasonName: reg.season.name, divisionName: reg.division?.name ?? "", amount: money(balance), url }),
+      ...(await paymentLinkEmail({ firstName: reg.player.firstName, seasonName: reg.season.name, divisionName: reg.division?.name ?? "", amount: money(balance), url })),
     });
     if (res.failed) throw new ActionError("The email didn’t send. Try again in a minute.", 409);
     await audit(db, admin, {

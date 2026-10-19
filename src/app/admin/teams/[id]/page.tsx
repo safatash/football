@@ -1,3 +1,4 @@
+import { getBrand } from "@/lib/branding";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Crest, Jersey, MatchMeta, PageHeading, PosTag, VsRow } from "@/components/league";
@@ -50,7 +51,7 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
               </ButtonLink>
             )}
             {capEmails.length && !season.archived ? (
-              <ButtonLink href={`mailto:${capEmails.join(",")}?subject=${encodeURIComponent(`${t.name} · NVASA league office`)}`} variant="ghost" size="sm">
+              <ButtonLink href={`mailto:${capEmails.join(",")}?subject=${encodeURIComponent(`${t.name} · ${(await getBrand()).name} league office`)}`} variant="ghost" size="sm">
                 <Icon name="mail" className="size-4" />
                 Message captains
               </ButtonLink>

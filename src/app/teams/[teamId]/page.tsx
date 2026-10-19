@@ -13,7 +13,8 @@ import { MemberMatchLinks, SuspendedBadge, ViewerProvider } from "@/components/p
 import { now } from "@/lib/clock";
 import { getPublicTeam, listPublicMatches, resolvePublicSeason, teamCaptains, teamInSeason, teamRosterWithStats, type RosterRow } from "@/lib/queries/public";
 import { loadStandings } from "@/lib/queries/standings";
-import { appUrl } from "@/lib/stripe";
+import { appUrl } from "@/lib/branding";
+import { getBrand } from "@/lib/branding";
 
 export const revalidate = 60;
 
@@ -78,9 +79,9 @@ export default async function TeamPage({ params, searchParams }: { params: Param
           "@type": "SportsTeam",
           name: team.name,
           sport: "Soccer",
-          url: `${appUrl()}/teams/${team.id}`,
-          ...(team.logoUrl ? { logo: `${appUrl()}${team.logoUrl}` } : {}),
-          memberOf: { "@type": "SportsOrganization", name: "NVASA" },
+          url: `${(await appUrl())}/teams/${team.id}`,
+          ...(team.logoUrl ? { logo: `${(await appUrl())}${team.logoUrl}` } : {}),
+          memberOf: { "@type": "SportsOrganization", name: (await getBrand()).name },
           athlete: roster.map((r) => ({ "@type": "Person", name: r.name })),
         }}
       />

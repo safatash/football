@@ -56,6 +56,8 @@ export function AdminShell({
     [
       "Settings",
       [
+        { href: "/admin/settings/league", label: "League profile", icon: "shield" },
+        { href: "/admin/settings/staff", label: "Staff", icon: "users" },
         { href: "/admin/seasons", label: "Seasons", icon: "cal" },
         { href: "/admin/settings", label: "Fees & eligibility", icon: "card" },
         { href: "/admin/settings/fields", label: "Fields", icon: "pin" },

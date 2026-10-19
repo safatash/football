@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getBrand } from "@/lib/branding";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Crest } from "@/components/league";
@@ -9,11 +10,10 @@ import { resolvePublicSeason } from "@/lib/queries/public";
 import { loadSeasonStandings } from "@/lib/queries/standings";
 
 export const revalidate = 60;
-export const metadata: Metadata = {
-  title: "Teams",
-  description: "Every NVASA team this season, by division, with records and points.",
-  alternates: { canonical: "/teams" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const b = await getBrand();
+  return { title: "Teams", description: `Every ${b.name} team this season, by division, with records and points.`, alternates: { canonical: "/teams" } };
+}
 
 export default async function TeamsPage({ searchParams }: { searchParams: PublicSearchParams }) {
   const sp = await searchParams;

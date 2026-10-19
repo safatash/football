@@ -7,6 +7,8 @@ declare module "next-auth" {
       playerId?: string
       isCaptain?: boolean
       isAdmin?: boolean
+      /** OWNER, ADMIN or STAFF: can open the league office (STAFF read-only) */
+      canViewOffice?: boolean
       orgRole?: "OWNER" | "ADMIN" | "STAFF" | "PLAYER" | null
     } & DefaultSession["user"]
   }

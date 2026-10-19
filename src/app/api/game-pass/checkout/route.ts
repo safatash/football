@@ -3,7 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { GamePassError, checkGamePassPurchase, fulfillGamePass } from "@/lib/game-pass-server";
 import { getSession } from "@/lib/session";
-import { appUrl, stripe } from "@/lib/stripe";
+import { appUrl, getBrand } from "@/lib/branding";
+import { stripe } from "@/lib/stripe";
 import { getOrgId } from "@/lib/db";
 
 const Body = z.object({ matchId: z.string().trim().min(1).max(64), teamId: z.string().trim().max(64).nullish() });
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
             currency: "usd",
             unit_amount: Math.round(fee * 100),
             product_data: {
-              name: `NVASA game pass · Game #${match.gameNumber}`,
+              name: `${(await getBrand()).name} game pass · Game #${match.gameNumber}`,
               description: `${match.homeTeam.name} vs ${match.awayTeam.name} · this match only`,
             },
           },
@@ -47,8 +48,8 @@ export async function POST(req: NextRequest) {
       ],
       metadata,
       client_reference_id: `${playerId}:${match.id}`,
-      success_url: `${appUrl()}/register/game-pass/confirmation?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl()}/register/game-pass`,
+      success_url: `${(await appUrl())}/register/game-pass/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${(await appUrl())}/register/game-pass`,
     });
     return NextResponse.json({ url: checkout.url });
   } catch (e) {

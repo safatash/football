@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { playerInOrg, getOrgId } from "@/lib/org";
 import { sendMail } from "@/lib/mail";
 import { loginLinkEmail } from "@/lib/mail-templates";
-import { appUrl } from "@/lib/stripe";
+import { appUrl } from "@/lib/branding";
 import { createToken } from "@/lib/tokens";
 
 const Body = z.object({ email: z.string().trim().email().max(254), dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const user = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, include: { players: playerInOrg(await getOrgId()) } });
   if (user?.players[0] && user.players[0].dob.toISOString().slice(0, 10) === dob && user.players[0].status !== "INACTIVE") {
     const token = await createToken("login", user.id);
-    await sendMail({ to: user.email, ...loginLinkEmail({ firstName: user.players[0].firstName, url: `${appUrl()}/login/link?token=${token}` }) });
+    await sendMail({ to: user.email, ...(await loginLinkEmail({ firstName: user.players[0].firstName, url: `${(await appUrl())}/login/link?token=${token}` })) });
   }
   return NextResponse.json({ ok: true });
 }

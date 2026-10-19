@@ -2,7 +2,7 @@ import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db";
-import { isOfficeRole } from "@/lib/access"
+import { canViewOffice, isOfficeRole } from "@/lib/access"
 import { getOrgId, playerInOrg } from "@/lib/org"
 import { consumeToken } from "@/lib/tokens"
 
@@ -89,6 +89,7 @@ export const authOptions: NextAuthOptions = {
             }),
           ])
           session.user.isAdmin = isOfficeRole(member?.role)
+          session.user.canViewOffice = canViewOffice(member?.role)
           session.user.orgRole = member?.role ?? null
           if (player) {
             session.user.playerId = player.id
@@ -97,6 +98,7 @@ export const authOptions: NextAuthOptions = {
           }
         } else {
           session.user.isAdmin = false
+          session.user.canViewOffice = false
         }
       }
       return session

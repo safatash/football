@@ -45,8 +45,8 @@ async function member(email: string, password: string, role: 'OWNER' | 'ADMIN' |
 export async function seedDemoLeague() {
   await db.organization.upsert({
     where: { id: DEMO_ORG_ID },
-    update: {},
-    create: { id: DEMO_ORG_ID, name: 'Demo League', slug: 'demo', status: 'ACTIVE', plan: 'trial', contactEmail: 'office@demo-league.example.com', supportEmail: 'office@demo-league.example.com' },
+    update: { fullName: 'Springfield Demo Soccer League', tagline: 'A sample league for trying the app.', primaryColor: '#1C5598', accentColor: '#F5B700' },
+    create: { id: DEMO_ORG_ID, name: 'Demo League', slug: 'demo', status: 'ACTIVE', plan: 'trial', contactEmail: 'office@demo-league.example.com', supportEmail: 'office@demo-league.example.com', fullName: 'Springfield Demo Soccer League', tagline: 'A sample league for trying the app.', primaryColor: '#1C5598', accentColor: '#F5B700' },
   })
   await db.organizationSettings.upsert({ where: { organizationId: DEMO_ORG_ID }, update: {}, create: { organizationId: DEMO_ORG_ID, gamePassFee: 10, maxMatchRoster: 16, eligibilityMode: 'NONE' } })
 

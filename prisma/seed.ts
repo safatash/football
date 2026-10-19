@@ -257,12 +257,24 @@ async function main() {
   await prisma.organization.upsert({
     where: { id: ORG },
     update: {},
-    create: { id: ORG, name: 'NVASA', slug: 'nvasa', status: 'ACTIVE', plan: 'founding', contactEmail: 'office@nvasa.org', supportEmail: 'office@nvasa.org' },
+    create: {
+      id: ORG,
+      name: 'NVASA',
+      slug: 'nvasa',
+      status: 'ACTIVE',
+      plan: 'founding',
+      contactEmail: 'office@nvasa.org',
+      supportEmail: 'office@nvasa.org',
+      fullName: 'Northern Virginia Adult Soccer',
+      tagline: 'Recreational and competitive adult soccer across Fairfax, Arlington and Alexandria. Register for the season or buy a single-match game pass.',
+      facebookUrl: 'https://www.facebook.com/groups/nvasa/',
+      twitterUrl: 'https://twitter.com/NVASA',
+    },
   })
   await prisma.organizationSettings.upsert({
     where: { organizationId: ORG },
     update: {},
-    create: { organizationId: ORG, gamePassFee: 15, maxMatchRoster: 18, eligibilityMode: 'COUNTY_LIST', eligibleCounties: [FAIRFAX] },
+    create: { organizationId: ORG, gamePassFee: 15, maxMatchRoster: 18, eligibilityMode: 'COUNTY_LIST', eligibleCounties: [FAIRFAX], legacyRedirects: true },
   })
 
   // Reference data ----------------------------------------------------

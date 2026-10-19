@@ -25,6 +25,7 @@
     "@fontsource/barlow-condensed": "^5.3.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@prisma/client": "^6.2.0",
+    "@vercel/blob": "^0.27.3",
     "bcryptjs": "^2.4.3",
     "next": "16.2.6",
     "next-auth": "^4.24.10",

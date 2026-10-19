@@ -6,16 +6,25 @@ import { ButtonLink } from "@/components/ui/button";
 import { BodyCell, BodyRow, DataTable, HeadCell, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import { Crest, Logo, MatchMeta, VsRow } from "@/components/league";
 import { db } from "@/lib/db";
-import { fmtShort, money } from "@/lib/format";
+import { fmtShort, fmtWeekday, money } from "@/lib/format";
+import { getBrand } from "@/lib/branding";
 import { listMatches, nextMatchDay } from "@/lib/queries/matches";
 import { getActiveSeason, getSettings } from "@/lib/queries/season";
 import { listPublicMatches } from "@/lib/queries/public";
 import { gameNo } from "@/lib/public";
 import { Score } from "@/components/public";
 
-export const metadata: Metadata = {
-  title: { absolute: "NVASA · Sunday soccer for adults" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const b = await getBrand();
+  return { title: { absolute: b.fullName === b.name ? b.name : `${b.name} · ${b.fullName}` }, description: b.tagline ?? undefined };
+}
+
+/** Who can register, from the league's eligibility setting. */
+function eligibilityLine(s: { eligibilityMode: string; eligibleCounties: string[] }) {
+  if (s.eligibilityMode === "COUNTY_LIST" && s.eligibleCounties.length) return `Players must live or work in ${s.eligibleCounties.join(", ")} or an eligible ZIP code.`;
+  if (s.eligibilityMode === "ZIP_LIST" || s.eligibilityMode === "COUNTY_LIST") return "Players must live or work in an eligible ZIP code.";
+  return null;
+}
 
 // League data changes all the time; render on every request.
 export const dynamic = "force-dynamic";
@@ -62,7 +71,7 @@ async function loadLanding() {
     listMatches(season.id),
   ]);
   const latest = await listPublicMatches(season.id, "results");
-  return { season, divisions, teams, fields: fields.length, gamePassFee: settings.gamePassFee, next: nextMatchDay(matches), latest: latest.slice(0, 6) };
+  return { season, divisions, teams, fields: fields.length, gamePassFee: settings.gamePassFee, eligibility: eligibilityLine(settings), next: nextMatchDay(matches), latest: latest.slice(0, 6) };
 }
 
 function PitchLines() {
@@ -90,7 +99,7 @@ function PitchLines() {
 const section = "mx-auto w-full max-w-[1180px] px-4";
 
 export default async function LandingPage() {
-  const data = await loadLanding();
+  const [data, brand] = await Promise.all([loadLanding(), getBrand()]);
   const divisions = data?.divisions ?? [];
   const fees = divisions.map((d) => Number(d.registrationFee));
   const feeMin = fees.length ? Math.min(...fees) : 0;
@@ -98,13 +107,15 @@ export default async function LandingPage() {
   const gamePassFee = data?.gamePassFee ?? 15;
   const sunday = data?.next.matches ?? [];
   const seasonName = data?.season.name ?? "";
+  // The weekday games are played, from the next match day (most leagues play one day a week)
+  const gameDay = sunday[0] ? fmtWeekday(sunday[0].scheduledAt) : null;
 
   return (
     <div className="flex min-h-screen flex-col">
       {/* Hero */}
       <div className="relative overflow-hidden bg-pitch text-white">
         <PitchLines />
-        <nav aria-label="NVASA" className={`relative z-[2] flex items-center gap-3 py-3.5 sm:gap-4 ${section}`}>
+        <nav aria-label={brand.name} className={`relative z-[2] flex items-center gap-3 py-3.5 sm:gap-4 ${section}`}>
           <Logo tone="light" />
           <span className="flex-1" />
           <Link href="/standings" className="hidden text-[13.5px] font-bold text-white sm:inline">
@@ -127,15 +138,12 @@ export default async function LandingPage() {
         <div className={`relative z-[1] grid items-center gap-10 pt-9 pb-10 lg:grid-cols-[1.25fr_1fr] lg:pt-14 lg:pb-16 ${section}`}>
           <div className="flex flex-col gap-5">
             <span className="eyebrow !text-lime">
-              {data ? `${seasonName} · Games every Sunday through ${monthDay(data.season.endDate)}` : "Games every Sunday"}
+              {data ? `${seasonName} · ${gameDay ? `Games every ${gameDay}` : "Season"} through ${monthDay(data.season.endDate)}` : brand.name}
             </span>
             <h1 className="text-[clamp(46px,7vw,88px)] leading-[.9] uppercase">
-              Sunday soccer for adults. <em className="not-italic text-lime">Properly run.</em>
+              {brand.fullName}
             </h1>
-            <p className="max-w-[52ch] text-lg text-white/85">
-              Recreational and competitive leagues for players 18 and up across Fairfax, Arlington and Alexandria. Real referees, real
-              standings, and a roster that shows up.
-            </p>
+            {brand.tagline ? <p className="max-w-[52ch] text-lg text-white/85">{brand.tagline}</p> : null}
             <div className="flex flex-wrap gap-[18px] text-sm font-semibold text-white/85">
               <span className="inline-flex items-center gap-1.5">
                 <Icon name="shield" className="size-[18px]" />
@@ -246,16 +254,15 @@ export default async function LandingPage() {
             </DataTable>
           </TableWrap>
           <p className="text-[13.5px] text-muted">
-            Board members, promo holders and teams that paid in full get a code to enter at checkout. Players must live or work in Fairfax
-            County or an eligible ZIP code in Arlington or Alexandria.
+            Board members, promo holders and teams that paid in full get a code to enter at checkout.{data?.eligibility ? ` ${data.eligibility}` : ""}
           </p>
         </section>
 
-        {/* This Sunday */}
+        {/* The next match day */}
         {sunday.length ? (
         <section className={`flex flex-col gap-5 pb-12 ${section}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-[32px]">This Sunday · {fmtShort(sunday[0].scheduledAt)}</h2>
+            <h2 className="text-[32px]">This {gameDay} · {fmtShort(sunday[0].scheduledAt)}</h2>
             <span className="text-[13.5px] text-muted">{sunday.length} matches</span>
           </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-3.5">
@@ -322,18 +329,22 @@ export default async function LandingPage() {
             <Link href="/results" className="hover:text-fg">
               Results
             </Link>
-            <a href="https://www.facebook.com/groups/nvasa/" target="_blank" rel="noopener noreferrer" className="hover:text-fg">
-              Facebook
-            </a>
-            <a href="https://twitter.com/NVASA" target="_blank" rel="noopener noreferrer" className="hover:text-fg">
-              X (Twitter)
-            </a>
+            {brand.social.map((s) => (
+              <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="hover:text-fg">
+                {s.label}
+              </a>
+            ))}
           </span>
           <span>
-            Northern Virginia Adult Soccer Association ·{" "}
-            <a href="mailto:office@nvasa.org" className="font-semibold hover:text-fg">
-              office@nvasa.org
-            </a>
+            {brand.fullName}
+            {brand.contactEmail ? (
+              <>
+                {" · "}
+                <a href={`mailto:${brand.contactEmail}`} className="font-semibold hover:text-fg">
+                  {brand.contactEmail}
+                </a>
+              </>
+            ) : null}
           </span>
         </div>
       </footer>

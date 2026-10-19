@@ -25,6 +25,7 @@ export const orgById = (id: string) => cached(`id:${id}`, () => prisma.organizat
 /** Forget cached lookups (after an organization's slug, domain or status changes). */
 export function forgetOrg() {
   cache.clear();
+  brands.clear();
 }
 
 /** Leagues that background jobs should run for. */
@@ -34,3 +35,29 @@ export function activeOrganizations() {
 
 /** Statuses that keep a league's public site and player pages closed. */
 export const isUnavailable = (status: OrgRef["status"]) => status === "SUSPENDED" || status === "CANCELLED";
+
+/** Everything the pages, emails and theme need about a league (cached like the lookups above). */
+const brandSelect = {
+  ...select,
+  fullName: true,
+  tagline: true,
+  logoUrl: true,
+  primaryColor: true,
+  accentColor: true,
+  timezone: true,
+  contactEmail: true,
+  supportEmail: true,
+  facebookUrl: true,
+  twitterUrl: true,
+  instagramUrl: true,
+} as const;
+export type OrgBrandRow = NonNullable<Awaited<ReturnType<typeof loadBrand>>>;
+const loadBrand = (id: string) => prisma.organization.findUnique({ where: { id }, select: brandSelect });
+const brands = new Map<string, { at: number; row: OrgBrandRow | null }>();
+export async function brandById(id: string) {
+  const hit = brands.get(id);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.row;
+  const row = await loadBrand(id);
+  brands.set(id, { at: Date.now(), row });
+  return row;
+}

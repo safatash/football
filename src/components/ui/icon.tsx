@@ -1,4 +1,4 @@
-// Line icons used across NVASA (24px grid, 2px stroke). Rendered inline so they inherit currentColor.
+// Line icons used across the app (24px grid, 2px stroke). Rendered inline so they inherit currentColor.
 const PATHS = {
   home: `<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>`,
   users: `<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14.8c2 .7 3.2 2.4 3.5 5.2"/>`,

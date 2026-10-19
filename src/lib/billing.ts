@@ -7,7 +7,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { PaymentMethod, PaymentStatus, Prisma } from "@prisma/client";
 import type { DbTx } from "@/lib/db";
-import { appUrl } from "@/lib/stripe";
+import { appUrl } from "@/lib/branding";
 
 type Db = DbTx;
 
@@ -89,7 +89,7 @@ function secret() {
 const sign = (registrationId: string) => createHmac("sha256", secret()).update(`pay:${registrationId}`).digest("base64url").slice(0, 32);
 
 /** A link to pay a registration's balance online. It never expires; it always charges the current balance. */
-export const payLinkUrl = (registrationId: string) => `${appUrl()}/pay/${registrationId}?sig=${sign(registrationId)}`;
+export const payLinkUrl = async (registrationId: string) => `${await appUrl()}/pay/${registrationId}?sig=${sign(registrationId)}`;
 
 export function payLinkValid(registrationId: string, sig: string | null | undefined) {
   if (!sig) return false;

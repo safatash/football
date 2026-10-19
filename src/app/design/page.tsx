@@ -30,7 +30,7 @@ const EXAMPLE_STANDINGS = (
 
 export const metadata = {
   title: "Components & styles",
-  description: "NVASA design tokens, type and shared components.",
+  description: "Design tokens, type and shared components.",
 };
 
 function Swatch({ name, token, note }: { name: string; token: string; note?: string }) {

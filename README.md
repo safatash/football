@@ -122,6 +122,10 @@ See `.env.example`. Beyond the database, NextAuth and Stripe keys:
 | Variable | What it does |
 | --- | --- |
 | `APP_ROOT_DOMAIN` | Leagues live at `<slug>.<APP_ROOT_DOMAIN>` (default `app.localhost`, so `nvasa.app.localhost:3000`). |
+| `APP_ROOT_URL` | Scheme and port of the root domain for links (default `http://<APP_ROOT_DOMAIN>:3000`). A league's links use its custom domain or `<slug>.` + this. |
+| `AUTH_TRUST_HOST` | `true` so sign-in redirects stay on the league's host (set automatically on Vercel). |
+| `APP_NAME` | Product name for "{League} via {APP_NAME}" emails (default `LeagueOffice`). |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob, for league logo uploads. |
 | `ORG_SLUG`, `ALLOW_ORG_FALLBACK` | Local work on plain `localhost`: the league to show (or `?org=<slug>`). Ignored in production unless `ALLOW_ORG_FALLBACK=true`. |
 | `CRON_SECRET` | Required by `/api/cron/*` (`Authorization: Bearer …`). Vercel Cron sends it. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Outgoing mail. Production sends when set. |
@@ -229,8 +233,33 @@ Guard tests (run in CI, `.github/workflows/ci.yml`):
 - `tests/raw-client.test.ts`: no raw client outside `src/platform/`, and every raw SQL query
   filters by `organizationId`.
 
-Planned: Postgres row-level security as a second layer (after measuring its cost), removing the
-hard-coded NVASA text, a platform/operator area, and per-league payments.
+**League branding (Phase 3).** Nothing in the app names a league. Names, logo, colors, contact
+emails, social links, timezone and waiver come from the organization (`src/lib/branding.ts`:
+`getBrand()` on the server, `useBrand()` in client components, set once by the root layout).
+
+- Colors: the main and accent colors replace the `--pitch` and `--lime` theme variables
+  (`src/lib/theme.ts`; only `#RRGGBB` values are accepted, and light main colors are darkened until
+  white text on them is readable). Without colors the app keeps its green.
+- Emails go out as `"{League} via {APP_NAME}" <address from SMTP_FROM>` with reply-to set to the
+  league's contact email, in the league's colors.
+- Links in emails, Stripe and structured data use the league's own address (`leagueOrigin`:
+  its custom domain, else `<slug>.` + `APP_ROOT_URL`). Set `AUTH_TRUST_HOST=true` so sign-in stays
+  on the league's host (Vercel does this for you).
+- Old ColdFusion links (`*.cfm`) only answer for leagues with `legacyRedirects` (NVASA); other
+  leagues get 404.
+- Admin › Settings › **League profile**: name, logo (Vercel Blob under `orgs/<orgId>/`, PNG/JPEG/
+  WebP up to 512 KB; without `BLOB_READ_WRITE_TOKEN` admins paste a logo link), colors, contacts,
+  social links, timezone and waiver text (shown in the registration wizard).
+- Admin › Settings › **Staff**: invite by email as Admin or Staff, change roles, remove. Staff can
+  open the league office read-only (every write requires Owner or Admin). The owner and your own
+  role can't be changed there.
+- `tests/no-hardcoded-league.test.ts` fails if "NVASA" or its addresses come back into `src/`.
+
+The timezone is saved per league, but dates still display in Eastern time: the formatters in
+`src/lib/format.ts` use one fixed zone, and making them per-league is a separate change.
+
+Planned: Postgres row-level security as a second layer (after measuring its cost), a
+platform/operator area, and per-league payments.
 
 ### Checks
 

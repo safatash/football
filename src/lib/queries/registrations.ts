@@ -1,3 +1,4 @@
+import { getBrand } from "@/lib/branding";
 import type { Prisma, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
@@ -263,7 +264,7 @@ export async function getRegistrationReview(id: string, season: Pick<SeasonRef, 
     ["Gender", GENDER[p.gender] ?? p.gender],
     ["Phone", p.phone || "—"],
     ["Home", [p.address, `${p.city}, ${p.state} ${p.zip}`].filter(Boolean).join(", ")],
-    ["Background", `${reg.background === "NEW" ? "New to NVASA" : "Returning player"} · ${reg.level || "No level given"}`],
+    ["Background", `${reg.background === "NEW" ? `New to ${(await getBrand()).name}` : "Returning player"} · ${reg.level || "No level given"}`],
     ["Position", p.position || "—"],
     ["T-shirt", p.tshirtSize || "—"],
     ["Preferred team", preferredName],

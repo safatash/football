@@ -156,7 +156,7 @@ export async function sendTeamUpdate(input: z.input<typeof UpdateInput>): Promis
     });
     const emails = [...new Set(rows.map((r) => r.player.user.email))];
     const sender = user.playerId ? await db.player.findUnique({ where: { id: user.playerId }, select: { firstName: true, lastName: true } }) : null;
-    const mail = teamUpdateEmail({ teamName: team.name, captainName: sender ? fullName(sender) : "The league office", message: data.message, teamId: team.id });
+    const mail = await teamUpdateEmail({ teamName: team.name, captainName: sender ? fullName(sender) : "The league office", message: data.message, teamId: team.id });
     const res = await sendMail({ to: emails, ...mail, replyTo: user.email ?? undefined });
     if (res.failed && !res.sent && !res.logged) throw new ActionError("We couldn’t send the update. Try again in a moment.", 409);
     return { ok: true, message: `Update sent to ${emails.length} players`, data: { recipients: emails.length } };

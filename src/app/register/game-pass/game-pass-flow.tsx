@@ -1,5 +1,6 @@
 "use client";
 
+import { useBrand } from "@/components/brand";
 import { getSession, signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -39,6 +40,7 @@ export function GamePassFlow({
   /** Signed-in players skip "Who's playing". */
   signedIn: { name: string } | null;
 }) {
+  const brand = useBrand();
   const router = useRouter();
   const [step, setStep] = useState(signedIn ? 2 : 1);
   const [gender, setGender] = useState<Gender | "">("");
@@ -190,7 +192,7 @@ export function GamePassFlow({
             <h2 ref={headingRef} tabIndex={-1} className="text-[30px] outline-none">
               Taking you to secure checkout
             </h2>
-            <p className="text-muted">Payments are processed by Stripe. NVASA never sees your card number.</p>
+            <p className="text-muted">Payments are processed by Stripe. {brand.name} never sees your card number.</p>
           </div>
           <Card className="w-full text-left">
             <div className="flex items-center justify-between gap-3">

@@ -1,13 +1,13 @@
 import type { MetadataRoute } from "next";
 import { db } from "@/lib/db";
-import { appUrl } from "@/lib/stripe";
+import { appUrl } from "@/lib/branding";
 
 // Rendered on request (not at build time), so builds don't need the database.
 export const dynamic = "force-dynamic";
 
 /** Public pages plus this season's teams, players and matches. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = appUrl();
+  const base = (await appUrl());
   const fixed: MetadataRoute.Sitemap = ["", "/standings", "/results", "/schedule", "/teams", "/register"].map((p) => ({ url: `${base}${p}`, changeFrequency: "daily" }));
   const season = await db.season.findFirst({ where: { isActive: true }, select: { id: true } }).catch(() => null);
   if (!season) return fixed;

@@ -1164,6 +1164,11 @@ model Organization {
   timezone     String             @default("America/New_York")
   contactEmail String?
   supportEmail String?
+  fullName     String? // e.g. "Northern Virginia Adult Soccer"; page titles and the home page
+  tagline      String? // short line for the home page and search results
+  facebookUrl  String?
+  twitterUrl   String?
+  instagramUrl String?
   status       OrganizationStatus @default(TRIAL)
   plan         String             @default("pilot")
   trialEndsAt  DateTime?
@@ -1268,6 +1273,9 @@ model OrganizationSettings {
   waiverRequired Boolean @default(true)
 
   registrationOpen Boolean @default(true)
+
+  /// Redirect the old ColdFusion links (*.cfm). Only NVASA had the old site.
+  legacyRedirects Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

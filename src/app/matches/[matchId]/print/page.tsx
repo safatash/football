@@ -1,3 +1,4 @@
+import { getBrand } from "@/lib/branding";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { ButtonLink } from "@/components/ui/button";
@@ -210,7 +211,7 @@ export default async function PrintRosterPage({ params }: { params: Promise<{ ma
           <div>Date &amp; time signed</div>
         </div>
         <p className="mt-6 flex flex-wrap justify-between gap-2 text-[10px]">
-          <span>Printed from NVASA · {sheet.printed}</span>
+          <span>Printed from {(await getBrand()).name} · {sheet.printed}</span>
           <span>Return to the referee before kickoff</span>
         </p>
       </article>

@@ -1,3 +1,4 @@
+import { appName } from "@/lib/branding";
 /**
  * iCalendar (RFC 5545) for team schedules: 90-minute events in America/New_York, stable UIDs,
  * CRLF line endings, escaped text and folded long lines.
@@ -58,7 +59,7 @@ const VTIMEZONE = [
 ];
 
 export function buildCalendar(name: string, events: IcsEvent[], now = new Date()) {
-  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//NVASA//League schedule//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", `X-WR-CALNAME:${icsEscape(name)}`, `X-WR-TIMEZONE:${TZ}`, ...VTIMEZONE];
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", `PRODID:-//${appName()}//League schedule//EN`, "CALSCALE:GREGORIAN", "METHOD:PUBLISH", `X-WR-CALNAME:${icsEscape(name)}`, `X-WR-TIMEZONE:${TZ}`, ...VTIMEZONE];
   for (const e of events) {
     const end = new Date(e.start.getTime() + (e.minutes ?? 90) * 60_000);
     lines.push(

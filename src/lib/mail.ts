@@ -1,4 +1,5 @@
 import nodemailer, { type Transporter } from "nodemailer";
+import { getBrand } from "@/lib/branding";
 
 export type Mail = { to: string | string[]; subject: string; text: string; html: string; replyTo?: string };
 
@@ -33,18 +34,39 @@ function getTransport() {
   return transport;
 }
 
+/** The platform's sending address: the address part of SMTP_FROM (or SMTP_USER). */
+const senderAddress = () => {
+  const from = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? "";
+  return (from.match(/<([^>]+)>/)?.[1] ?? from).trim();
+};
+
+/**
+ * Who a message is from: "{League} via {App}" at the platform's address (leagues don't send from
+ * their own domains), with replies going to the league's contact address.
+ */
+export async function senderFor(replyTo?: string) {
+  const b = await getBrand();
+  const name = b.orgId ? `${b.name} via ${b.appName}` : b.appName;
+  const address = senderAddress();
+  return {
+    from: address ? `"${name.replace(/["\\]/g, "")}" <${address}>` : undefined,
+    replyTo: replyTo ?? b.contactEmail ?? undefined,
+  };
+}
+
 /** Sends one message per recipient (players never see each other's addresses). Never throws. */
 export async function sendMail(mail: Mail): Promise<{ sent: number; logged: number; failed: number }> {
   const recipients = [...new Set((Array.isArray(mail.to) ? mail.to : [mail.to]).map((r) => r.trim()).filter(Boolean))];
   const result = { sent: 0, logged: 0, failed: 0 };
+  const sender = await senderFor(mail.replyTo);
   for (const to of recipients) {
     if (!deliverable(to)) {
       result.logged++;
-      if (process.env.NODE_ENV !== "test") console.info(`[mail] (not sent) to=${to} subject="${mail.subject}"\n${mail.text}\n`);
+      if (process.env.NODE_ENV !== "test") console.info(`[mail] (not sent) from=${sender.from ?? "-"} reply-to=${sender.replyTo ?? "-"} to=${to} subject="${mail.subject}"\n${mail.text}\n`);
       continue;
     }
     try {
-      await getTransport().sendMail({ from: process.env.SMTP_FROM ?? process.env.SMTP_USER, to, subject: mail.subject, text: mail.text, html: mail.html, replyTo: mail.replyTo });
+      await getTransport().sendMail({ ...sender, to, subject: mail.subject, text: mail.text, html: mail.html });
       result.sent++;
     } catch (e) {
       result.failed++;

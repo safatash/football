@@ -1,5 +1,6 @@
 "use client";
 
+import { useBrand } from "@/components/brand";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -10,6 +11,7 @@ import { Field, TextInput } from "@/components/ui/field";
 import { Screen } from "@/components/shell/layout";
 
 export function LoginForm() {
+  const brand = useBrand();
   const router = useRouter();
   const params = useSearchParams();
   const nextParam = params.get("next");
@@ -94,7 +96,7 @@ export function LoginForm() {
       </div>
 
       <p className="text-center text-[13.5px] text-muted">
-        New to NVASA?{" "}
+        New to {brand.name}?{" "}
         <Link href="/register" className="font-bold text-pitch-2 underline underline-offset-4 dark:text-lime">
           Create an account
         </Link>

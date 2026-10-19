@@ -52,12 +52,12 @@ describe("mail delivery guard", () => {
 describe("email templates", () => {
   it("escape player-written text and include the link", async () => {
     const { teamUpdateEmail, loginLinkEmail, registrationDeniedEmail } = await import("@/lib/mail-templates");
-    const t = teamUpdateEmail({ teamName: "Fairfax United", captainName: "Maya Johnson", message: "Bring <script>water</script> & cleats", teamId: "t1" });
+    const t = await teamUpdateEmail({ teamName: "Fairfax United", captainName: "Maya Johnson", message: "Bring <script>water</script> & cleats", teamId: "t1" });
     expect(t.html).toContain("&lt;script&gt;water&lt;/script&gt; &amp; cleats");
     expect(t.text).toContain("Bring <script>water</script> & cleats");
-    const l = loginLinkEmail({ firstName: "Maya", url: "http://localhost:3000/login/link?token=abc" });
+    const l = await loginLinkEmail({ firstName: "Maya", url: "http://localhost:3000/login/link?token=abc" });
     expect(l.html).toContain('href="http://localhost:3000/login/link?token=abc"');
     expect(l.text).toContain("expires in 30 minutes");
-    expect(registrationDeniedEmail({ firstName: "Sophie", seasonName: "Spring 2026", message: "Outside the area." }).text).toContain("Outside the area.");
+    expect((await registrationDeniedEmail({ firstName: "Sophie", seasonName: "Spring 2026", message: "Outside the area." })).text).toContain("Outside the area.");
   });
 });

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getBrand } from "@/lib/branding";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/card";
@@ -8,11 +9,10 @@ import { resolvePublicSeason } from "@/lib/queries/public";
 import { loadSeasonStandings, seasonLeaders, topBy } from "@/lib/queries/standings";
 
 export const revalidate = 60;
-export const metadata: Metadata = {
-  title: "Standings",
-  description: "NVASA standings for every division, with each division's top scorers.",
-  alternates: { canonical: "/standings" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const b = await getBrand();
+  return { title: "Standings", description: `${b.name} standings for every division, with each division's top scorers.`, alternates: { canonical: "/standings" } };
+}
 
 export default async function StandingsPage({ searchParams }: { searchParams: PublicSearchParams }) {
   const sp = await searchParams;

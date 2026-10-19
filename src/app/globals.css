@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
-  NVASA design tokens.
+  Design tokens (league colors override --pitch and --lime; see lib/theme.ts).
   Colors live in CSS variables so light and dark come from one place;
   @theme maps them to Tailwind utilities (bg-pitch, text-muted, bg-ok-bg, ...).
 */

@@ -4,6 +4,8 @@ export const TZ = "America/New_York";
 export const fmtDay = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: TZ });
 export const fmtShort = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: TZ });
 export const fmtLong = (d: Date) => d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: TZ });
+/** "Sunday" */
+export const fmtWeekday = (d: Date) => d.toLocaleDateString("en-US", { weekday: "long", timeZone: TZ });
 export const fmtTime = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ });
 /** Calendar date (YYYY-MM-DD) for a timestamp, in Eastern time. */
 export const dayKey = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: TZ });

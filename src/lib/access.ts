@@ -10,6 +10,9 @@ import { ForbiddenError, UnauthorizedError } from "@/lib/team-access";
 /** Roles that run the league office (the /admin area). */
 export const OFFICE_ROLES: OrgRole[] = ["OWNER", "ADMIN"];
 export const isOfficeRole = (role: OrgRole | null | undefined) => !!role && OFFICE_ROLES.includes(role);
+/** Roles that can open the league office; STAFF sees it read-only (every write needs OWNER or ADMIN). */
+export const VIEW_OFFICE_ROLES: OrgRole[] = ["OWNER", "ADMIN", "STAFF"];
+export const canViewOffice = (role: OrgRole | null | undefined) => !!role && VIEW_OFFICE_ROLES.includes(role);
 
 /** A user's active membership in the current league, or null. */
 export async function currentMembership(userId: string) {

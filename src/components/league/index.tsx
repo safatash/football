@@ -1,18 +1,8 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { addressLine, directionsUrl, type Place } from "@/lib/public";
 
-export function Logo({ href = "/", className = "", tone = "default" }: { href?: string; className?: string; tone?: "default" | "light" }) {
-  return (
-    <Link href={href} className={`inline-flex items-center gap-2 font-display text-[22px] font-extrabold tracking-[0.03em] ${tone === "light" ? "text-white" : ""} ${className}`}>
-      <span className="grid size-[30px] place-items-center rounded-lg bg-lime text-lime-ink">
-        <Icon name="ball" className="size-5" />
-      </span>
-      NVASA
-    </Link>
-  );
-}
+export { Logo } from "@/components/brand";
 
 export type CrestTeam = { name: string; color?: string | null; shortName?: string | null; logoUrl?: string | null };
 

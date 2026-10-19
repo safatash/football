@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getBrand } from "@/lib/branding";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Crest } from "@/components/league";
@@ -17,9 +18,10 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   const { active } = await resolvePublicSeason(null);
   const p = await publicPlayer(playerId, active?.id ?? null);
   if (!p) return { title: "Player" };
+  const b = await getBrand();
   return {
     title: p.name,
-    description: `${p.name}${p.current ? ` plays for ${p.current.team.name}` : ""} in NVASA: teams and stats by season.`,
+    description: `${p.name}${p.current ? ` plays for ${p.current.team.name}` : ""} in ${b.name}: teams and stats by season.`,
     alternates: { canonical: `/players/${p.id}` },
   };
 }

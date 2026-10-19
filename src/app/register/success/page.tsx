@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PaymentBadge, RegistrationBadge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
+import { getBrand } from "@/lib/branding";
 import { Card, Notice } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { Logo } from "@/components/league";
@@ -143,7 +144,7 @@ export default async function RegistrationSuccessPage({
             Go to my portal
           </ButtonLink>
           <ButtonLink href="/" variant="ghost" block className="lg:w-auto">
-            Back to NVASA home
+            Back to {(await getBrand()).name} home
           </ButtonLink>
         </div>
       </Screen>

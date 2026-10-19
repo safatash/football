@@ -1,3 +1,4 @@
+import { contactLine } from "@/lib/branding";
 import type Stripe from "stripe";
 import { db } from "@/lib/db";
 import { now } from "@/lib/clock";
@@ -42,7 +43,7 @@ export async function checkGamePassPurchase(playerId: string, matchId: string, t
   if (teamId && teamId !== match.homeTeamId && teamId !== match.awayTeamId) throw new GamePassError("Pick one of the two teams in this match.");
 
   if (player.status === "SUSPENDED" || player.suspensions.length) throw new GamePassError("You’re suspended, so you can’t buy a game pass right now.", 403);
-  if (await blocklistHit(player.user.email)) throw new GamePassError("This email is not eligible. Contact office@nvasa.org.", 403);
+  if (await blocklistHit(player.user.email)) throw new GamePassError(`This email is not eligible. ${await contactLine()}`, 403);
   if (match.division) {
     const elig = checkEligibility(match.division, { dob: player.dob, gender: player.gender }, match.season.startDate);
     if (!elig.ok) throw new GamePassError(`You can’t play in ${match.division.name}: ${elig.reason}.`, 403);
@@ -132,7 +133,7 @@ async function sendGamePassReceipt(passId: string) {
   });
   await sendMail({
     to: p.player.user.email,
-    ...gamePassReceiptEmail({
+    ...(await gamePassReceiptEmail({
       firstName: p.player.firstName,
       gameNumber: p.match.gameNumber,
       matchLine: `${p.match.homeTeam.name} vs ${p.match.awayTeam.name}`,
@@ -141,7 +142,7 @@ async function sendGamePassReceipt(passId: string) {
       teamName: p.team?.name ?? null,
       amount: money(p.payment.amount),
       passId: p.id,
-    }),
+    })),
   });
 }
 

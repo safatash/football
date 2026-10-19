@@ -57,7 +57,7 @@ async function registrationPaid(session: Stripe.Checkout.Session) {
   });
   await sendMail({
     to: reg.player.user.email,
-    ...registrationReceivedEmail({ firstName: reg.player.firstName, seasonName: reg.season.name, divisionName: reg.division?.name ?? "the league", number: regNumber(reg.number), paid: true }),
+    ...(await registrationReceivedEmail({ firstName: reg.player.firstName, seasonName: reg.season.name, divisionName: reg.division?.name ?? "the league", number: regNumber(reg.number), paid: true })),
   });
 }
 

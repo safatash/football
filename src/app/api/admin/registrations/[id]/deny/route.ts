@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       where: { id },
       include: { season: { select: { name: true } }, player: { select: { firstName: true, user: { select: { email: true } } } } },
     });
-    await sendMail({ to: done.player.user.email, ...registrationDeniedEmail({ firstName: done.player.firstName, seasonName: done.season.name, message: parsed.data.message || null }) });
+    await sendMail({ to: done.player.user.email, ...(await registrationDeniedEmail({ firstName: done.player.firstName, seasonName: done.season.name, message: parsed.data.message || null })) });
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof ConflictError) return NextResponse.json({ error: "This registration was already decided." }, { status: 409 });

@@ -123,7 +123,7 @@ describe.skipIf(!hasDb)("billing and adding players with billing (database)", as
       expect(await prisma.user.count({ where: { email: EMAILS[4] } })).toBe(0);
       expect(await admin.createPlayerAccount(person(EMAILS[4], { zip: "90210", teamId: ids.nvs, override: true }))).toMatchObject({ ok: true });
       // Same email again is refused outright
-      expect(await admin.createPlayerAccount(person(EMAILS[4], { override: true }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/already has an NVASA account/) });
+      expect(await admin.createPlayerAccount(person(EMAILS[4], { override: true }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/already has an account/) });
     } finally {
       await prisma.blocklist.deleteMany({ where: { email: EMAILS[4] } });
     }

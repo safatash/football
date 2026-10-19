@@ -107,7 +107,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
     await sendMail({
       to: done.player.user.email,
-      ...registrationApprovedEmail({ firstName: done.player.firstName, seasonName: done.season.name, teamName: team?.name ?? null, captain: !!team && makeCaptain }),
+      ...(await registrationApprovedEmail({ firstName: done.player.firstName, seasonName: done.season.name, teamName: team?.name ?? null, captain: !!team && makeCaptain })),
     });
     return NextResponse.json({ success: true, placement: !team });
   } catch (error) {

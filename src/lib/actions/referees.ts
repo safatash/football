@@ -264,7 +264,7 @@ export async function emailWeekAssignments(input: { weekStart: string }): Promis
         const where = m.venue ? `${m.venue.park.name} ${fieldName(m.venue.name)}${m.venue.park.address ? `, ${m.venue.park.address}` : ""}` : (m.field ?? "field to be announced");
         return `${fmtDay(m.scheduledAt)} ${fmtTime(m.scheduledAt)} · Game #${m.gameNumber} ${m.homeTeam.name} vs ${m.awayTeam.name} · ${ROLE_LABEL[o.role as Role]} · ${where}`;
       });
-      const res = await sendMail({ to: ref.email, replyTo: admin.email, ...refereeScheduleEmail({ name: ref.name.split(" ")[0], weekLabel, lines }) });
+      const res = await sendMail({ to: ref.email, replyTo: admin.email, ...(await refereeScheduleEmail({ name: ref.name.split(" ")[0], weekLabel, lines })) });
       if (res.sent + res.logged > 0) sent++;
     }
     await audit(db, admin, { action: "officials.emailed", entityType: "week", entityId: weekStart, summary: `Emailed assignments for ${weekLabel} to ${sent} referee${sent === 1 ? "" : "s"}${skipped.length ? ` (no email: ${skipped.join(", ")})` : ""}` });

@@ -1,3 +1,4 @@
+import { contactLine } from "@/lib/branding";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -32,9 +33,9 @@ export async function POST(req: NextRequest) {
   const season = await getActiveSeason();
   const age = ageOn(dob, season?.startDate ?? new Date());
   if (age === null || age < 18) return NextResponse.json({ error: "Players must be 18 or older." }, { status: 400 });
-  if (await blocklistHit(email)) return NextResponse.json({ error: "This email is not eligible. Contact office@nvasa.org." }, { status: 403 });
+  if (await blocklistHit(email)) return NextResponse.json({ error: `This email is not eligible. ${await contactLine()}` }, { status: 403 });
   if (await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } })) {
-    return NextResponse.json({ error: "That email already has an NVASA account. Log in instead." }, { status: 409 });
+    return NextResponse.json({ error: "That email already has an account. Log in instead." }, { status: 409 });
   }
 
   const [firstName, ...rest] = name.split(/\s+/);

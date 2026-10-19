@@ -29,8 +29,8 @@ describe("billing summary", () => {
 });
 
 describe("payment links", () => {
-  it("are signed per registration", () => {
-    const url = new URL(payLinkUrl("reg_123"));
+  it("are signed per registration", async () => {
+    const url = new URL(await payLinkUrl("reg_123"));
     const sig = url.searchParams.get("sig");
     expect(url.pathname).toBe("/pay/reg_123");
     expect(payLinkValid("reg_123", sig)).toBe(true);

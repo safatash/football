@@ -13,9 +13,9 @@ export async function requireUser(next?: string) {
   return session;
 }
 
-/** For pages: league-office user, otherwise redirect. */
+/** For pages: league-office user (OWNER, ADMIN, or STAFF read-only), otherwise redirect. */
 export async function requireAdmin() {
   const session = await requireUser("/admin");
-  if (!session.user.isAdmin) redirect("/portal?denied=admin");
+  if (!session.user.canViewOffice) redirect("/portal?denied=admin");
   return session;
 }

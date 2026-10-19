@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useBrand } from "@/components/brand";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Logo } from "@/components/league";
 
@@ -80,8 +81,9 @@ const isOnLeague = (path: string, href: string) => path === href || path.startsW
 
 export function PublicTopNav() {
   const path = usePathname();
+  const brand = useBrand();
   return (
-    <nav aria-label="NVASA" className="sticky top-0 z-30 hidden min-h-[60px] items-center gap-1.5 border-b border-line bg-surface px-[max(16px,calc((100%-1120px)/2))] lg:flex">
+    <nav aria-label={brand.name} className="sticky top-0 z-30 hidden min-h-[60px] items-center gap-1.5 border-b border-line bg-surface px-[max(16px,calc((100%-1120px)/2))] lg:flex">
       <Logo />
       <span className="ml-4 flex items-center gap-1">
         {LEAGUE_LINKS.map((l) => (

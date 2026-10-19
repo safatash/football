@@ -1,3 +1,4 @@
+import { getBrand } from "@/lib/branding";
 import type { PaymentMethod, PaymentStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { METHODS } from "@/lib/billing";
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
   const method = (METHODS.find(([k]) => k === sp.get("method"))?.[0] ?? null) as PaymentMethod | null;
   const status = (REPORT_STATUSES.find(([k]) => k === sp.get("status"))?.[0] ?? null) as PaymentStatus | null;
   const { rows } = await seasonPayments(season.id, { method, status });
-  const name = `nvasa-payments-${season.name.toLowerCase().replace(/\s+/g, "-")}${method ? `-${method.toLowerCase()}` : ""}${status ? `-${status.toLowerCase()}` : ""}.csv`;
+  const name = `${(await getBrand()).slug ?? "league"}-payments-${season.name.toLowerCase().replace(/\s+/g, "-")}${method ? `-${method.toLowerCase()}` : ""}${status ? `-${status.toLowerCase()}` : ""}.csv`;
   return new NextResponse(paymentsCsv(rows), {
     headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${name}"`, "cache-control": "no-store" },
   });

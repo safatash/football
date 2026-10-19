@@ -1,3 +1,4 @@
+import { getBrand } from "@/lib/branding";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/actions/admin-guard";
 import { now } from "@/lib/clock";
@@ -23,6 +24,6 @@ export async function GET(req: NextRequest) {
   const head = ["Referee", "Email", "Date", "Game", "Match", "Role", "Status", "Fee", "Paid"];
   const lines = rows.flatMap((r) => r.lines.map((l) => [r.name, r.email ?? "", l.date, l.gameNumber, l.match, l.role, l.status, l.fee.toFixed(2), l.paid ? "yes" : "no"].map(cell).join(",")));
   return new NextResponse([head.join(","), ...lines].join("\r\n") + "\r\n", {
-    headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="nvasa-referee-pay-${from}-to-${to}.csv"`, "cache-control": "no-store" },
+    headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${(await getBrand()).slug ?? "league"}-referee-pay-${from}-to-${to}.csv"`, "cache-control": "no-store" },
   });
 }

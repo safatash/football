@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { playerInOrg, getOrgId } from "@/lib/org";
 import { sendMail } from "@/lib/mail";
 import { passwordResetEmail } from "@/lib/mail-templates";
-import { appUrl } from "@/lib/stripe";
+import { appUrl } from "@/lib/branding";
 import { createToken } from "@/lib/tokens";
 
 const Body = z.object({ email: z.string().trim().email().max(254) });
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const user = await db.user.findFirst({ where: { email: { equals: parsed.data.email, mode: "insensitive" } }, include: { players: playerInOrg(await getOrgId()) } });
   if (user && user.players[0]?.status !== "INACTIVE") {
     const token = await createToken("reset", user.id);
-    await sendMail({ to: user.email, ...passwordResetEmail({ firstName: user.players[0]?.firstName ?? "there", url: `${appUrl()}/login/reset?token=${token}` }) });
+    await sendMail({ to: user.email, ...(await passwordResetEmail({ firstName: user.players[0]?.firstName ?? "there", url: `${(await appUrl())}/login/reset?token=${token}` })) });
   }
   return NextResponse.json({ ok: true });
 }
