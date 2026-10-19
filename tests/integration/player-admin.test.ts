@@ -17,6 +17,9 @@ describe.skipIf(!hasDb)("player and league-office admin tools (database)", async
   const as = (who: string | null) => (auth.user = who ? users[who] : null);
 
   async function cleanup() {
+    // Payments are never deleted by the app; tests clean up their own
+    await prisma.payment.deleteMany({ where: { player: { user: { email: NEW_EMAIL } } } });
+    await prisma.registration.deleteMany({ where: { player: { user: { email: NEW_EMAIL } } } });
     await prisma.user.deleteMany({ where: { email: NEW_EMAIL } });
     await prisma.user.updateMany({ where: { email: "hannah.cole@example.com" }, data: { role: "PLAYER" } });
   }
@@ -44,11 +47,12 @@ describe.skipIf(!hasDb)("player and league-office admin tools (database)", async
   });
 
   describe("create a player account", () => {
-    const base = { firstName: "Iris", lastName: "Testwell", email: NEW_EMAIL, dob: "1996-04-04", gender: "FEMALE" as const, phone: "", zip: "22030", position: "MID" as const };
+    const base = { firstName: "Iris", lastName: "Testwell", email: NEW_EMAIL, dob: "1996-04-04", gender: "FEMALE" as const, phone: "703-555-0101", zip: "22030", position: "MID" as const };
 
     it("checks eligibility and the jersey before creating anything", async () => {
       as("admin");
-      expect(await admin.createPlayerAccount({ ...base, teamId: ids.md1Team })).toMatchObject({ ok: false, status: 400, error: expect.stringMatching(/Men only/) });
+      expect(await admin.createPlayerAccount({ ...base, teamId: ids.md1Team })).toMatchObject({ ok: false, status: 409, errors: [expect.stringMatching(/Men only/)] });
+      expect(await admin.createPlayerAccount({ ...base, phone: "" })).toMatchObject({ ok: false, status: 400, error: expect.stringMatching(/phone/) });
       expect(await admin.createPlayerAccount({ ...base, teamId: ids.ffx, jerseyNumber: 9 })).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/#9 is already Maya Johnson/) });
       expect(await prisma.user.count({ where: { email: NEW_EMAIL } })).toBe(0);
     });

@@ -5,6 +5,7 @@ import { fulfillGamePass } from "@/lib/game-pass-server";
 import { regNumber } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
 import { registrationReceivedEmail } from "@/lib/mail-templates";
+import { syncPaymentStatus } from "@/lib/billing";
 import { countDiscountUse } from "@/lib/registration";
 import { stripe } from "@/lib/stripe";
 
@@ -36,6 +37,7 @@ async function registrationPaid(session: Stripe.Checkout.Session) {
         paymentType: "REGISTRATION_FEE",
         relatedEntityType: "registration",
         relatedEntityId: reg.id,
+        method: "STRIPE",
         paidAt: new Date(),
       },
     });
@@ -57,6 +59,37 @@ async function registrationPaid(session: Stripe.Checkout.Session) {
   });
 }
 
+/** Balance paid through an emailed payment link: add it to the ledger and recompute the status. */
+async function balancePaid(session: Stripe.Checkout.Session) {
+  const registrationId = session.metadata?.registrationId;
+  if (!registrationId) throw new Error("Missing registrationId");
+  await prisma.$transaction(async (tx) => {
+    if (await tx.payment.findUnique({ where: { stripeChargeId: session.id } })) return;
+    const reg = await tx.registration.findUnique({ where: { id: registrationId } });
+    if (!reg) throw new Error(`Registration ${registrationId} not found`);
+    const amount = (session.amount_total ?? 0) / 100;
+    await tx.payment.create({
+      data: {
+        userId: reg.playerId,
+        stripePaymentIntentId: (session.payment_intent as string | null) ?? null,
+        stripeChargeId: session.id,
+        amount,
+        currency: session.currency ?? "usd",
+        status: "PAID",
+        paymentType: "REGISTRATION_FEE",
+        relatedEntityType: "registration",
+        relatedEntityId: reg.id,
+        method: "STRIPE",
+        paidAt: new Date(),
+      },
+    });
+    const s = await syncPaymentStatus(tx, reg.id);
+    await tx.auditLog.create({
+      data: { actorEmail: "stripe", action: "payment.stripe", entityType: "registration", entityId: reg.id, summary: `Paid $${amount} online (payment link)`, data: { session: session.id, status: s.status } },
+    });
+  });
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text();
   let event: Stripe.Event;
@@ -73,6 +106,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (type === "registration") await registrationPaid(session);
+    else if (type === "registration_balance") await balancePaid(session);
     else if (type === "game_pass") await fulfillGamePass(session);
     else {
       console.error("Webhook: unknown checkout type", type);

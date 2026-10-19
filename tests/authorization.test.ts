@@ -41,6 +41,7 @@ const captain = await import("@/lib/actions/captain");
 const admin = await import("@/lib/actions/admin");
 const structure = await import("@/lib/actions/admin-structure");
 const demo = await import("@/lib/actions/demo");
+const billing = await import("@/lib/actions/billing");
 const approve = await import("@/app/api/admin/registrations/[id]/approve/route");
 const deny = await import("@/app/api/admin/registrations/[id]/deny/route");
 
@@ -104,7 +105,12 @@ describe("admin actions and API routes", () => {
       admin.setOfficials({ matchId: "m1", refs: ["A", "", ""] }),
       admin.confirmReport({ matchId: "m1", teamId: "team-ffx" }),
       admin.reopenRegistration({ registrationId: "r1" }),
-      admin.createPlayerAccount({ firstName: "New", lastName: "Player", email: "new@example.com", dob: "1990-01-01", gender: "FEMALE", phone: "", zip: "" }),
+      admin.createPlayerAccount({ firstName: "New", lastName: "Player", email: "new@example.com", dob: "1990-01-01", gender: "FEMALE", phone: "703-555-0101", zip: "" }),
+      billing.recordPayment({ registrationId: "r1", amount: 50, method: "CHECK", paidOn: "2026-05-10" }),
+      billing.sendPaymentLink({ registrationId: "r1" }),
+      billing.waiveBalance({ registrationId: "r1", reason: "Board member" }),
+      billing.refundPayment({ registrationId: "r1", amount: 10, reason: "Overpaid" }),
+      billing.applyDiscountCode({ registrationId: "r1", code: "SPRING10" }),
       admin.addPlayerToTeam({ playerId: "p2", teamId: "team-ffx" }),
       admin.removePlayerFromTeam({ playerId: "p2", teamId: "team-ffx" }),
       admin.setLeagueOfficeAccess({ email: "player@example.com", admin: true }),

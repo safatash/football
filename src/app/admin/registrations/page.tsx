@@ -6,6 +6,17 @@ import { listRegistrations, type RegListRow } from "@/lib/queries/registrations"
 import { ArchivedNotice, param, seasonFrom, withSeason, type SearchParams } from "../_components/season";
 import { RegistrationTable } from "../_components/registration-table";
 import { DivisionFilter } from "../_components/division-filter";
+import { ParamFilter } from "../_components/param-filter";
+
+const PAYMENTS: [string, string][] = [
+  ["UNPAID", "Unpaid"],
+  ["PENDING", "Payment pending"],
+  ["PARTIAL", "Partly paid"],
+  ["PAID", "Paid"],
+  ["WAIVED", "Waived"],
+  ["REFUNDED", "Refunded"],
+  ["FAILED", "Failed"],
+];
 import { listDivisions } from "@/lib/queries/admin-league";
 
 export const metadata = { title: "Registrations" };
@@ -36,7 +47,8 @@ export default async function RegistrationsPage({ searchParams }: { searchParams
   const divisions = await listDivisions(season.id);
   const picked = divisions.find((d) => d.code === param(sp.division));
   const division = picked ? { division: picked } : null;
-  const all = picked ? everyone.filter((r) => r.divisionId === picked.id) : everyone;
+  const payment = PAYMENTS.find(([k]) => k === param(sp.payment))?.[0] ?? "";
+  const all = everyone.filter((r) => (!picked || r.divisionId === picked.id) && (!payment || r.payment === payment));
 
   const needle = q.toLowerCase();
   const rows = all.filter(filter[2]).filter((r) => !needle || `${r.name} ${r.email} ${r.number}`.toLowerCase().includes(needle));
@@ -46,6 +58,7 @@ export default async function RegistrationsPage({ searchParams }: { searchParams
     if (key !== "all") p.set("filter", key);
     if (q) p.set("q", q);
     if (division) p.set("division", division.division.code);
+    if (payment) p.set("payment", payment);
     if (!season.isActive) p.set("season", season.name);
     return `/admin/registrations${p.size ? `?${p}` : ""}`;
   };
@@ -67,10 +80,12 @@ export default async function RegistrationsPage({ searchParams }: { searchParams
           </FilterChip>
         ))}
         <DivisionFilter divisions={divisions} value={picked?.code ?? ""} />
+        <ParamFilter param="payment" label="Payment" allLabel="Any" options={PAYMENTS.map(([value, label]) => ({ value, label }))} value={payment} />
         <form action="/admin/registrations" role="search" className="relative min-w-[180px] max-w-[320px] flex-1">
           {filter[0] !== "all" ? <input type="hidden" name="filter" value={filter[0]} /> : null}
           {!season.isActive ? <input type="hidden" name="season" value={season.name} /> : null}
           {division ? <input type="hidden" name="division" value={division.division.code} /> : null}
+          {payment ? <input type="hidden" name="payment" value={payment} /> : null}
           <Icon name="search" className="absolute top-2.5 left-3.5 size-[18px] text-muted" />
           <input
             name="q"

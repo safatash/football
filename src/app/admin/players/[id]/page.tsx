@@ -5,7 +5,7 @@ import { Badge, PaymentBadge, RegistrationBadge } from "@/components/ui/badge";
 import { Card, CardHeader, EmptyState, KeyValue } from "@/components/ui/card";
 import { isUpcoming, listMatches } from "@/lib/queries/matches";
 import { getPlayer } from "@/lib/queries/players";
-import { ArchivedNotice, Crumbs, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
+import { ArchivedNotice, Crumbs, param, seasonFrom, withSeason, type SearchParams } from "../../_components/season";
 import prisma from "@/lib/prisma";
 import { now } from "@/lib/clock";
 import { dayKey, fmtShort } from "@/lib/format";
@@ -13,12 +13,16 @@ import { isAdminEmail } from "@/lib/admin";
 import { listTeams } from "@/lib/queries/teams";
 import { getSession } from "@/lib/session";
 import { AddToTeam, CaptainRequests, LeagueOfficeAccess, PlayerHeader, TeamAccessTable } from "./player-actions";
+import { BillingPanel } from "./billing";
+import { DoneNotice } from "../../_components/done-notice";
+import { playerBilling } from "@/lib/queries/billing";
 
 export const metadata = { title: "Player" };
 
 export default async function PlayerDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
   const { id } = await params;
-  const season = await seasonFrom(await searchParams);
+  const sp = await searchParams;
+  const season = await seasonFrom(sp);
   const p = await getPlayer(id, season.id);
   if (!p) notFound();
   const teamIds = new Set(p.teams.map((t) => t.id));
@@ -26,7 +30,13 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
     ? (await listMatches(season.id)).filter((m) => isUpcoming(m) && (teamIds.has(m.homeTeam.id) || teamIds.has(m.awayTeam.id)))
     : [];
   const readOnly = season.archived;
-  const [seasonTeams, session] = await Promise.all([listTeams(season.id), getSession()]);
+  const [seasonTeams, session, billing, extra] = await Promise.all([
+    listTeams(season.id),
+    getSession(),
+    playerBilling(p.id, season.id),
+    prisma.player.findUnique({ where: { id: p.id }, select: { emergencyContactName: true, emergencyContactPhone: true, tshirtSize: true, contactMe: true, social: true, tournaments: true } }),
+  ]);
+  const optIns = extra ? [extra.contactMe && "news", extra.social && "social media", extra.tournaments && "tournaments"].filter(Boolean).join(", ") : "";
   const onTeam = new Set(p.teams.map((t) => t.id));
   const addable = seasonTeams.filter((t) => !onTeam.has(t.id)).map((t) => ({ id: t.id, name: t.name, division: t.division.name }));
   const requests = await prisma.captainRequest.findMany({
@@ -50,6 +60,7 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
         crumbs={<Crumbs items={[["Players", withSeason("/admin/players", season)], [p.name]]} />}
       />
       <ArchivedNotice season={season} />
+      <DoneNotice done={param(sp.done)} what={param(sp.what)} />
       {requests.length ? (
         <CaptainRequests readOnly={readOnly} requests={requests.map((r) => ({ id: r.id, teamName: r.team.name, note: r.note, requested: fmtShort(r.createdAt) }))} />
       ) : null}
@@ -63,6 +74,9 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
               ["Position", p.position],
               ["Phone", p.phone],
               ["Address", p.address],
+              ["Emergency contact", extra?.emergencyContactName ? `${extra.emergencyContactName}${extra.emergencyContactPhone ? ` · ${extra.emergencyContactPhone}` : ""}` : "—"],
+              ["T-shirt", extra?.tshirtSize || "—"],
+              ["Opt-ins", optIns || "None"],
               ["Player since", p.since],
             ]}
           />
@@ -110,6 +124,8 @@ export default async function PlayerDetailPage({ params, searchParams }: { param
           )}
         </Card>
       </div>
+
+      {billing ? <BillingPanel billing={billing} /> : null}
 
       <section className="flex flex-col gap-2.5">
         <h2 className="text-[26px]">Team access</h2>

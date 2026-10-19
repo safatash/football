@@ -17,7 +17,7 @@ const DONE: Record<string, string> = {
 /** Success message after a save (from `?done=…&what=…`). */
 export function DoneNotice({ done, what }: { done: string; what: string }) {
   // Copying reports a whole sentence ("Copied 5 divisions from Fall 2025")
-  if (done === "divisions-copied")
+  if (done === "divisions-copied" || done === "added")
     return (
       <Notice tone="ok" icon="check">
         {what.slice(0, 240)}.

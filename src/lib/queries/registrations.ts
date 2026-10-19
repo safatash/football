@@ -175,7 +175,7 @@ export async function blocklistHit(email: string) {
 }
 
 /** ZIP rule: an extra allowed ZIP, or any Fairfax County address when the league allows it. */
-async function zipEligible(seasonId: string, player: { zip: string; fairfaxCounty: boolean }) {
+export async function zipEligible(seasonId: string, player: { zip: string; fairfaxCounty: boolean }) {
   const [settings, zip] = await Promise.all([
     getSettings(seasonId),
     prisma.allowedZipCode.findUnique({ where: { zipCode: player.zip.trim() }, select: { fairfaxCounty: true } }),

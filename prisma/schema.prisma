@@ -25,6 +25,9 @@ model User {
   // One-to-one relationship with Player profile
   player Player?
 
+  paymentsRecorded Payment[]  @relation("PaymentRecordedBy")
+  auditEntries     AuditLog[]
+
   // Auth.js required fields
   accounts Account[]
   sessions Session[]
@@ -98,6 +101,9 @@ model Player {
   state         String
   zip           String
   fairfaxCounty Boolean @default(false) // Geographic restriction
+
+  emergencyContactName  String?
+  emergencyContactPhone String?
 
   // Soccer Info
   position   String
@@ -410,6 +416,8 @@ model Registration {
   paymentId            String?       @unique
   payment              Payment?      @relation(fields: [paymentId], references: [id])
 
+  createdByAdminId String? // set when the league office created it (Add player)
+
   submittedAt DateTime  @default(now())
   approvedAt  DateTime?
   rejectedAt  DateTime?
@@ -454,9 +462,21 @@ enum RegistrationStatus {
 
 enum PaymentStatus {
   UNPAID
+  PARTIAL // registration only: some of the balance paid
   PAID
+  WAIVED // the league office waived (comped) the balance
   REFUNDED
   FAILED
+}
+
+enum PaymentMethod {
+  CASH
+  CHECK
+  ZELLE
+  VENMO
+  CARD_IN_PERSON
+  STRIPE
+  OTHER
 }
 
 // ============================================
@@ -839,6 +859,14 @@ model Payment {
   // Legacy Authorize.Net support
   authorizeNetTransactionId String? // TransactionID from old system
 
+  // Recorded by the league office (Stripe payments come from the webhook). Payments are never
+  // deleted: corrections are new rows (refunds, waivers).
+  method           PaymentMethod?
+  reference        String? // check number or transaction id
+  notes            String?
+  recordedByUserId String?
+  recordedBy       User?          @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
   paidAt    DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -855,6 +883,7 @@ enum PaymentType {
   REGISTRATION_FEE
   GAME_PASS
   REFUND
+  WAIVER // balance waived; no money moved
 }
 
 // ============================================
@@ -903,4 +932,22 @@ model TshirtSize {
   displayOrder Int    @default(0)
 
   @@map("tshirt_sizes")
+}
+
+/// What the league office did, for billing and other admin actions. Rows are never edited.
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorEmail  String // kept even if the account is deleted
+  action      String // e.g. "payment.recorded", "payment.refunded", "player.created"
+  entityType  String // "registration", "player", "payment"
+  entityId    String
+  summary     String // one line for people, e.g. "Recorded $50 check #1042"
+  data        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_log")
 }

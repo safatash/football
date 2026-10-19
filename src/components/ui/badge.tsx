@@ -49,10 +49,12 @@ export function RegistrationBadge({ status }: { status: string }) {
   return <Badge tone={tone}>{label}</Badge>;
 }
 
-/** Payment: Unpaid / Pending / Paid */
+/** Payment: Unpaid / Partial / Paid / Waived / Refunded */
 export function PaymentBadge({ status }: { status: string }) {
   const map: Record<string, [string, Tone]> = {
     PAID: ["Paid", "ok"],
+    PARTIAL: ["Partly paid", "warn"],
+    WAIVED: ["Waived", "info"],
     PENDING: ["Payment pending", "warn"],
     UNPAID: ["Unpaid", "bad"],
     FAILED: ["Payment failed", "bad"],

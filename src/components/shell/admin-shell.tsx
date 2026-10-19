@@ -57,10 +57,12 @@ export function AdminShell({
       [
         { href: "/admin/seasons", label: "Seasons", icon: "cal" },
         { href: "/admin/settings", label: "Fees & eligibility", icon: "card" },
+        { href: "/admin/settings/payments", label: "Payments", icon: "list" },
       ],
     ],
   ];
-  const isOn = (href: string) => (href === "/admin" ? path === "/admin" : path.startsWith(href.startsWith("/admin/divisions") ? "/admin/divisions" : href));
+  const isOn = (href: string) =>
+    href === "/admin" || href === "/admin/settings" ? path === href : path.startsWith(href.startsWith("/admin/divisions") ? "/admin/divisions" : href);
 
   function changeSeason(s: string) {
     const q = new URLSearchParams(params.toString());

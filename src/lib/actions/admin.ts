@@ -4,14 +4,15 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { now } from "@/lib/clock";
-import { fullName } from "@/lib/format";
+import { fullName, money as fmtMoney } from "@/lib/format";
 import { normalizeCode } from "@/lib/fees";
 import { sendMail } from "@/lib/mail";
-import { accountInviteEmail, captainDecisionEmail, placementInfoEmail, reportReminderEmail } from "@/lib/mail-templates";
+import { accountInviteEmail, captainDecisionEmail, paymentLinkEmail, placementInfoEmail, reportReminderEmail } from "@/lib/mail-templates";
+import { audit, payLinkUrl, syncPaymentStatus } from "@/lib/billing";
 import { randomBytes } from "node:crypto";
 import { checkEligibility } from "@/lib/eligibility";
 import { hashPassword } from "@/lib/password";
-import { blocklistHit } from "@/lib/queries/registrations";
+import { blocklistHit, zipEligible } from "@/lib/queries/registrations";
 import { appUrl } from "@/lib/stripe";
 import { createToken } from "@/lib/tokens";
 import { isAdminEmail } from "@/lib/admin";
@@ -460,31 +461,69 @@ export async function removeBlock(input: { entry: string }): Promise<ActionResul
 
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
 
-const NewPlayerInput = z.object({
-  firstName: z.string().trim().min(1, "Enter a first name.").max(50),
-  lastName: z.string().trim().min(1, "Enter a last name.").max(50),
-  email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254),
-  dob: IsoDate,
-  gender: z.enum(["FEMALE", "MALE", "NON_BINARY"], { message: "Choose a gender." }),
-  phone: z
-    .string()
-    .trim()
-    .max(30)
-    .refine((v) => !v || v.replace(/\D/g, "").length >= 10, "Enter a 10-digit phone number."),
-  zip: z
-    .string()
-    .trim()
-    .refine((v) => !v || /^\d{5}$/.test(v), "Enter a 5-digit ZIP code."),
-  position: z.enum(["", "GK", "DEF", "MID", "FWD"]).default(""),
-  teamId: Id.nullish(),
-  jerseyNumber: z.number().int().min(0).max(99).nullish(),
-  sendInvite: z.boolean().default(true),
-});
+const PaymentMethodEnum = z.enum(["CASH", "CHECK", "ZELLE", "VENMO", "CARD_IN_PERSON", "STRIPE", "OTHER"]);
+const NewPlayerInput = z
+  .object({
+    firstName: z.string().trim().min(1, "Enter a first name.").max(50),
+    lastName: z.string().trim().min(1, "Enter a last name.").max(50),
+    email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254),
+    dob: IsoDate,
+    gender: z.enum(["FEMALE", "MALE", "NON_BINARY"], { message: "Choose a gender." }),
+    phone: z
+      .string()
+      .trim()
+      .max(30)
+      .refine((v) => v.replace(/\D/g, "").length >= 10, "Enter a 10-digit phone number."),
+    address: z.string().trim().max(120).default(""),
+    city: z.string().trim().max(60).default(""),
+    state: z.enum(["VA", "MD", "DC"]).default("VA"),
+    zip: z
+      .string()
+      .trim()
+      .refine((v) => !v || /^\d{5}$/.test(v), "Enter a 5-digit ZIP code."),
+    position: z.enum(["", "GK", "DEF", "MID", "FWD"]).default(""),
+    tshirtSize: z.string().trim().max(10).default(""),
+    emergencyName: z.string().trim().max(80).default(""),
+    emergencyPhone: z
+      .string()
+      .trim()
+      .max(30)
+      .refine((v) => !v || v.replace(/\D/g, "").length >= 10, "Enter a 10-digit emergency phone number.")
+      .default(""),
+    news: z.boolean().default(false),
+    social: z.boolean().default(false),
+    tournaments: z.boolean().default(false),
+    teamId: Id.nullish(),
+    jerseyNumber: z.number().int().min(0).max(99).nullish(),
+    sendInvite: z.boolean().default(true),
+    /** Only with a team: how the season fee is handled. */
+    billing: z
+      .object({
+        mode: z.enum(["OFFLINE", "LINK", "WAIVED", "LATER"]),
+        amount: z.number().min(0).max(10_000).nullish(),
+        method: PaymentMethodEnum.nullish(),
+        reference: z.string().trim().max(80).optional(),
+        paidOn: IsoDate.nullish(),
+        notes: z.string().trim().max(300).optional(),
+      })
+      .nullish(),
+    /** Add the player even though the blocklist, ZIP or age warnings came up. */
+    override: z.boolean().default(false),
+  })
+  .superRefine((d, ctx) => {
+    if (!d.teamId || !d.billing) return;
+    const b = d.billing;
+    if (b.mode === "OFFLINE" && !(b.amount && b.amount > 0)) ctx.addIssue({ code: "custom", message: "Enter the amount they paid.", path: ["billing", "amount"] });
+    if (b.mode === "OFFLINE" && !b.method) ctx.addIssue({ code: "custom", message: "Pick how they paid.", path: ["billing", "method"] });
+    if (b.mode === "WAIVED" && (b.notes ?? "").length < 3) ctx.addIssue({ code: "custom", message: "Give a reason for waiving the fee.", path: ["billing", "notes"] });
+  });
+
+const noonEastern = (iso: string) => new Date(`${iso}T16:00:00Z`);
 
 /**
- * Creates a player account on someone's behalf (approved, active). The password is random and
- * unknown to anyone; the player gets an invitation link to choose one. Optionally adds them to a
- * team in the active season.
+ * Creates a player account (and optionally a team spot, an approved registration and its billing)
+ * in one transaction. Blocklisted emails, ZIPs outside the area and age-rule mismatches come back
+ * as warnings (409 with `errors`) until the office confirms with `override`.
  */
 export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>): Promise<ActionResult<{ playerId: string }>> {
   return runAction(async () => {
@@ -493,60 +532,166 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
     if (await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } })) {
       throw new ActionError("That email already has an NVASA account. Search for the player instead.", 409);
     }
-    if (await blocklistHit(data.email)) throw new ActionError("That email is on the blocklist.", 409);
     const team = data.teamId ? await teamForRoster(data.teamId) : null;
-    if (team) {
-      const elig = checkEligibility(team.division, { dob: day(data.dob), gender: data.gender }, team.season.startDate);
-      if (!elig.ok) throw new ActionError(`Can’t add to ${team.name} (${team.division.name}): ${elig.reason}.`, 400);
-      await assertJerseyFree(team.id, data.jerseyNumber ?? null);
-    }
+    if (team) await assertJerseyFree(team.id, data.jerseyNumber ?? null);
     const zip = data.zip ? await prisma.allowedZipCode.findUnique({ where: { zipCode: data.zip } }) : null;
 
-    const user = await prisma.user.create({
-      data: {
-        email: data.email,
-        password: await hashPassword(randomBytes(24).toString("base64url")),
-        player: {
-          create: {
-            firstName: data.firstName,
-            lastName: data.lastName,
-            gender: data.gender,
-            dob: day(data.dob),
-            phone: data.phone,
-            address: "",
-            city: zip?.city ?? "",
-            state: "VA",
-            zip: data.zip,
-            fairfaxCounty: Boolean(zip?.fairfaxCounty),
-            position: data.position,
-            tshirtSize: "",
-            finalApproval: "APPROVED",
-            status: "ACTIVE",
-            ...(team
-              ? { teamMemberships: { create: { teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL", jerseyNumber: data.jerseyNumber ?? null } } }
-              : {}),
+    const warnings: string[] = [];
+    if (await blocklistHit(data.email)) warnings.push(`${data.email} is on the blocklist.`);
+    if (data.zip && !(await zipEligible(team?.seasonId ?? (await prisma.season.findFirst({ where: { isActive: true }, select: { id: true } }))?.id ?? "", { zip: data.zip, fairfaxCounty: !!zip?.fairfaxCounty }))) {
+      warnings.push(`ZIP ${data.zip} isn’t in the league’s eligible area.`);
+    }
+    if (team) {
+      const elig = checkEligibility(team.division, { dob: day(data.dob), gender: data.gender }, team.season.startDate);
+      if (!elig.ok) warnings.push(`${team.division.name} age/gender rule: ${elig.reason}.`);
+    }
+    if (warnings.length && !data.override) throw new ActionError("Check before adding this player.", 409, warnings);
+
+    const fee = team ? Number(team.division.registrationFee) : 0;
+    const billing = team ? (data.billing ?? { mode: "LATER" as const }) : null;
+    // What the registration owes: the fee, or the office's amount when collecting later / by link
+    const due = billing && (billing.mode === "LINK" || billing.mode === "LATER") && billing.amount != null ? billing.amount : fee;
+
+    const created = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: data.email,
+          password: await hashPassword(randomBytes(24).toString("base64url")),
+          player: {
+            create: {
+              firstName: data.firstName,
+              lastName: data.lastName,
+              gender: data.gender,
+              dob: day(data.dob),
+              phone: data.phone,
+              address: data.address,
+              city: data.city || zip?.city || "",
+              state: data.state,
+              zip: data.zip,
+              fairfaxCounty: Boolean(zip?.fairfaxCounty),
+              position: data.position,
+              tshirtSize: data.tshirtSize,
+              emergencyContactName: data.emergencyName || null,
+              emergencyContactPhone: data.emergencyPhone || null,
+              contactMe: data.news,
+              social: data.social,
+              tournaments: data.tournaments,
+              finalApproval: "APPROVED",
+              status: "ACTIVE",
+              ...(team
+                ? { teamMemberships: { create: { teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL", jerseyNumber: data.jerseyNumber ?? null } } }
+                : {}),
+            },
           },
         },
-      },
-      include: { player: true },
+        include: { player: true },
+      });
+      const player = user.player!;
+      await audit(tx, admin, {
+        action: "player.created",
+        entityType: "player",
+        entityId: player.id,
+        summary: `Added ${data.firstName} ${data.lastName}${team ? ` to ${team.name}` : ""}${warnings.length ? ` despite: ${warnings.join(" ")}` : ""}`,
+        data: { warnings, override: data.override },
+      });
+      if (!team || !billing) return { user, player, registrationId: null as string | null };
+
+      const reg = await tx.registration.create({
+        data: {
+          playerId: player.id,
+          seasonId: team.seasonId,
+          divisionId: team.divisionId,
+          preferredTeamId: team.id,
+          status: "APPROVED",
+          approvedAt: now(),
+          placementState: "ASSIGNED",
+          totalAmount: due,
+          amountBeforeDiscount: due !== fee ? fee : null,
+          createdByAdminId: admin.id,
+          playerNote: "Added by the league office",
+        },
+      });
+      if (billing.mode === "OFFLINE") {
+        await tx.payment.create({
+          data: {
+            userId: player.id,
+            amount: billing.amount!,
+            status: "PAID",
+            paymentType: "REGISTRATION_FEE",
+            relatedEntityType: "registration",
+            relatedEntityId: reg.id,
+            method: billing.method!,
+            reference: billing.reference || null,
+            notes: billing.notes || null,
+            recordedByUserId: admin.id,
+            paidAt: billing.paidOn ? noonEastern(billing.paidOn) : now(),
+          },
+        });
+      } else if (billing.mode === "WAIVED" && due > 0) {
+        await tx.payment.create({
+          data: {
+            userId: player.id,
+            amount: due,
+            status: "WAIVED",
+            paymentType: "WAIVER",
+            relatedEntityType: "registration",
+            relatedEntityId: reg.id,
+            notes: billing.notes || null,
+            recordedByUserId: admin.id,
+            paidAt: now(),
+          },
+        });
+      }
+      const s = await syncPaymentStatus(tx, reg.id);
+      const what =
+        billing.mode === "OFFLINE"
+          ? `paid ${fmtMoney(billing.amount!)} ${billing.method!.toLowerCase().replace(/_/g, " ")}`
+          : billing.mode === "WAIVED"
+            ? `fee waived: ${billing.notes}`
+            : billing.mode === "LINK"
+              ? "payment link to be emailed"
+              : "collect later";
+      await audit(tx, admin, {
+        action: "registration.admin_created",
+        entityType: "registration",
+        entityId: reg.id,
+        summary: `Approved registration created by the office (${fmtMoney(due)} due, ${what})`,
+        data: { mode: billing.mode, due, status: s.status },
+      });
+      return { user, player, registrationId: reg.id };
     });
 
-    let invited = false;
+    const notes: string[] = [];
     if (data.sendInvite) {
-      const token = await createToken("reset", user.id, INVITE_TTL_MS);
+      const token = await createToken("reset", created.user.id, INVITE_TTL_MS);
       const res = await sendMail({
-        to: user.email,
+        to: created.user.email,
         replyTo: admin.email,
         ...accountInviteEmail({ firstName: data.firstName, url: `${appUrl()}/login/reset?token=${token}`, teamName: team?.name ?? null }),
       });
-      invited = res.sent + res.logged > 0;
+      if (res.sent + res.logged > 0) notes.push("invitation sent");
+    }
+    if (billing?.mode === "LINK" && created.registrationId && due > 0) {
+      const res = await sendMail({
+        to: created.user.email,
+        replyTo: admin.email,
+        ...paymentLinkEmail({ firstName: data.firstName, seasonName: team!.season.name, divisionName: team!.division.name, amount: fmtMoney(due), url: payLinkUrl(created.registrationId) }),
+      });
+      await audit(prisma, admin, {
+        action: "payment.link_sent",
+        entityType: "registration",
+        entityId: created.registrationId,
+        summary: `Sent a payment link for ${fmtMoney(due)} to ${created.user.email}${res.sent ? "" : " (logged, not delivered)"}`,
+        data: { balance: due, delivered: res.sent > 0 },
+      });
+      if (res.sent + res.logged > 0) notes.push("payment link sent");
     }
     refreshAdmin();
     if (team) revalidatePath(`/captain/${team.id}`, "layout");
     return {
       ok: true,
-      message: `${data.firstName} ${data.lastName} added${team ? ` to ${team.name}` : ""}${invited ? " · invitation sent" : ""}`,
-      data: { playerId: user.player!.id },
+      message: `${data.firstName} ${data.lastName} added${team ? ` to ${team.name}` : ""}${notes.length ? ` · ${notes.join(" · ")}` : ""}`,
+      data: { playerId: created.player.id },
     };
   });
 }

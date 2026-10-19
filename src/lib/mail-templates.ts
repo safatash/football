@@ -119,3 +119,9 @@ export function accountInviteEmail(opts: { firstName: string; url: string; teamN
   const body = `Hi ${opts.firstName},\n\nThe NVASA league office set up a player account for you${opts.teamName ? ` on ${opts.teamName}` : ""}. Use this link to choose your password. It works once and expires in 7 days.\n\nAfter that you can log in to see your schedule, mark your availability and buy game passes.`;
   return { subject, text: `${body}\n\n${opts.url}${footer}`, html: layout({ title: "Welcome to NVASA", body: paras(body), cta: { label: "Choose a password", href: opts.url } }) };
 }
+
+export function paymentLinkEmail(opts: { firstName: string; seasonName: string; divisionName: string; amount: string; url: string }) {
+  const subject = `Your ${opts.seasonName} balance: ${opts.amount}`;
+  const body = `Hi ${opts.firstName},\n\nYour ${opts.seasonName} ${opts.divisionName} registration has a balance of ${opts.amount}. You can pay it online with a card using the link below. The link always shows your current balance.`;
+  return { subject, text: `${body}\n\n${opts.url}${footer}`, html: layout({ title: "Pay your registration", body: paras(body), cta: { label: `Pay ${opts.amount}`, href: opts.url } }) };
+}
