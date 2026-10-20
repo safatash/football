@@ -1,7 +1,7 @@
 /**
  * Applies the row-level-security prototype (prisma/rls/rls.sql) to a LOCAL database and creates the
  * app's login role from DATABASE_APP_URL. Refuses anything that isn't localhost: RLS isn't on Neon
- * yet (see docs/rls.md).
+ * yet (see docs/rls.md). To measure on a throwaway Neon branch, name its hosts in RLS_ALLOW_HOST.
  *   DATABASE_URL=postgresql://postgres:…@localhost:5432/db \
  *   DATABASE_APP_URL=postgresql://nvasa_app:…@localhost:5432/db npm run db:rls
  */
@@ -9,12 +9,15 @@ import { execFileSync } from "node:child_process";
 import { PrismaClient } from "@prisma/client";
 
 const LOCAL = ["localhost", "127.0.0.1", "::1", "[::1]"];
+/** Exact hosts of a throwaway Neon branch you chose to measure on (never the main branch). */
+const ALLOWED = (process.env.RLS_ALLOW_HOST ?? "").split(",").map((h) => h.trim()).filter(Boolean);
 
 function localUrl(name: string) {
   const v = process.env[name];
   if (!v) throw new Error(`${name} is not set.`);
   const url = new URL(v);
-  if (!LOCAL.includes(url.hostname)) throw new Error(`${name} must point at a local database (got ${url.hostname}). RLS isn't applied to Neon from this script.`);
+  if (!LOCAL.includes(url.hostname) && !ALLOWED.includes(url.hostname))
+    throw new Error(`${name} must point at a local database (got ${url.hostname}). For a throwaway Neon branch, list its hosts in RLS_ALLOW_HOST.`);
   return url;
 }
 

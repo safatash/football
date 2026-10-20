@@ -1,6 +1,7 @@
 # Phase 2b: Postgres row-level security (prototype)
 
-Status: **prototype, local only, off by default** (`DB_RLS` unset). Nothing has been applied to Neon.
+Status: **prototype, off by default** (`DB_RLS` unset). Applied only to local Postgres and to the
+throwaway Neon branch `rls-bench` (project `nvasa`). Neon's `main` branch is untouched.
 
 The scoped Prisma client (`src/platform/db.ts`) already adds `organizationId` to every query. RLS
 is a second lock in the database itself: with it on, a query that skips the client's filter (a
@@ -142,33 +143,80 @@ deltas are what matter.
    exchanges instead of one. That only matters near Neon's pooler limits; there was no queueing
    at the bench's concurrency.
 
+### On Neon (branch `rls-bench`)
+
+Setup: `rls-bench` is a child of `main` in project `nvasa` (aws-us-east-1), on a fixed 0.25 CU
+compute like `main`. It has NVASA's data: 62 players, game #204, referees and parks. `prisma/rls/rls.sql`
+was applied there by the owner (`neondb_owner`), plus a branch-only `nvasa_app` role with a random
+password. Both URLs use Neon's pooler, in the same form as production's `DATABASE_URL`. The bench
+ran from this Mac (the opt-in is `RLS_BENCH_HOST` and `RLS_ALLOW_HOST`): 40 iterations after 20
+warm-ups, owner and RLS interleaved, two rounds, mean shown. The two rounds agreed within a few ms.
+
+Round trip from this Mac: `SELECT 1` p50 is **13.5 ms** (12.9 through the pooler, 13.9 direct).
+
+Sanity check through the pooler as `nvasa_app`: with no `app.org_id` it sees 0 players; inside a
+transaction with `org_nvasa` it sees 62; after `COMMIT` it sees 0 again. So `SET LOCAL` doesn't
+leak across pooled connections.
+
+| Workload | owner p50 | owner p95 | RLS p50 | RLS p95 | Δ p50 | Δ in round trips |
+|---|--:|--:|--:|--:|--:|--:|
+| query: team by id (1 row) | 15.2 | 17.2 | 59.6 | 67.2 | +44.5 | 3.3 |
+| query: listTeams | 61.0 | 64.6 | 98.8 | 115.8 | +37.8 | 2.8 |
+| query: listPlayers | 170.0 | 182.0 | 212.0 | 234.0 | +42.0 | 3.1 |
+| query: getPlayer | 164.4 | 182.3 | 202.9 | 225.1 | +38.4 | 2.8 |
+| query: getPublicMatch | 120.4 | 142.1 | 152.3 | 172.7 | +31.9 | 2.4 |
+| query: standingsByDivision | 55.1 | 67.0 | 97.6 | 109.1 | +42.5 | 3.1 |
+| query: seasonLeaders (raw SQL) | 15.2 | 22.2 | 52.5 | 65.6 | +37.3 | 2.8 |
+| page: public home (4 queries in parallel) | 137.1 | 165.3 | 189.4 | 229.2 | +52.4 | 3.9 |
+| action: updateReferee | 123.0 | 132.2 | 201.1 | 246.8 | +78.0 | 5.8 |
+| action: updatePark | 123.1 | 131.1 | 222.2 | 252.2 | +99.1 | 7.3 |
+| action: add + remove allowed ZIP (2 actions) | 109.7 | 115.4 | 260.2 | 300.6 | +150.5 | 11.1 |
+
+This confirms the model: every standalone call costs **about 3 extra round trips**, wherever the
+app runs. Actions cost 6–7 (5–6 per action in the ZIP pair) because of their standalone guard
+lookups. From this Mac, 13.5 ms per round trip makes that +40 ms per query and +80–100 ms per action.
+
+**Extrapolation to production (not measured).** Vercel functions in the same region as Neon
+(us-east-1) usually see a round trip of about 1–2 ms. At that latency, expect:
+
+| | extra p50 |
+| --- | --: |
+| one standalone query | +3–7 ms |
+| public home page (parallel queries) | +4–8 ms |
+| one server action | +6–15 ms |
+
+These numbers assume the Vercel project's function region is us-east-1 (iad1). If functions run
+in another region, multiply the round-trip count by that region's round trip. To confirm,
+measure from a Vercel preview that points at this branch.
+
+**A finding unrelated to RLS:** do not add `pgbouncer=true` to Neon URLs. It turns off
+prepared statements, so a `SELECT 1` through the pooler took 73 ms instead of 13 ms. Neon's
+pooler supports prepared statements, and production's `DATABASE_URL` correctly leaves the flag
+out. (The local pgbouncer runs above used it because that pgbouncer had prepared statements
+off, which is why their absolute numbers are higher than "direct".)
+
 ## Recommendation
 
-**Adopt RLS, but measure on a Neon branch before turning it on in production, and cut the
-round trips for actions first.**
+**Adopt RLS, but cut the round trips for actions first, then confirm from a Vercel preview.**
 
-1. *Measure on Neon (needs your go-ahead).* Create a Neon branch, run `prisma/rls/rls.sql` there
-   with a branch-only `nvasa_app` password, and run the bench from a Vercel preview or a machine
-   in the same region. The bench refuses non-local hosts today, so that run needs a small
-   opt-in for the branch host. On a ~1–2 ms same-region round trip, the model predicts
-   +3–6 ms per standalone call and +1–2 ms per transaction. My threshold suggestion: ship if
-   page p95 grows by less than 10 ms.
-2. *Cut the cost for actions* (small follow-up): run the guard and the work of an action in one
-   `db.$transaction` (one `set_config`) instead of 4–5 standalone calls. That turns +38 ms
-   into roughly +3 ms in the emulated setup. Also don't wrap calls on models without an
-   `organizationId` (`User`, `Organization`), but only after checking they don't include league
-   rows: under RLS those includes would come back empty, not wrong, which is safe but would
-   break pages.
-3. *Then move the policies into a real migration.* `prisma/rls/rls.sql` is idempotent and picks
-   up new league tables, but it lives outside `prisma/migrations` on purpose so nothing reaches
-   Neon by accident. When we adopt it, it becomes a migration plus a one-time role setup on Neon.
-   That setup creates `nvasa_app` with its own password and adds `DATABASE_APP_URL` to Vercel;
-   the owner URL stays for migrations and crons. CI already runs the integration suite a second
-   time with RLS on.
+1. *Cut the cost for actions* (small follow-up, the biggest win): run an action's guard and its
+   work in one `db.$transaction` (one `set_config`) instead of 4–5 standalone calls. That takes
+   an action from +6–7 round trips to about +1. Also, don't wrap calls on models without an
+   `organizationId` (`User`, `Organization`). Only do that after checking they don't include
+   league rows: under RLS those includes would come back empty. That's safe, but it would break
+   pages.
+2. *Confirm in the real topology* (needs your go-ahead, because it means adding env vars to
+   Vercel): deploy a preview whose `DATABASE_URL` and `DATABASE_APP_URL` point at `rls-bench`,
+   set `DB_RLS=on`, and compare preview timings with RLS on and off. Ship if page p95 grows by
+   less than 10 ms. The extrapolation above says pages already pass.
+3. *Then make it real:* turn `prisma/rls/rls.sql` into a migration and run the one-time role setup
+   on `main`: `nvasa_app` with its own password, plus `DATABASE_APP_URL` in Vercel. The owner URL
+   stays for migrations, the seed, crons and `src/platform`. CI already runs the integration
+   suite a second time with RLS on.
 
-If the Neon numbers come back much worse than the model (for example a slow cross-region hop),
-the fallback is to keep RLS for writes only: server actions run in a transaction anyway, so they
-pay one extra statement. Reads would then rely on the client extension plus the raw-client guard
+If the preview numbers come back much worse (for example functions in another region from the
+database), keep RLS for writes only. Server actions already run in a transaction, so they'd pay
+a single extra statement, and reads would rely on the client extension and the raw-client guard
 test, as they do today.
 
 ## Running it locally
@@ -184,4 +232,14 @@ TEST_DATABASE_URL=$DATABASE_URL DB_RLS=on RLS_BENCH=1 RLS_BENCH_OUT=bench.json n
 
 Don't use PGlite for any of this: it connects as a superuser, which skips RLS.
 For the pooler numbers, put pgbouncer in front of Postgres with `pool_mode = transaction` and add
-`?pgbouncer=true` to both URLs.
+`?pgbouncer=true` to both URLs. That's needed only for a local pgbouncer with prepared statements
+off; leave it out on Neon.
+
+On a throwaway Neon branch (never `main`), with its owner and `nvasa_app` URLs:
+
+```bash
+RLS_ALLOW_HOST=<direct host>,<pooler host> DATABASE_URL=<owner url> DATABASE_APP_URL=<nvasa_app url> npm run db:rls
+RLS_BENCH=1 RLS_BENCH_HOST=<pooler host> TEST_DATABASE_URL=<owner pooled url> DATABASE_APP_URL=<nvasa_app pooled url> DB_RLS=on npx vitest run tests/perf
+```
+
+The integration tests still refuse non-local hosts. They rewrite match-day rows.

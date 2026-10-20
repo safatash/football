@@ -3,16 +3,18 @@
  * docs/rls.md. Skipped unless RLS_BENCH=1; run it once per setup (owner vs DB_RLS=on, direct vs
  * through pgbouncer) and it appends p50/p95 per workload to RLS_BENCH_OUT:
  *   RLS_BENCH=1 RLS_BENCH_LABEL="rls direct" RLS_BENCH_OUT=bench.json DB_RLS=on TEST_DATABASE_URL=… npx vitest run tests/perf
+ * On a throwaway Neon branch, also set RLS_BENCH_HOST to its exact host(s). The actions write
+ * the same values back, plus audit-log rows.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { describe, it } from "vitest";
-import { auth, hasDb } from "../integration/setup";
+import { auth, benchDb } from "../integration/setup";
 
 const NVASA = "org_nvasa";
 const ITER = Number(process.env.RLS_BENCH_ITER ?? 200);
 const WARMUP = 20;
 
-describe.skipIf(!hasDb || process.env.RLS_BENCH !== "1")("RLS latency bench", async () => {
+describe.skipIf(!benchDb || process.env.RLS_BENCH !== "1")("RLS latency bench", async () => {
   const { default: raw } = await import("@/platform/prisma");
   const { db, runWithOrg } = await import("@/lib/db");
   const { listPlayers, getPlayer } = await import("@/lib/queries/players");

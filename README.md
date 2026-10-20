@@ -237,7 +237,7 @@ Guard tests (run in CI, `.github/workflows/ci.yml`):
 connects as a non-owner role (`DATABASE_APP_URL`) and sets `app.org_id` per transaction (`SET
 LOCAL`, so it's safe behind Neon's pgbouncer pooler). Postgres policies on every league table then
 hide other leagues' rows even from unfiltered queries. Platform code keeps the owner connection.
-It's local only for now (`npm run db:rls` refuses non-local hosts). See `docs/rls.md` for the
+It's not on `main` yet (`npm run db:rls` refuses non-local hosts unless a throwaway branch is named in `RLS_ALLOW_HOST`). See `docs/rls.md` for the
 design, latency numbers and recommendation.
 
 **League branding (Phase 3).** Nothing in the app names a league. Names, logo, colors, contact
