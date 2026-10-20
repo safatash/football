@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db, getOrgId } from "@/lib/db";
+import { db, getOrgId, leagueTransaction } from "@/lib/db";
 import { requireOrgRole } from "@/lib/access";
 import { audit } from "@/lib/billing";
 import { appUrl } from "@/lib/branding";
@@ -25,29 +25,32 @@ const InviteInput = z.object({ email: z.string().trim().toLowerCase().email("Ent
 export async function inviteStaff(input: z.input<typeof InviteInput>): Promise<ActionResult> {
   return runAction(async () => {
     const data = InviteInput.parse(input);
-    const me = await requireOrgRole(["OWNER", "ADMIN"]);
-    const orgId = await getOrgId();
-    const existing = await db.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
-    const member = existing ? await db.organizationMember.findFirst({ where: { userId: existing.id } }) : null;
-    if (member?.role === "OWNER") throw new ActionError(`${data.email} owns this league.`, 409);
-    if (member && member.status === "ACTIVE" && member.role === data.role) throw new ActionError(`${data.email} is already ${ROLE_LABEL[data.role]}.`, 409);
+    const { me, user, existing } = await leagueTransaction(async () => {
+      const me = await requireOrgRole(["OWNER", "ADMIN"]);
+      const orgId = await getOrgId();
+      const existing = await db.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
+      const member = existing ? await db.organizationMember.findFirst({ where: { userId: existing.id } }) : null;
+      if (member?.role === "OWNER") throw new ActionError(`${data.email} owns this league.`, 409);
+      if (member && member.status === "ACTIVE" && member.role === data.role) throw new ActionError(`${data.email} is already ${ROLE_LABEL[data.role]}.`, 409);
 
-    const user = await db.$transaction(async (tx) => {
-      const u =
-        existing ??
-        // A new login: no usable password until they follow the invitation link
-        (await tx.user.create({ data: { email: data.email, password: await hashPassword(randomBytes(24).toString("base64url")) } }));
-      if (member) await tx.organizationMember.update({ where: { id: member.id }, data: { role: data.role, status: "ACTIVE" } });
-      else await tx.organizationMember.create({ data: { userId: u.id, organizationId: orgId, role: data.role, status: "ACTIVE", invitedAt: new Date() } });
-      await audit(tx, me, { action: "staff.invited", entityType: "user", entityId: u.id, summary: `Invited ${data.email} as ${ROLE_LABEL[data.role]}` });
-      return u;
+      const user = await db.$transaction(async (tx) => {
+        const u =
+          existing ??
+          // A new login: no usable password until they follow the invitation link
+          (await tx.user.create({ data: { email: data.email, password: await hashPassword(randomBytes(24).toString("base64url")) } }));
+        if (member) await tx.organizationMember.update({ where: { id: member.id }, data: { role: data.role, status: "ACTIVE" } });
+        else await tx.organizationMember.create({ data: { userId: u.id, organizationId: orgId, role: data.role, status: "ACTIVE", invitedAt: new Date() } });
+        await audit(tx, me, { action: "staff.invited", entityType: "user", entityId: u.id, summary: `Invited ${data.email} as ${ROLE_LABEL[data.role]}` });
+        return u;
+      });
+      return { me, user, existing };
     });
 
     const url = existing ? null : `${await appUrl()}/login/reset?token=${await createToken("reset", user.id, INVITE_TTL_MS)}`;
     await sendMail({ to: user.email, replyTo: me.email, ...(await staffInviteEmail({ role: data.role, invitedBy: me.email, url })) });
     revalidatePath("/admin/settings/staff");
     return { ok: true, message: `${data.email} is now ${ROLE_LABEL[data.role]}. We emailed them${url ? " a link to set a password" : ""}.` };
-  });
+  }, { transaction: false });
 }
 
 /** The member to change: in this league, not the owner, not yourself. */

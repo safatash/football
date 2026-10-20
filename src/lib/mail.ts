@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { getBrand } from "@/lib/branding";
+import { assertNoLeagueTransaction } from "@/lib/db";
 
 export type Mail = { to: string | string[]; subject: string; text: string; html: string; replyTo?: string };
 
@@ -56,6 +57,7 @@ export async function senderFor(replyTo?: string) {
 
 /** Sends one message per recipient (players never see each other's addresses). Never throws. */
 export async function sendMail(mail: Mail): Promise<{ sent: number; logged: number; failed: number }> {
+  assertNoLeagueTransaction("Sending mail");
   const recipients = [...new Set((Array.isArray(mail.to) ? mail.to : [mail.to]).map((r) => r.trim()).filter(Boolean))];
   const result = { sent: 0, logged: 0, failed: 0 };
   const sender = await senderFor(mail.replyTo);

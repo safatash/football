@@ -216,7 +216,8 @@ describe.skipIf(!hasDb)("league isolation (database)", async () => {
  */
 describe.skipIf(!hasDb || process.env.DB_RLS !== "on")("row-level security (database)", async () => {
   const { default: raw, appPrisma } = await import("@/platform/prisma");
-  const { db, runWithOrg } = await import("@/lib/db");
+  const { db, runWithOrg, leagueTransaction } = await import("@/lib/db");
+  const { sendMail } = await import("@/lib/mail");
   const app = appPrisma();
 
   it("every league table has RLS on with the league policy", async () => {
@@ -269,5 +270,33 @@ describe.skipIf(!hasDb || process.env.DB_RLS !== "on")("row-level security (data
     const teams = await runWithOrg(DEMO, () => db.$transaction(async (tx) => [await tx.team.count(), await tx.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM teams`]));
     expect(teams[0]).toBeGreaterThan(0);
     expect(Number((teams[1] as { n: bigint }[])[0].n)).toBe(teams[0]);
+  });
+
+  const txid = async () => (await db.$queryRaw<{ id: bigint }[]>`SELECT txid_current() AS id`)[0].id;
+
+  it("leagueTransaction (what runAction uses): every db call and db.$transaction joins one transaction", async () => {
+    const ids = await runWithOrg(DEMO, () =>
+      leagueTransaction(async () => [await txid(), await db.team.count().then(txid), await db.$transaction(() => txid()), ...(await Promise.all([txid(), txid()]))]),
+    );
+    expect(new Set(ids).size).toBe(1);
+    // Outside it, each call is its own transaction again
+    expect(await runWithOrg(DEMO, txid)).not.toBe(ids[0]);
+  });
+
+  it("an error anywhere in it rolls back every write", async () => {
+    await expect(
+      runWithOrg(DEMO, () =>
+        leagueTransaction(async () => {
+          await db.referee.create({ data: { id: "itest_rls_rollback", name: "Rolled back" } });
+          throw new Error("boom");
+        }),
+      ),
+    ).rejects.toThrow("boom");
+    expect(await raw.referee.findUnique({ where: { id: "itest_rls_rollback" } })).toBeNull();
+  });
+
+  it("refuses to send mail inside it (mail goes out after the database work)", async () => {
+    await expect(runWithOrg(DEMO, () => leagueTransaction(() => sendMail({ to: "x@example.com", subject: "s", text: "t", html: "<p>t</p>" })))).rejects.toThrow(/league transaction/);
+    await expect(runWithOrg(DEMO, () => sendMail({ to: "x@example.com", subject: "s", text: "t", html: "<p>t</p>" }))).resolves.toMatchObject({ failed: 0 });
   });
 });

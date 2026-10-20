@@ -4,7 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db, getOrgId } from "@/lib/db";
+import { assertNoLeagueTransaction, db, getOrgId } from "@/lib/db";
 import { requireOrgRole } from "@/lib/access";
 import { audit } from "@/lib/billing";
 import { forgetOrg } from "@/platform/orgs";
@@ -81,6 +81,7 @@ export async function uploadLeagueLogo(form: FormData): Promise<ActionResult<{ u
     if (file.size > LOGO_MAX_BYTES) throw new ActionError("Use an image under 512 KB.");
     if (!process.env.BLOB_READ_WRITE_TOKEN) throw new ActionError("Logo upload isn’t set up on this server yet (BLOB_READ_WRITE_TOKEN). Paste a logo link instead.", 409);
     const orgId = await getOrgId();
+    assertNoLeagueTransaction("Uploading a file");
     const { put } = await import("@vercel/blob");
     // Uploads are prefixed with the league id so one league's files never mix with another's
     const blob = await put(`orgs/${orgId}/logo-${randomBytes(6).toString("hex")}.${ext}`, file, { access: "public", contentType: file.type });
@@ -90,7 +91,7 @@ export async function uploadLeagueLogo(form: FormData): Promise<ActionResult<{ u
     });
     refresh();
     return { ok: true, message: "Logo uploaded", data: { url: blob.url } };
-  });
+  }, { transaction: false });
 }
 
 export async function removeLeagueLogo(): Promise<ActionResult> {

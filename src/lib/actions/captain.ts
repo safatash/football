@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, leagueTransaction } from "@/lib/db";
 import { now } from "@/lib/clock";
 import { fullName } from "@/lib/format";
 import { passExpired } from "@/lib/game-pass";
@@ -147,20 +147,23 @@ const UpdateInput = z.object({ teamId: Id, message: z.string().trim().min(1, "Wr
 export async function sendTeamUpdate(input: z.input<typeof UpdateInput>): Promise<ActionResult<{ recipients: number }>> {
   return runAction(async () => {
     const data = UpdateInput.parse(input);
-    const { team, user } = await requireCaptain(data.teamId);
-    await assertSeasonWritable(team.seasonId);
-    const next = await nextMatchFor(team.id, team.seasonId);
-    const rows = await db.teamRoster.findMany({
-      where: { teamId: team.id, OR: [seasonalWhere, ...(next ? [{ ...activePassWhere(), matchId: next.id }] : [])] },
-      select: { player: { select: { user: { select: { email: true } } } } },
+    const { team, user, emails, sender } = await leagueTransaction(async () => {
+      const { team, user } = await requireCaptain(data.teamId);
+      await assertSeasonWritable(team.seasonId);
+      const next = await nextMatchFor(team.id, team.seasonId);
+      const rows = await db.teamRoster.findMany({
+        where: { teamId: team.id, OR: [seasonalWhere, ...(next ? [{ ...activePassWhere(), matchId: next.id }] : [])] },
+        select: { player: { select: { user: { select: { email: true } } } } },
+      });
+      const emails = [...new Set(rows.map((r) => r.player.user.email))];
+      const sender = user.playerId ? await db.player.findUnique({ where: { id: user.playerId }, select: { firstName: true, lastName: true } }) : null;
+      return { team, user, emails, sender };
     });
-    const emails = [...new Set(rows.map((r) => r.player.user.email))];
-    const sender = user.playerId ? await db.player.findUnique({ where: { id: user.playerId }, select: { firstName: true, lastName: true } }) : null;
     const mail = await teamUpdateEmail({ teamName: team.name, captainName: sender ? fullName(sender) : "The league office", message: data.message, teamId: team.id });
     const res = await sendMail({ to: emails, ...mail, replyTo: user.email ?? undefined });
     if (res.failed && !res.sent && !res.logged) throw new ActionError("We couldn’t send the update. Try again in a moment.", 409);
     return { ok: true, message: `Update sent to ${emails.length} players`, data: { recipients: emails.length } };
-  });
+  }, { transaction: false });
 }
 
 /* ------------------------------------------------------------------ */

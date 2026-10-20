@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
+import { leagueTransaction } from "@/lib/db";
 import { SeasonReadOnlyError } from "@/lib/queries/season";
 import { ForbiddenError, UnauthorizedError } from "@/lib/team-access";
 
@@ -18,10 +19,15 @@ export class ActionError extends Error {
   }
 }
 
-/** Runs an action body and turns thrown errors into an ActionResult. */
-export async function runAction<T>(fn: () => Promise<ActionResult<T>>): Promise<ActionResult<T>> {
+/**
+ * Runs an action body and turns thrown errors into an ActionResult. With `DB_RLS=on` the body
+ * (guard, row loads, writes) runs in one league transaction, so the league is set once (docs/rls.md).
+ * Actions that send mail or call other services pass `{ transaction: false }` and wrap only their
+ * database part in `leagueTransaction`.
+ */
+export async function runAction<T>(fn: () => Promise<ActionResult<T>>, opts: { transaction?: false | { timeout?: number } } = {}): Promise<ActionResult<T>> {
   try {
-    return await fn();
+    return opts.transaction === false ? await fn() : await leagueTransaction(fn, opts.transaction);
   } catch (e) {
     if (e instanceof UnauthorizedError) return { ok: false, status: 401, error: e.message };
     if (e instanceof ForbiddenError) return { ok: false, status: 403, error: e.message };

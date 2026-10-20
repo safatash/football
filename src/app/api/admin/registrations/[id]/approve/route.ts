@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, leagueTransaction } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { sendMail } from "@/lib/mail";
 import { registrationApprovedEmail } from "@/lib/mail-templates";
@@ -39,72 +39,78 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { teamId, makeCaptain } = parsed.data;
 
   try {
-    const registration = await db.registration.findUnique({ where: { id } });
-    if (!registration) return NextResponse.json({ error: "Registration not found." }, { status: 404 });
-    await assertSeasonWritable(registration.seasonId);
-    if (registration.status !== "PENDING" && registration.status !== "SUBMITTED") {
-      return NextResponse.json({ error: `This registration is already ${registration.status === "REJECTED" ? "denied" : registration.status.toLowerCase()}.` }, { status: 409 });
-    }
-
-    const team = teamId ? await db.team.findUnique({ where: { id: teamId } }) : null;
-    if (teamId && !team) return NextResponse.json({ error: "Team not found." }, { status: 404 });
-    if (team && team.seasonId !== registration.seasonId) {
-      return NextResponse.json({ error: "That team isn’t in this registration’s season." }, { status: 400 });
-    }
-
-    await db.$transaction(async (tx) => {
-      // Guard against a concurrent decision.
-      const updated = await tx.registration.updateMany({
-        where: { id, status: { in: ["PENDING", "SUBMITTED"] } },
-        data: {
-          status: "APPROVED",
-          approvedAt: new Date(),
-          // No team yet: the player goes to the placement queue
-          placementState: team ? "ASSIGNED" : registration.placementState === "NONE" ? "NEW" : registration.placementState,
-          ...(team ? { divisionId: team.divisionId } : {}),
-        },
-      });
-      if (updated.count !== 1) throw new ConflictError();
-
-      await tx.player.update({ where: { id: registration.playerId }, data: { finalApproval: "APPROVED" } });
-
-      if (team) {
-        const requested = parseList(registration.captainRequests);
-        const captainRequest =
-          requested.includes(team.id) || requested.includes(team.name) || (await tx.captainRequest.count({ where: { registrationId: id, teamId: team.id } })) > 0;
-        if (makeCaptain) {
-          await tx.captainRequest.updateMany({
-            where: { playerId: registration.playerId, teamId: team.id, status: "PENDING" },
-            data: { status: "APPROVED", decidedById: session.user.id, decidedAt: new Date() },
-          });
-        }
-        const existing = await tx.teamRoster.findFirst({
-          where: { playerId: registration.playerId, teamId: team.id, membershipType: "SEASONAL", matchId: null },
-        });
-        if (existing) {
-          await tx.teamRoster.update({
-            where: { id: existing.id },
-            data: { leftAt: null, isCaptain: makeCaptain, captainRequest },
-          });
-        } else {
-          await tx.teamRoster.create({
-            data: {
-              playerId: registration.playerId,
-              teamId: team.id,
-              divisionId: team.divisionId,
-              membershipType: "SEASONAL",
-              isCaptain: makeCaptain,
-              captainRequest,
-            },
-          });
-        }
+    // One league transaction for the checks and the writes under DB_RLS (docs/rls.md); mail goes out after
+    const result = await leagueTransaction(async () => {
+      const registration = await db.registration.findUnique({ where: { id } });
+      if (!registration) return NextResponse.json({ error: "Registration not found." }, { status: 404 });
+      await assertSeasonWritable(registration.seasonId);
+      if (registration.status !== "PENDING" && registration.status !== "SUBMITTED") {
+        return NextResponse.json({ error: `This registration is already ${registration.status === "REJECTED" ? "denied" : registration.status.toLowerCase()}.` }, { status: 409 });
       }
-    });
 
-    const done = await db.registration.findUniqueOrThrow({
-      where: { id },
-      include: { season: { select: { name: true } }, player: { select: { firstName: true, user: { select: { email: true } } } } },
+      const team = teamId ? await db.team.findUnique({ where: { id: teamId } }) : null;
+      if (teamId && !team) return NextResponse.json({ error: "Team not found." }, { status: 404 });
+      if (team && team.seasonId !== registration.seasonId) {
+        return NextResponse.json({ error: "That team isn’t in this registration’s season." }, { status: 400 });
+      }
+
+      await db.$transaction(async (tx) => {
+        // Guard against a concurrent decision.
+        const updated = await tx.registration.updateMany({
+          where: { id, status: { in: ["PENDING", "SUBMITTED"] } },
+          data: {
+            status: "APPROVED",
+            approvedAt: new Date(),
+            // No team yet: the player goes to the placement queue
+            placementState: team ? "ASSIGNED" : registration.placementState === "NONE" ? "NEW" : registration.placementState,
+            ...(team ? { divisionId: team.divisionId } : {}),
+          },
+        });
+        if (updated.count !== 1) throw new ConflictError();
+
+        await tx.player.update({ where: { id: registration.playerId }, data: { finalApproval: "APPROVED" } });
+
+        if (team) {
+          const requested = parseList(registration.captainRequests);
+          const captainRequest =
+            requested.includes(team.id) || requested.includes(team.name) || (await tx.captainRequest.count({ where: { registrationId: id, teamId: team.id } })) > 0;
+          if (makeCaptain) {
+            await tx.captainRequest.updateMany({
+              where: { playerId: registration.playerId, teamId: team.id, status: "PENDING" },
+              data: { status: "APPROVED", decidedById: session.user.id, decidedAt: new Date() },
+            });
+          }
+          const existing = await tx.teamRoster.findFirst({
+            where: { playerId: registration.playerId, teamId: team.id, membershipType: "SEASONAL", matchId: null },
+          });
+          if (existing) {
+            await tx.teamRoster.update({
+              where: { id: existing.id },
+              data: { leftAt: null, isCaptain: makeCaptain, captainRequest },
+            });
+          } else {
+            await tx.teamRoster.create({
+              data: {
+                playerId: registration.playerId,
+                teamId: team.id,
+                divisionId: team.divisionId,
+                membershipType: "SEASONAL",
+                isCaptain: makeCaptain,
+                captainRequest,
+              },
+            });
+          }
+        }
+      });
+
+      const done = await db.registration.findUniqueOrThrow({
+        where: { id },
+        include: { season: { select: { name: true } }, player: { select: { firstName: true, user: { select: { email: true } } } } },
+      });
+      return { done, team };
     });
+    if (result instanceof NextResponse) return result;
+    const { done, team } = result;
     await sendMail({
       to: done.player.user.email,
       ...(await registrationApprovedEmail({ firstName: done.player.firstName, seasonName: done.season.name, teamName: team?.name ?? null, captain: !!team && makeCaptain })),

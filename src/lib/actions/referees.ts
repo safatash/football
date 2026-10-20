@@ -6,7 +6,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, leagueTransaction } from "@/lib/db";
 import { audit } from "@/lib/billing";
 import { dayKey, fmtDay, fmtTime } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
@@ -237,16 +237,19 @@ export async function saveRefereeFees(input: z.input<typeof FeesInput>): Promise
 export async function emailWeekAssignments(input: { weekStart: string }): Promise<ActionResult<{ sent: number; skipped: string[] }>> {
   return runAction(async () => {
     const weekStart = IsoDate.parse(input.weekStart);
-    const admin = await requireAdminUser();
-    const from = new Date(`${weekStart}T04:00:00Z`);
-    const to = new Date(from.getTime() + 7 * 864e5);
-    const rows = await db.matchOfficial.findMany({
-      where: { status: { not: "DECLINED" }, match: { scheduledAt: { gte: from, lt: to }, status: { not: "CANCELLED" } } },
-      include: {
-        referee: true,
-        match: { select: { gameNumber: true, scheduledAt: true, field: true, venue: { select: { name: true, park: { select: { name: true, address: true, city: true } } } }, homeTeam: { select: { name: true } }, awayTeam: { select: { name: true } } } },
-      },
-      orderBy: { match: { scheduledAt: "asc" } },
+    const { admin, from, rows } = await leagueTransaction(async () => {
+      const admin = await requireAdminUser();
+      const from = new Date(`${weekStart}T04:00:00Z`);
+      const to = new Date(from.getTime() + 7 * 864e5);
+      const rows = await db.matchOfficial.findMany({
+        where: { status: { not: "DECLINED" }, match: { scheduledAt: { gte: from, lt: to }, status: { not: "CANCELLED" } } },
+        include: {
+          referee: true,
+          match: { select: { gameNumber: true, scheduledAt: true, field: true, venue: { select: { name: true, park: { select: { name: true, address: true, city: true } } } }, homeTeam: { select: { name: true } }, awayTeam: { select: { name: true } } } },
+        },
+        orderBy: { match: { scheduledAt: "asc" } },
+      });
+      return { admin, from, rows };
     });
     const byRef = new Map<string, typeof rows>();
     for (const r of rows) byRef.set(r.refereeId, [...(byRef.get(r.refereeId) ?? []), r]);
@@ -273,6 +276,6 @@ export async function emailWeekAssignments(input: { weekStart: string }): Promis
       message: byRef.size ? `Schedules sent to ${sent} referee${sent === 1 ? "" : "s"}${skipped.length ? ` · no email for ${skipped.join(", ")}` : ""}` : "No assignments that week.",
       data: { sent, skipped },
     };
-  });
+  }, { transaction: false });
 }
 

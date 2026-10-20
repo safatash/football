@@ -17,5 +17,6 @@ export async function stopImpersonating(): Promise<ActionResult<{ url: string }>
     const orgId = await getOrgId();
     await stopImpersonation(orgId, me);
     return { ok: true, message: "Stopped acting as an admin", data: { url: `${platformOrigin()}/platform/orgs/${orgId}` } };
-  });
+    // Owner connection only (src/platform): no league transaction needed
+  }, { transaction: false });
 }

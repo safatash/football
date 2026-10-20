@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, leagueTransaction } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { sendMail } from "@/lib/mail";
 import { registrationDeniedEmail } from "@/lib/mail-templates";
@@ -24,27 +24,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: "Invalid request.", issues: parsed.error.flatten() }, { status: 400 });
 
   try {
-    const registration = await db.registration.findUnique({ where: { id } });
-    if (!registration) return NextResponse.json({ error: "Registration not found." }, { status: 404 });
-    await assertSeasonWritable(registration.seasonId);
-    if (registration.status !== "PENDING" && registration.status !== "SUBMITTED") {
-      return NextResponse.json({ error: `This registration is already ${registration.status === "REJECTED" ? "denied" : registration.status.toLowerCase()}.` }, { status: 409 });
-    }
+    // One league transaction for the checks and the writes under DB_RLS (docs/rls.md); mail goes out after
+    const result = await leagueTransaction(async () => {
+      const registration = await db.registration.findUnique({ where: { id } });
+      if (!registration) return NextResponse.json({ error: "Registration not found." }, { status: 404 });
+      await assertSeasonWritable(registration.seasonId);
+      if (registration.status !== "PENDING" && registration.status !== "SUBMITTED") {
+        return NextResponse.json({ error: `This registration is already ${registration.status === "REJECTED" ? "denied" : registration.status.toLowerCase()}.` }, { status: 409 });
+      }
 
-    await db.$transaction(async (tx) => {
-      const updated = await tx.registration.updateMany({
-        where: { id, status: { in: ["PENDING", "SUBMITTED"] } },
-        data: { status: "REJECTED", rejectedAt: new Date(), deniedReason: parsed.data.reason, deniedMessage: parsed.data.message || null },
+      await db.$transaction(async (tx) => {
+        const updated = await tx.registration.updateMany({
+          where: { id, status: { in: ["PENDING", "SUBMITTED"] } },
+          data: { status: "REJECTED", rejectedAt: new Date(), deniedReason: parsed.data.reason, deniedMessage: parsed.data.message || null },
+        });
+        if (updated.count !== 1) throw new ConflictError();
+        await tx.player.update({ where: { id: registration.playerId }, data: { finalApproval: "REJECTED" } });
+        await tx.captainRequest.updateMany({ where: { registrationId: id, status: "PENDING" }, data: { status: "DENIED", decidedById: session.user.id, decidedAt: new Date() } });
       });
-      if (updated.count !== 1) throw new ConflictError();
-      await tx.player.update({ where: { id: registration.playerId }, data: { finalApproval: "REJECTED" } });
-      await tx.captainRequest.updateMany({ where: { registrationId: id, status: "PENDING" }, data: { status: "DENIED", decidedById: session.user.id, decidedAt: new Date() } });
-    });
 
-    const done = await db.registration.findUniqueOrThrow({
-      where: { id },
-      include: { season: { select: { name: true } }, player: { select: { firstName: true, user: { select: { email: true } } } } },
+      return db.registration.findUniqueOrThrow({
+        where: { id },
+        include: { season: { select: { name: true } }, player: { select: { firstName: true, user: { select: { email: true } } } } },
+      });
     });
+    if (result instanceof NextResponse) return result;
+    const done = result;
     await sendMail({ to: done.player.user.email, ...(await registrationDeniedEmail({ firstName: done.player.firstName, seasonName: done.season.name, message: parsed.data.message || null })) });
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -1,6 +1,9 @@
 "use server";
 
-/** Operator actions (the /platform area). Each checks `platformUser()` first. */
+/**
+ * Operator actions (the /platform area). Each checks `platformUser()` first. They use the owner
+ * connection (src/platform), so they don't run in a league transaction under DB_RLS.
+ */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { runWithOrg } from "./db";
@@ -42,7 +45,7 @@ export async function createOrganizationAction(input: z.input<typeof CreateInput
     });
     revalidatePath("/platform");
     return { ok: true, message: `${org.name} created. We emailed ${owner.email}.`, data: { id: org.id } };
-  });
+  }, { transaction: false });
 }
 
 const StatusInput = z.object({ id: Id, status: z.enum(STATUSES as [string, ...string[]]) });
@@ -55,7 +58,7 @@ export async function setOrganizationStatus(input: z.input<typeof StatusInput>):
     await updateOrganization(data.id, { status: data.status as (typeof STATUSES)[number] }, me, `Status changed from ${org.status} to ${data.status} by platform`);
     revalidatePath(`/platform/orgs/${data.id}`);
     return { ok: true, message: `${org.name} is now ${data.status.toLowerCase().replace("_", " ")}` };
-  });
+  }, { transaction: false });
 }
 
 const PlanInput = z.object({ id: Id, plan: z.string().trim().min(1, "Name the plan.").max(40) });
@@ -68,7 +71,7 @@ export async function setOrganizationPlan(input: z.input<typeof PlanInput>): Pro
     await updateOrganization(data.id, { plan: data.plan }, me, `Plan set to ${data.plan} by platform`);
     revalidatePath(`/platform/orgs/${data.id}`);
     return { ok: true, message: `Plan set to ${data.plan}` };
-  });
+  }, { transaction: false });
 }
 
 const TrialInput = z.object({ id: Id, days: z.number().int().min(1).max(365) });
@@ -85,7 +88,7 @@ export async function extendTrial(input: z.input<typeof TrialInput>): Promise<Ac
     await updateOrganization(data.id, { trialEndsAt: until, status: "TRIAL" }, me, `Trial extended ${data.days} days to ${until.toISOString().slice(0, 10)} by platform`);
     revalidatePath(`/platform/orgs/${data.id}`);
     return { ok: true, message: `Trial runs until ${until.toISOString().slice(0, 10)}` };
-  });
+  }, { transaction: false });
 }
 
 const ImpersonateInput = z.object({ id: Id, reason: z.string().trim().max(200).optional() });
@@ -100,5 +103,5 @@ export async function impersonateAdmin(input: z.input<typeof ImpersonateInput>):
     // Sessions are per host: sign in on the league's address with a short-lived link
     const token = await runWithOrg(org.id, () => createToken("login", me.id, 2 * 60_000));
     return { ok: true, message: "Opening the league office…", data: { url: `${leagueOrigin(org)}/login/link?token=${token}&next=/admin` } };
-  });
+  }, { transaction: false });
 }

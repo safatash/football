@@ -3,6 +3,7 @@
  * docs/rls.md. Skipped unless RLS_BENCH=1; run it once per setup (owner vs DB_RLS=on, direct vs
  * through pgbouncer) and it appends p50/p95 per workload to RLS_BENCH_OUT:
  *   RLS_BENCH=1 RLS_BENCH_LABEL="rls direct" RLS_BENCH_OUT=bench.json DB_RLS=on TEST_DATABASE_URL=… npx vitest run tests/perf
+ * RLS_BENCH_ONLY=action limits it to workloads whose name contains that text.
  * On a throwaway Neon branch, also set RLS_BENCH_HOST to its exact host(s). The actions write
  * the same values back, plus audit-log rows.
  */
@@ -59,7 +60,7 @@ describe.skipIf(!benchDb || process.env.RLS_BENCH !== "1")("RLS latency bench", 
     const pct = (xs: number[], p: number) => xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))];
     const results: Record<string, { p50: number; p95: number; n: number }> = {};
     await runWithOrg(NVASA, async () => {
-      for (const [name, run] of Object.entries(workloads)) {
+      for (const [name, run] of Object.entries(workloads).filter(([n]) => n.includes(process.env.RLS_BENCH_ONLY ?? ""))) {
         for (let i = 0; i < WARMUP; i++) await run();
         const ms: number[] = [];
         for (let i = 0; i < ITER; i++) {

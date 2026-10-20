@@ -74,13 +74,19 @@ export type ScopedClient = ReturnType<typeof scopedClient>;
 /** Set while a `$transaction` callback of the RLS client runs: the transaction already has the league. */
 const rlsTx = new AsyncLocalStorage<string>();
 
+/** The open league transaction of `leagueTransaction()`: `db` calls for that league join it. */
+const ambient = new AsyncLocalStorage<{ orgId: string; tx: unknown }>();
+const RUN_IN_TX = Symbol("runInLeagueTransaction");
+type TxOptions = { timeout?: number; maxWait?: number };
+
 /**
  * With `DB_RLS=on` (docs/rls.md): the same scoping, on the app role's connection, and every query
  * runs in a transaction that first sets `app.org_id`, the setting the Postgres policies check.
  * `set_config(…, true)` is SET LOCAL, so it ends with the transaction (pgbouncer transaction
  * mode on Neon's pooler hands the connection to someone else afterwards).
  *   - single queries (models and raw SQL): `$transaction([set_config, query])`, one batch;
- *   - `$transaction(fn)`: an interactive transaction that sets it first, then runs `fn`.
+ *   - `$transaction(fn)`: an interactive transaction that sets it first, then runs `fn`;
+ *   - inside `leagueTransaction()`: every call (and `$transaction(fn)`) joins its transaction.
  */
 function rlsScopedClient(orgId: string): ScopedClient {
   const base = appPrisma();
@@ -96,19 +102,33 @@ function rlsScopedClient(orgId: string): ScopedClient {
       },
     },
   });
+  const interactive = <T>(fn: (tx: unknown) => Promise<T>, opts?: TxOptions) =>
+    client.$transaction(
+      (tx) =>
+        rlsTx.run(orgId, async () => {
+          await setOrg(tx as unknown as PrismaClient);
+          return fn(tx);
+        }),
+      opts,
+    ) as Promise<T>;
+  const joined = () => {
+    const a = ambient.getStore();
+    return a?.orgId === orgId ? a.tx : null;
+  };
   return new Proxy(client, {
     get(target, prop) {
-      if (prop !== "$transaction") return Reflect.get(target, prop);
-      return (fn: unknown, opts?: Parameters<PrismaClient["$transaction"]>[1]) => {
+      if (prop === RUN_IN_TX) return <T>(fn: () => Promise<T>, opts?: TxOptions) => interactive((tx) => ambient.run({ orgId, tx }, fn), opts);
+      const tx = joined();
+      if (prop !== "$transaction") {
+        const src = (tx ?? target) as object;
+        const v = Reflect.get(src, prop);
+        return typeof v === "function" ? v.bind(src) : v;
+      }
+      return (fn: unknown, opts?: TxOptions) => {
         if (typeof fn !== "function") throw new Error("$transaction needs a callback (the array form isn't supported).");
-        return target.$transaction(
-          (tx) =>
-            rlsTx.run(orgId, async () => {
-              await setOrg(tx as unknown as PrismaClient);
-              return (fn as (t: typeof tx) => Promise<unknown>)(tx);
-            }),
-          opts,
-        );
+        // Already in the league transaction: run the callback in it (no nested transactions)
+        if (tx) return (fn as (t: unknown) => Promise<unknown>)(tx);
+        return interactive(fn as (t: unknown) => Promise<unknown>, opts);
       };
     },
   }) as unknown as ScopedClient;
@@ -155,6 +175,35 @@ export async function getOrgId(): Promise<string> {
 /** The league-scoped client for this request. */
 export async function getDb(): Promise<ScopedClient> {
   return forOrg(await getOrgId());
+}
+
+/**
+ * Runs `fn` (an action: its guard, row loads and writes) in one league transaction when
+ * `DB_RLS=on`, so the league is set once instead of once per query (docs/rls.md). `db` calls and
+ * `db.$transaction(cb)` inside join it; an error anywhere rolls all of it back. Keep mail, uploads
+ * and Stripe calls outside: they'd hold the connection open (`assertNoLeagueTransaction`).
+ * With RLS off, or with no league (the platform host), it just runs `fn`.
+ */
+export async function leagueTransaction<T>(fn: () => Promise<T>, opts?: TxOptions): Promise<T> {
+  if (!rlsEnabled()) return fn();
+  let orgId: string;
+  try {
+    orgId = await getOrgId();
+  } catch (e) {
+    if (e instanceof NoOrganizationError) return fn();
+    throw e;
+  }
+  if (ambient.getStore()?.orgId === orgId) return fn();
+  const run = (forOrg(orgId) as unknown as Record<typeof RUN_IN_TX, <R>(f: () => Promise<R>, o?: TxOptions) => Promise<R>>)[RUN_IN_TX];
+  return run(fn, { timeout: 10_000, ...opts });
+}
+
+/** Throws (outside production) when called inside `leagueTransaction()`: for external calls. */
+export function assertNoLeagueTransaction(what: string) {
+  if (!ambient.getStore()) return;
+  const msg = `${what} inside a league transaction: run it after the database work (runAction(fn, { transaction: false }) plus leagueTransaction for the database part).`;
+  if (process.env.NODE_ENV === "production") console.warn(msg);
+  else throw new Error(msg);
 }
 
 /**

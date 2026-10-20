@@ -54,5 +54,5 @@ export async function clearDemoData(input: { confirm: string }): Promise<ActionR
     );
     revalidatePath("/", "layout");
     return { ok: true, message: `Removed ${counts.teams} demo teams, ${counts.matches} matches, ${counts.players} players, ${counts.parks} parks and ${counts.referees} referees`, data: counts };
-  });
+  }, { transaction: { timeout: 60_000 } });
 }

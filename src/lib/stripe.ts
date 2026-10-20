@@ -1,9 +1,11 @@
 import Stripe from "stripe";
+import { assertNoLeagueTransaction } from "@/lib/db";
 
 let client: Stripe | null = null;
 
 /** Stripe client (created on first use so builds don't need the key). */
 export function stripe() {
+  assertNoLeagueTransaction("Calling Stripe");
   if (!client) {
     const key = process.env.STRIPE_SECRET_KEY;
     if (!key) throw new Error("STRIPE_SECRET_KEY is not set");

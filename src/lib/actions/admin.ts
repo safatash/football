@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, leagueTransaction } from "@/lib/db";
 import { playerInOrg, getOrgId } from "@/lib/org";
 import { now } from "@/lib/clock";
 import { fullName, money as fmtMoney } from "@/lib/format";
@@ -56,26 +56,29 @@ export async function reopenRegistration(input: { registrationId: string }): Pro
 export async function decideCaptainRequest(input: { requestId: string; approve: boolean }): Promise<ActionResult> {
   return runAction(async () => {
     const data = z.object({ requestId: Id, approve: z.boolean() }).parse(input);
-    const admin = await requireAdminUser();
-    const req = await db.captainRequest.findUnique({
-      where: { id: data.requestId },
-      include: { team: { select: { id: true, name: true, seasonId: true } }, player: { select: { id: true, firstName: true, lastName: true, user: { select: { email: true } } } } },
-    });
-    if (!req) throw new ActionError("Captain request not found.", 404);
-    await assertSeasonWritable(req.team.seasonId);
-    if (req.status !== "PENDING") throw new ActionError("This request was already decided.", 409);
-    const membership = await db.teamRoster.findFirst({ where: { playerId: req.playerId, teamId: req.teamId, leftAt: null, membershipType: "SEASONAL" } });
-    if (data.approve && !membership) throw new ActionError(`${fullName(req.player)} isn’t on ${req.team.name}’s roster yet. Approve their registration first.`, 409);
+    const req = await leagueTransaction(async () => {
+      const admin = await requireAdminUser();
+      const req = await db.captainRequest.findUnique({
+        where: { id: data.requestId },
+        include: { team: { select: { id: true, name: true, seasonId: true } }, player: { select: { id: true, firstName: true, lastName: true, user: { select: { email: true } } } } },
+      });
+      if (!req) throw new ActionError("Captain request not found.", 404);
+      await assertSeasonWritable(req.team.seasonId);
+      if (req.status !== "PENDING") throw new ActionError("This request was already decided.", 409);
+      const membership = await db.teamRoster.findFirst({ where: { playerId: req.playerId, teamId: req.teamId, leftAt: null, membershipType: "SEASONAL" } });
+      if (data.approve && !membership) throw new ActionError(`${fullName(req.player)} isn’t on ${req.team.name}’s roster yet. Approve their registration first.`, 409);
 
-    await db.$transaction(async (tx) => {
-      await tx.captainRequest.update({ where: { id: req.id }, data: { status: data.approve ? "APPROVED" : "DENIED", decidedById: admin.id, decidedAt: now() } });
-      if (data.approve && membership) await tx.teamRoster.update({ where: { id: membership.id }, data: { isCaptain: true, captainRequest: true } });
+      await db.$transaction(async (tx) => {
+        await tx.captainRequest.update({ where: { id: req.id }, data: { status: data.approve ? "APPROVED" : "DENIED", decidedById: admin.id, decidedAt: now() } });
+        if (data.approve && membership) await tx.teamRoster.update({ where: { id: membership.id }, data: { isCaptain: true, captainRequest: true } });
+      });
+      return req;
     });
     await sendMail({ to: req.player.user.email, ...(await captainDecisionEmail({ firstName: req.player.firstName, teamName: req.team.name, approved: data.approve, teamId: req.team.id })) });
     refreshAdmin();
     revalidatePath(`/captain/${req.teamId}`, "layout");
     return { ok: true, message: data.approve ? `${fullName(req.player)} is now a captain of ${req.team.name}` : "Captain request denied" };
-  });
+  }, { transaction: false });
 }
 
 /** Make or remove captain on one team membership. */
@@ -167,13 +170,16 @@ export async function waitlistPlacement(input: { registrationId: string }): Prom
 export async function requestPlacementInfo(input: { registrationId: string; message: string }): Promise<ActionResult> {
   return runAction(async () => {
     const data = z.object({ registrationId: Id, message: z.string().trim().min(1, "Write a message first.").max(2000) }).parse(input);
-    const admin = await requireAdminUser();
-    const reg = await placementRegistration(data.registrationId);
+    const { admin, reg } = await leagueTransaction(async () => {
+      const admin = await requireAdminUser();
+      const reg = await placementRegistration(data.registrationId);
+      return { admin, reg };
+    });
     await sendMail({ to: reg.player.user.email, replyTo: admin.email, ...(await placementInfoEmail({ firstName: reg.player.firstName, message: data.message })) });
     await db.registration.update({ where: { id: reg.id }, data: { placementState: "INFO_REQUESTED" } });
     refreshAdmin();
     return { ok: true, message: "Request sent" };
-  });
+  }, { transaction: false });
 }
 
 /* ------------------------------------------------------------------ */
@@ -250,20 +256,23 @@ export async function confirmReport(input: { matchId: string; teamId: string }):
 export async function sendReportReminder(input: { matchId: string; teamId: string }): Promise<ActionResult> {
   return runAction(async () => {
     const data = z.object({ matchId: Id, teamId: Id }).parse(input);
-    const admin = await requireAdminUser();
-    const match = await db.match.findUnique({ where: { id: data.matchId }, select: { gameNumber: true, seasonId: true, homeTeamId: true, awayTeamId: true } });
-    if (!match || (match.homeTeamId !== data.teamId && match.awayTeamId !== data.teamId)) throw new ActionError("Match not found.", 404);
-    await assertSeasonWritable(match.seasonId);
-    const captains = await db.teamRoster.findMany({
-      where: { teamId: data.teamId, isCaptain: true, leftAt: null, membershipType: "SEASONAL" },
-      select: { player: { select: { firstName: true, lastName: true, user: { select: { email: true } } } }, team: { select: { name: true } } },
+    const { admin, match, captains } = await leagueTransaction(async () => {
+      const admin = await requireAdminUser();
+      const match = await db.match.findUnique({ where: { id: data.matchId }, select: { gameNumber: true, seasonId: true, homeTeamId: true, awayTeamId: true } });
+      if (!match || (match.homeTeamId !== data.teamId && match.awayTeamId !== data.teamId)) throw new ActionError("Match not found.", 404);
+      await assertSeasonWritable(match.seasonId);
+      const captains = await db.teamRoster.findMany({
+        where: { teamId: data.teamId, isCaptain: true, leftAt: null, membershipType: "SEASONAL" },
+        select: { player: { select: { firstName: true, lastName: true, user: { select: { email: true } } } }, team: { select: { name: true } } },
+      });
+      if (!captains.length) throw new ActionError("This team doesn’t have a captain to remind.", 409);
+      return { admin, match, captains };
     });
-    if (!captains.length) throw new ActionError("This team doesn’t have a captain to remind.", 409);
     for (const c of captains) {
       await sendMail({ to: c.player.user.email, replyTo: admin.email, ...(await reportReminderEmail({ firstName: c.player.firstName, teamName: c.team.name, gameNumber: match.gameNumber, teamId: data.teamId })) });
     }
     return { ok: true, message: `Reminder sent to ${captains.map((c) => fullName(c.player)).join(" & ")}` };
-  });
+  }, { transaction: false });
 }
 
 /* ------------------------------------------------------------------ */
@@ -517,139 +526,142 @@ const noonEastern = (iso: string) => new Date(`${iso}T16:00:00Z`);
 export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>): Promise<ActionResult<{ playerId: string }>> {
   return runAction(async () => {
     const data = NewPlayerInput.parse(input);
-    const admin = await requireAdminUser();
-    if (await db.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } })) {
-      throw new ActionError("That email already has an account. Search for the player instead.", 409);
-    }
-    const team = data.teamId ? await teamForRoster(data.teamId) : null;
-    if (team) await assertJerseyFree(team.id, data.jerseyNumber ?? null);
-    const zip = data.zip ? await db.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: (await getOrgId()), zipCode: data.zip } } }) : null;
+    const { admin, team, billing, due, created } = await leagueTransaction(async () => {
+      const admin = await requireAdminUser();
+      if (await db.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } })) {
+        throw new ActionError("That email already has an account. Search for the player instead.", 409);
+      }
+      const team = data.teamId ? await teamForRoster(data.teamId) : null;
+      if (team) await assertJerseyFree(team.id, data.jerseyNumber ?? null);
+      const zip = data.zip ? await db.allowedZipCode.findUnique({ where: { organizationId_zipCode: { organizationId: (await getOrgId()), zipCode: data.zip } } }) : null;
 
-    const warnings: string[] = [];
-    if (await blocklistHit(data.email)) warnings.push(`${data.email} is on the blocklist.`);
-    if (data.zip && !(await zipEligible(team?.seasonId ?? (await db.season.findFirst({ where: { isActive: true }, select: { id: true } }))?.id ?? "", { zip: data.zip, county: zip?.county ?? null }))) {
-      warnings.push(`ZIP ${data.zip} isn’t in the league’s eligible area.`);
-    }
-    if (team) {
-      const elig = checkEligibility(team.division, { dob: day(data.dob), gender: data.gender }, team.season.startDate);
-      if (!elig.ok) warnings.push(`${team.division.name} age/gender rule: ${elig.reason}.`);
-    }
-    if (warnings.length && !data.override) throw new ActionError("Check before adding this player.", 409, warnings);
+      const warnings: string[] = [];
+      if (await blocklistHit(data.email)) warnings.push(`${data.email} is on the blocklist.`);
+      if (data.zip && !(await zipEligible(team?.seasonId ?? (await db.season.findFirst({ where: { isActive: true }, select: { id: true } }))?.id ?? "", { zip: data.zip, county: zip?.county ?? null }))) {
+        warnings.push(`ZIP ${data.zip} isn’t in the league’s eligible area.`);
+      }
+      if (team) {
+        const elig = checkEligibility(team.division, { dob: day(data.dob), gender: data.gender }, team.season.startDate);
+        if (!elig.ok) warnings.push(`${team.division.name} age/gender rule: ${elig.reason}.`);
+      }
+      if (warnings.length && !data.override) throw new ActionError("Check before adding this player.", 409, warnings);
 
-    const fee = team ? Number(team.division.registrationFee) : 0;
-    const billing = team ? (data.billing ?? { mode: "LATER" as const }) : null;
-    // What the registration owes: the fee, or the office's amount when collecting later / by link
-    const due = billing && (billing.mode === "LINK" || billing.mode === "LATER") && billing.amount != null ? billing.amount : fee;
+      const fee = team ? Number(team.division.registrationFee) : 0;
+      const billing = team ? (data.billing ?? { mode: "LATER" as const }) : null;
+      // What the registration owes: the fee, or the office's amount when collecting later / by link
+      const due = billing && (billing.mode === "LINK" || billing.mode === "LATER") && billing.amount != null ? billing.amount : fee;
 
-    const created = await db.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: data.email,
-          password: await hashPassword(randomBytes(24).toString("base64url")),
-          memberships: { create: { organizationId: (await getOrgId()), role: "PLAYER", joinedAt: new Date() } },
-          players: {
-            create: {
-              organizationId: (await getOrgId()),
-              firstName: data.firstName,
-              lastName: data.lastName,
-              gender: data.gender,
-              dob: day(data.dob),
-              phone: data.phone,
-              address: data.address,
-              city: data.city || zip?.city || "",
-              state: data.state,
-              zip: data.zip,
-              county: zip?.county ?? null,
-              position: data.position,
-              tshirtSize: data.tshirtSize,
-              emergencyContactName: data.emergencyName || null,
-              emergencyContactPhone: data.emergencyPhone || null,
-              contactMe: data.news,
-              social: data.social,
-              tournaments: data.tournaments,
-              finalApproval: "APPROVED",
-              status: "ACTIVE",
-              ...(team
-                ? { teamMemberships: { create: { teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL", jerseyNumber: data.jerseyNumber ?? null } } }
-                : {}),
+      const created = await db.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email: data.email,
+            password: await hashPassword(randomBytes(24).toString("base64url")),
+            memberships: { create: { organizationId: (await getOrgId()), role: "PLAYER", joinedAt: new Date() } },
+            players: {
+              create: {
+                organizationId: (await getOrgId()),
+                firstName: data.firstName,
+                lastName: data.lastName,
+                gender: data.gender,
+                dob: day(data.dob),
+                phone: data.phone,
+                address: data.address,
+                city: data.city || zip?.city || "",
+                state: data.state,
+                zip: data.zip,
+                county: zip?.county ?? null,
+                position: data.position,
+                tshirtSize: data.tshirtSize,
+                emergencyContactName: data.emergencyName || null,
+                emergencyContactPhone: data.emergencyPhone || null,
+                contactMe: data.news,
+                social: data.social,
+                tournaments: data.tournaments,
+                finalApproval: "APPROVED",
+                status: "ACTIVE",
+                ...(team
+                  ? { teamMemberships: { create: { teamId: team.id, divisionId: team.divisionId, membershipType: "SEASONAL", jerseyNumber: data.jerseyNumber ?? null } } }
+                  : {}),
+              },
             },
           },
-        },
-        include: { players: playerInOrg(await getOrgId()) },
-      });
-      const player = user.players[0]!;
-      await audit(tx, admin, {
-        action: "player.created",
-        entityType: "player",
-        entityId: player.id,
-        summary: `Added ${data.firstName} ${data.lastName}${team ? ` to ${team.name}` : ""}${warnings.length ? ` despite: ${warnings.join(" ")}` : ""}`,
-        data: { warnings, override: data.override },
-      });
-      if (!team || !billing) return { user, player, registrationId: null as string | null };
+          include: { players: playerInOrg(await getOrgId()) },
+        });
+        const player = user.players[0]!;
+        await audit(tx, admin, {
+          action: "player.created",
+          entityType: "player",
+          entityId: player.id,
+          summary: `Added ${data.firstName} ${data.lastName}${team ? ` to ${team.name}` : ""}${warnings.length ? ` despite: ${warnings.join(" ")}` : ""}`,
+          data: { warnings, override: data.override },
+        });
+        if (!team || !billing) return { user, player, registrationId: null as string | null };
 
-      const reg = await tx.registration.create({
-        data: {
-          playerId: player.id,
-          seasonId: team.seasonId,
-          divisionId: team.divisionId,
-          preferredTeamId: team.id,
-          status: "APPROVED",
-          approvedAt: now(),
-          placementState: "ASSIGNED",
-          totalAmount: due,
-          amountBeforeDiscount: due !== fee ? fee : null,
-          createdByAdminId: admin.id,
-          playerNote: "Added by the league office",
-        },
-      });
-      if (billing.mode === "OFFLINE") {
-        await tx.payment.create({
+        const reg = await tx.registration.create({
           data: {
-            userId: player.id,
-            amount: billing.amount!,
-            status: "PAID",
-            paymentType: "REGISTRATION_FEE",
-            relatedEntityType: "registration",
-            relatedEntityId: reg.id,
-            method: billing.method!,
-            reference: billing.reference || null,
-            notes: billing.notes || null,
-            recordedByUserId: admin.id,
-            paidAt: billing.paidOn ? noonEastern(billing.paidOn) : now(),
+            playerId: player.id,
+            seasonId: team.seasonId,
+            divisionId: team.divisionId,
+            preferredTeamId: team.id,
+            status: "APPROVED",
+            approvedAt: now(),
+            placementState: "ASSIGNED",
+            totalAmount: due,
+            amountBeforeDiscount: due !== fee ? fee : null,
+            createdByAdminId: admin.id,
+            playerNote: "Added by the league office",
           },
         });
-      } else if (billing.mode === "WAIVED" && due > 0) {
-        await tx.payment.create({
-          data: {
-            userId: player.id,
-            amount: due,
-            status: "WAIVED",
-            paymentType: "WAIVER",
-            relatedEntityType: "registration",
-            relatedEntityId: reg.id,
-            notes: billing.notes || null,
-            recordedByUserId: admin.id,
-            paidAt: now(),
-          },
+        if (billing.mode === "OFFLINE") {
+          await tx.payment.create({
+            data: {
+              userId: player.id,
+              amount: billing.amount!,
+              status: "PAID",
+              paymentType: "REGISTRATION_FEE",
+              relatedEntityType: "registration",
+              relatedEntityId: reg.id,
+              method: billing.method!,
+              reference: billing.reference || null,
+              notes: billing.notes || null,
+              recordedByUserId: admin.id,
+              paidAt: billing.paidOn ? noonEastern(billing.paidOn) : now(),
+            },
+          });
+        } else if (billing.mode === "WAIVED" && due > 0) {
+          await tx.payment.create({
+            data: {
+              userId: player.id,
+              amount: due,
+              status: "WAIVED",
+              paymentType: "WAIVER",
+              relatedEntityType: "registration",
+              relatedEntityId: reg.id,
+              notes: billing.notes || null,
+              recordedByUserId: admin.id,
+              paidAt: now(),
+            },
+          });
+        }
+        const s = await syncPaymentStatus(tx, reg.id);
+        const what =
+          billing.mode === "OFFLINE"
+            ? `paid ${fmtMoney(billing.amount!)} ${billing.method!.toLowerCase().replace(/_/g, " ")}`
+            : billing.mode === "WAIVED"
+              ? `fee waived: ${billing.notes}`
+              : billing.mode === "LINK"
+                ? "payment link to be emailed"
+                : "collect later";
+        await audit(tx, admin, {
+          action: "registration.admin_created",
+          entityType: "registration",
+          entityId: reg.id,
+          summary: `Approved registration created by the office (${fmtMoney(due)} due, ${what})`,
+          data: { mode: billing.mode, due, status: s.status },
         });
-      }
-      const s = await syncPaymentStatus(tx, reg.id);
-      const what =
-        billing.mode === "OFFLINE"
-          ? `paid ${fmtMoney(billing.amount!)} ${billing.method!.toLowerCase().replace(/_/g, " ")}`
-          : billing.mode === "WAIVED"
-            ? `fee waived: ${billing.notes}`
-            : billing.mode === "LINK"
-              ? "payment link to be emailed"
-              : "collect later";
-      await audit(tx, admin, {
-        action: "registration.admin_created",
-        entityType: "registration",
-        entityId: reg.id,
-        summary: `Approved registration created by the office (${fmtMoney(due)} due, ${what})`,
-        data: { mode: billing.mode, due, status: s.status },
+        return { user, player, registrationId: reg.id };
       });
-      return { user, player, registrationId: reg.id };
+      return { admin, team, billing, due, created };
     });
 
     const notes: string[] = [];
@@ -684,7 +696,7 @@ export async function createPlayerAccount(input: z.input<typeof NewPlayerInput>)
       message: `${data.firstName} ${data.lastName} added${team ? ` to ${team.name}` : ""}${notes.length ? ` · ${notes.join(" · ")}` : ""}`,
       data: { playerId: created.player.id },
     };
-  });
+  }, { transaction: false });
 }
 
 const RosterAddInput = z.object({ playerId: Id, teamId: Id, jerseyNumber: z.number().int().min(0).max(99).nullish() });

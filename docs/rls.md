@@ -183,7 +183,7 @@ lookups. From this Mac, 13.5 ms per round trip makes that +40 ms per query and +
 | --- | --: |
 | one standalone query | +3–7 ms |
 | public home page (parallel queries) | +4–8 ms |
-| one server action | +6–15 ms |
+| one server action | +6–15 ms before the follow-up below; +1–6 ms after it |
 
 These numbers assume the Vercel project's function region is us-east-1 (iad1). If functions run
 in another region, multiply the round-trip count by that region's round trip. To confirm,
@@ -195,16 +195,80 @@ pooler supports prepared statements, and production's `DATABASE_URL` correctly l
 out. (The local pgbouncer runs above used it because that pgbouncer had prepared statements
 off, which is why their absolute numbers are higher than "direct".)
 
+### Follow-up: one transaction per action
+
+With `DB_RLS=on`, `runAction` now runs the whole action body in one league transaction:
+`leagueTransaction()` in `src/platform/db.ts`. The guard (`requireOrgRole`'s user lookup), the
+row loads and the writes all run in it. `db.*` calls and the action's own `db.$transaction(cb)`
+join it, so `app.org_id` is set once per action. The two admin API routes
+(`/api/admin/registrations/[id]/approve` and `/deny`) do the same.
+
+- **Mail, uploads and Stripe stay outside it.** Actions that send mail split in two: the
+  database part runs in `leagueTransaction`, the mail goes out after it commits, and they pass
+  `runAction(fn, { transaction: false })`. These are `decideCaptainRequest`,
+  `requestPlacementInfo`, `sendReportReminder`, `createPlayerAccount`, `sendPaymentLink`,
+  `sendTeamUpdate`, `emailWeekAssignments`, `inviteStaff` and the two routes. `sendMail`,
+  `stripe()` and the logo upload call `assertNoLeagueTransaction()`. It throws outside
+  production, so a missed case fails the RLS test run instead of holding a pooled connection
+  open during an SMTP call.
+- **Platform and owner-only actions opt out.** `src/platform/actions.ts`, `stopImpersonating` and
+  the logo upload use the owner connection or an external service, so a league transaction would
+  only add statements. `clearDemoData` keeps its 60-second timeout via
+  `runAction(fn, { transaction: { timeout: 60_000 } })`.
+- **The one behavior change under RLS:** an error anywhere in an action now rolls back all of
+  the action's writes, not only the writes in its inner `db.$transaction`. No action catches
+  database errors and carries on. With RLS off, `leagueTransaction` just runs the function, so
+  behavior there is unchanged.
+- **New tests (RLS block in `isolation.test.ts`):** every call inside one league transaction
+  shares the same `txid_current()`; an error rolls back a write made earlier in it; and
+  `sendMail` inside it throws.
+- **I did not skip wrapping `User` / `Organization` calls.** Inside an action they now ride
+  along in the league transaction at no extra cost. Outside actions, the saving would be small,
+  and it needs checking every include and relation filter. Example: a `user.findFirst` that
+  filters on `players` would quietly return different results without `app.org_id`.
+
+The Postgres statement log for `updatePark` shows 9 statements instead of 18 (counting the membership check): one
+`BEGIN; set_config; …; COMMIT` around the guard, both park lookups, the update and the audit
+row. The membership check runs on the owner connection (`src/platform/identity.ts`), so it isn't
+wrapped.
+
+Action bench (p50 / p95 in ms; owner = RLS off; Δ = RLS minus owner, p50). Each setup ran twice,
+interleaved; means shown.
+
+**Local, direct** (200 iterations):
+
+| Action | owner | RLS before | Δ before | RLS after | Δ after |
+|---|--:|--:|--:|--:|--:|
+| updateReferee | 2.2 / 3.2 | 3.4 / 4.2 | +1.2 | 2.5 / 3.1 | +0.3 |
+| updatePark | 2.1 / 3.3 | 3.6 / 6.3 | +1.5 | 2.1 / 2.7 | +0.1 |
+| add + remove allowed ZIP (2 actions) | 1.9 / 2.8 | 4.5 / 8.7 | +2.6 | 2.9 / 4.0 | +1.0 |
+
+**Neon branch `rls-bench`, through the pooler, from this Mac** (40 iterations; `SELECT 1` round
+trip about 10 ms during this run, 13.5 ms in the earlier run):
+
+| Action | owner | RLS before | Δ before | RLS after | Δ after |
+|---|--:|--:|--:|--:|--:|
+| updateReferee | 78.8 / 101.1 | 177.5 / 200.7 | +98.7 | 88.8 / 120.0 | +10.1 |
+| updatePark | 79.7 / 114.6 | 177.4 / 206.5 | +97.8 | 88.7 / 114.3 | +9.0 |
+| add + remove allowed ZIP (2 actions) | 69.0 / 111.9 | 221.1 / 250.4 | +152.2 | 128.5 / 162.5 | +59.5 |
+
+Actions that already had a transaction (`updateReferee`, `updatePark`) now pay about **one
+round trip** (`set_config`), down from about ten. The ZIP actions had no transaction of their
+own, so each now pays `BEGIN`, `set_config` and `COMMIT`: about three round trips per action,
+down from about seven. In the same region as Neon (about 1–2 ms per round trip), that's
++1–2 ms for most actions and +3–6 ms for ones without a transaction of their own.
+
+In the local pgbouncer + 2 ms emulation, RLS actions even came out faster than owner (for
+example `updatePark` 86.4 vs 111.8 ms p50). That setup overcharges standalone queries
+(`pgbouncer=true` with toxiproxy), so grouping them into one transaction helps more than it
+would on Neon. Treat those numbers as an artifact; the Neon numbers are the ones to trust.
+
 ## Recommendation
 
-**Adopt RLS, but cut the round trips for actions first, then confirm from a Vercel preview.**
+**Adopt RLS. The round trips for actions are cut (above); next, confirm from a Vercel preview.**
 
-1. *Cut the cost for actions* (small follow-up, the biggest win): run an action's guard and its
-   work in one `db.$transaction` (one `set_config`) instead of 4–5 standalone calls. That takes
-   an action from +6–7 round trips to about +1. Also, don't wrap calls on models without an
-   `organizationId` (`User`, `Organization`). Only do that after checking they don't include
-   league rows: under RLS those includes would come back empty. That's safe, but it would break
-   pages.
+1. *Cut the cost for actions:* **done** (see "Follow-up: one transaction per action"). Actions
+   went from about +100 ms to about +10 ms on the Neon branch from this Mac.
 2. *Confirm in the real topology* (needs your go-ahead, because it means adding env vars to
    Vercel): deploy a preview whose `DATABASE_URL` and `DATABASE_APP_URL` point at `rls-bench`,
    set `DB_RLS=on`, and compare preview timings with RLS on and off. Ship if page p95 grows by

@@ -7,7 +7,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, leagueTransaction } from "@/lib/db";
 import { audit, billingSummary, ledgerWhere, methodLabel, payLinkUrl, syncPaymentStatus } from "@/lib/billing";
 import { fullName, money } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
@@ -101,11 +101,14 @@ export async function recordPayment(input: z.input<typeof RecordInput>): Promise
 export async function sendPaymentLink(input: { registrationId: string }): Promise<ActionResult<{ url: string }>> {
   return runAction(async () => {
     const registrationId = Id.parse(input.registrationId);
-    const admin = await requireAdminUser();
-    const reg = await loadRegistration(registrationId);
-    const { balance } = await balanceOf(reg);
-    if (balance <= 0) throw new ActionError("Nothing is owed on this registration.", 409);
-    const url = await payLinkUrl(reg.id);
+    const { admin, reg, balance, url } = await leagueTransaction(async () => {
+      const admin = await requireAdminUser();
+      const reg = await loadRegistration(registrationId);
+      const { balance } = await balanceOf(reg);
+      if (balance <= 0) throw new ActionError("Nothing is owed on this registration.", 409);
+      const url = await payLinkUrl(reg.id);
+      return { admin, reg, balance, url };
+    });
     const res = await sendMail({
       to: reg.player.user.email,
       replyTo: admin.email,
@@ -121,7 +124,7 @@ export async function sendPaymentLink(input: { registrationId: string }): Promis
     });
     refresh(reg.playerId);
     return { ok: true, message: `Payment link for ${money(balance)} ${res.sent ? "sent to" : "logged for"} ${reg.player.user.email}`, data: { url } };
-  });
+  }, { transaction: false });
 }
 
 const WaiveInput = z.object({ registrationId: Id, reason: Reason });
