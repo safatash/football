@@ -2,6 +2,14 @@
 
 This checklist turns the current prototype notes into an execution order for the existing Next.js app.
 
+## Backlog: before the Phase 2 launch (LeagueKeep)
+
+- [ ] **Read-side RLS: try a per-page transaction, then re-measure.** Writes-only RLS is shipped
+  (migration `20261025000000_rls_writes`). Restricting reads too cost pages +13–31 ms p95 on
+  Vercel. Try running each page's data loading in one `leagueTransaction`, apply
+  `prisma/rls/read-side.sql` to a throwaway Neon branch, and re-measure on a `leaguekeep` preview
+  with the timing route described in `docs/rls.md`. Ship only if page p95 grows by less than 10 ms.
+
 ## Phase 1, registration entry flow
 
 Goal: make the front-door registration UX match the desired branching flow before deeper portal logic is expanded.

@@ -24,6 +24,9 @@ import { ORG_ID_HEADER } from "@/lib/tenant";
 /** Models that belong to a league. */
 export const ORG_MODELS = new Set(Prisma.dmmf.datamodel.models.filter((m) => m.fields.some((f) => f.name === "organizationId")).map((m) => m.name));
 
+/** Operations the write policies check (reads, including $queryRaw, need no league setting). */
+const WRITE_OPS = new Set(["create", "createMany", "createManyAndReturn", "update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany", "$executeRaw", "$executeRawUnsafe"]);
+
 const WHERE_OPS = new Set(["findUnique", "findUniqueOrThrow", "findFirst", "findFirstOrThrow", "findMany", "count", "aggregate", "groupBy", "update", "updateMany", "updateManyAndReturn", "delete", "deleteMany"]);
 
 export class NoOrganizationError extends Error {
@@ -80,11 +83,12 @@ const RUN_IN_TX = Symbol("runInLeagueTransaction");
 type TxOptions = { timeout?: number; maxWait?: number };
 
 /**
- * With `DB_RLS=on` (docs/rls.md): the same scoping, on the app role's connection, and every query
- * runs in a transaction that first sets `app.org_id`, the setting the Postgres policies check.
- * `set_config(…, true)` is SET LOCAL, so it ends with the transaction (pgbouncer transaction
- * mode on Neon's pooler hands the connection to someone else afterwards).
- *   - single queries (models and raw SQL): `$transaction([set_config, query])`, one batch;
+ * With `DB_RLS=on` (docs/rls.md): the same scoping, on the app role's connection. The Postgres
+ * policies (migration 20261025000000_rls_writes) check writes against `app.org_id`; reads aren't
+ * restricted by the database, so they run as plain queries. `set_config(…, true)` is SET LOCAL,
+ * so it ends with the transaction (pgbouncer transaction mode on Neon's pooler hands the
+ * connection to someone else afterwards).
+ *   - single writes (create/update/upsert/delete, $executeRaw): `$transaction([set_config, write])`;
  *   - `$transaction(fn)`: an interactive transaction that sets it first, then runs `fn`;
  *   - inside `leagueTransaction()`: every call (and `$transaction(fn)`) joins its transaction.
  */
@@ -96,7 +100,7 @@ function rlsScopedClient(orgId: string): ScopedClient {
     query: {
       async $allOperations({ model, operation, args, query }) {
         const a = (model && ORG_MODELS.has(model) ? scopeArgs(operation, args, orgId) : args) as typeof args;
-        if (rlsTx.getStore() === orgId) return query(a);
+        if (rlsTx.getStore() === orgId || !WRITE_OPS.has(operation)) return query(a);
         const [, result] = await base.$transaction([setOrg(base), query(a) as Prisma.PrismaPromise<unknown>]);
         return result;
       },

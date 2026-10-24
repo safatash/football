@@ -20,7 +20,7 @@ if (process.env.NODE_ENV !== "production") globalThis.prismaGlobal = prisma;
 /**
  * Row-level security (Phase 2b, behind `DB_RLS=on`; see docs/rls.md): the league-scoped client
  * connects as the app role from DATABASE_APP_URL, which is subject to the policies in
- * prisma/rls/rls.sql. This client (the owner) stays for the platform layer, migrations and crons.
+ * migration 20261025000000_rls_writes. This client (the owner) stays for the platform layer, migrations and crons.
  */
 export const rlsEnabled = () => process.env.DB_RLS === "on";
 

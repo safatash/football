@@ -1,36 +1,55 @@
-# Phase 2b: Postgres row-level security (prototype)
+# Phase 2b: Postgres row-level security
 
-Status: **prototype, off by default** (`DB_RLS` unset). Applied only to local Postgres and to the
-throwaway Neon branch `rls-bench` (project `nvasa`), which the `leaguekeep` Vercel previews use.
-Neon's `main` branch is untouched.
+Status: **shipped as writes-only RLS** (migration `20261025000000_rls_writes`), turned on per
+environment with `DB_RLS=on` plus `DATABASE_APP_URL`. Read-side RLS was measured and parked:
+it cost pages +13–31 ms p95 on Vercel ("On Vercel" below). The backlog item is in `TODO.md`.
+So far the migration has been applied only to local Postgres and to the throwaway Neon branch
+`rls-bench`, which the `leaguekeep` Vercel previews use. Neon's `main` gets it with the next
+`prisma migrate deploy` there.
 
-The scoped Prisma client (`src/platform/db.ts`) already adds `organizationId` to every query. RLS
-is a second lock in the database itself: with it on, a query that skips the client's filter (a
-raw query with a missing `WHERE`, a bad include, a future bug in the extension) still sees only
-the current league's rows, and writes into another league fail.
+The scoped Prisma client (`src/platform/db.ts`) already adds `organizationId` to every query.
+RLS is a second lock in the database itself. With it on, a write that skips the client's
+filter is still refused for any other league's rows: a raw `UPDATE` with a missing `WHERE`, a
+bad nested write, or a future bug in the extension. Reads still rely on the client extension
+plus the raw-client guard test.
 
-## What's in the prototype
+## What shipped
 
 | Piece | Where |
 | --- | --- |
-| Policies on every table with an `organizationId` (30 tables today), the `app_tenant` role and its grants | `prisma/rls/rls.sql` |
-| Applies the SQL and creates the app's login role from `DATABASE_APP_URL`; refuses non-local hosts | `scripts/rls-local.ts` (`npm run db:rls`) |
+| `app_tenant` role and grants; RLS on every table with an `organizationId` (30 today) with four policies | `prisma/migrations/20261025000000_rls_writes` |
+| The app's login role (e.g. `nvasa_app`), member of `app_tenant`, from `DATABASE_APP_URL`; non-local hosts need `CONFIRM_HOST` | `scripts/db-app-role.ts` (`npm run db:app-role`) |
 | App-role Prisma client, `rlsEnabled()` | `src/platform/prisma.ts` |
-| RLS variant of the scoped client | `rlsScopedClient` in `src/platform/db.ts` |
+| RLS variant of the scoped client (sets the league for writes; one transaction per action) | `rlsScopedClient` and `leagueTransaction` in `src/platform/db.ts` |
 | Tests | `tests/integration/isolation.test.ts` ("row-level security" block, runs when `DB_RLS=on`) |
+| Read-side experiment (not applied anywhere) | `prisma/rls/read-side.sql` |
 | Bench | `tests/perf/rls-latency.test.ts` (runs when `RLS_BENCH=1`) |
 
-**Policy** (the same on every league table):
+**Policies** (the same on every league table):
 
 ```sql
-CREATE POLICY league_isolation ON <table>
-  USING ("organizationId" = current_setting('app.org_id', true))
-  WITH CHECK ("organizationId" = current_setting('app.org_id', true));
+CREATE POLICY league_read   ON <table> FOR SELECT USING (true);
+CREATE POLICY league_insert ON <table> FOR INSERT WITH CHECK ("organizationId" = current_setting('app.org_id', true));
+CREATE POLICY league_update ON <table> FOR UPDATE USING (<same>) WITH CHECK (<same>);
+CREATE POLICY league_delete ON <table> FOR DELETE USING (<same>);
 ```
 
 Without `app.org_id` the comparison is against NULL (or `''` once a transaction that set it has
-ended), so reads return nothing and writes fail. That's what the "raw query without app.org_id
-returns nothing" test checks.
+ended), so every write fails or touches no rows. A table added later needs the same four
+policies in its migration; the isolation test fails if one is missing.
+
+**Turning it on in an environment** (production needs your go-ahead):
+
+1. Run `npx prisma migrate deploy`. This creates `app_tenant` and the policies. The owner isn't
+   affected, so this is safe with `DB_RLS` still off.
+2. Run `CONFIRM_HOST=<db host> DATABASE_URL=<owner> DATABASE_APP_URL=postgresql://nvasa_app:<new password>@<host>/<db> npm run db:app-role`.
+3. Set `DATABASE_APP_URL` (pooled) and `DB_RLS=on` for the app. `DATABASE_URL` stays the owner,
+   for migrations, the seed, crons and `src/platform`.
+
+## How we got here (prototype and measurements)
+
+The sections below record the prototype's read-and-write policy (`league_isolation`, now
+replaced) and the measurements that led to writes-only.
 
 **Roles.**
 
@@ -303,12 +322,13 @@ grows the most.
 1. *Cut the cost for actions:* **done** (see "Follow-up: one transaction per action").
 2. *Confirm in the real topology:* **done** (see "On Vercel" above): pages +13–31 ms p95,
    actions +6–8 ms p95.
-3. **Option A, ship now: RLS for writes only.** Run the policies only for
+3. **Option A, ship now: RLS for writes only.** **Shipped** (see "What shipped" at the top). Run the policies only for
    `INSERT`/`UPDATE`/`DELETE` (`FOR INSERT … WITH CHECK`, `FOR UPDATE/DELETE … USING`) and keep
    reads on the client extension. Then only actions run in a league transaction (+6–8 ms p95
    measured), and pages pay nothing. It doesn't protect reads, though, so the raw-client guard
    test stays the read-side guard.
-4. **Option B, try first: one league transaction per page.** Extend the action fix to pages: run
+4. **Option B, try first: one league transaction per page.** In the backlog for before the
+   Phase 2 launch (`TODO.md`). Extend the action fix to pages: run
    a page's data loading (e.g. `loadLanding`, the admin layout and page loaders) in
    `leagueTransaction`, so the league is set once per page. Parallel queries then share one
    connection and run one after another. That may cost more than it saves on the admin page, so
@@ -323,8 +343,8 @@ grows the most.
 ```bash
 docker run -d --name nvasa-rls-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=nvasa_rls -p 55440:5432 postgres:16
 export DATABASE_URL=postgresql://postgres:postgres@localhost:55440/nvasa_rls
-export DATABASE_APP_URL=postgresql://nvasa_app:nvasa_app_local@localhost:55440/nvasa_rls
-npx prisma migrate deploy && npx tsx prisma/seed.ts && npm run db:rls
+export DATABASE_APP_URL=postgresql://nvasa_app:nvasa_app_local_pw@localhost:55440/nvasa_rls
+npx prisma migrate deploy && npx tsx prisma/seed.ts && npm run db:app-role
 TEST_DATABASE_URL=$DATABASE_URL DB_RLS=on npx vitest run tests/integration
 TEST_DATABASE_URL=$DATABASE_URL DB_RLS=on RLS_BENCH=1 RLS_BENCH_OUT=bench.json npx vitest run tests/perf
 ```
@@ -337,7 +357,7 @@ off; leave it out on Neon.
 On a throwaway Neon branch (never `main`), with its owner and `nvasa_app` URLs:
 
 ```bash
-RLS_ALLOW_HOST=<direct host>,<pooler host> DATABASE_URL=<owner url> DATABASE_APP_URL=<nvasa_app url> npm run db:rls
+CONFIRM_HOST=<direct host>,<pooler host> DATABASE_URL=<owner url> DATABASE_APP_URL=<nvasa_app url> npm run db:app-role
 RLS_BENCH=1 RLS_BENCH_HOST=<pooler host> TEST_DATABASE_URL=<owner pooled url> DATABASE_APP_URL=<nvasa_app pooled url> DB_RLS=on npx vitest run tests/perf
 ```
 

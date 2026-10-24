@@ -210,9 +210,9 @@ describe.skipIf(!hasDb)("league isolation (database)", async () => {
 });
 
 /**
- * Row-level security (DB_RLS=on, docs/rls.md): the database itself refuses other leagues' rows,
- * even to queries that skip the scoped client's filters. Needs a real Postgres with
- * prisma/rls/rls.sql applied (`npm run db:rls`); PGlite's superuser ignores RLS.
+ * Row-level security for writes (DB_RLS=on, docs/rls.md): the database itself refuses writes to
+ * other leagues' rows, even from queries that skip the scoped client's filters. Needs a real Postgres with
+ * migrations applied and the app role created (`npm run db:app-role`); PGlite's superuser ignores RLS.
  */
 const rlsOn = hasDb && process.env.DB_RLS === "on";
 describe.skipIf(!rlsOn)("row-level security (database)", async () => {
@@ -221,14 +221,16 @@ describe.skipIf(!rlsOn)("row-level security (database)", async () => {
   const { sendMail } = await import("@/lib/mail");
   // A skipped describe still runs its body while collecting tests: don't connect then
   const app = rlsOn ? appPrisma() : (null as unknown as ReturnType<typeof appPrisma>);
+  const txid = async () => (await db.$queryRaw<{ id: bigint }[]>`SELECT txid_current() AS id`)[0].id;
 
-  it("every league table has RLS on with the league policy", async () => {
-    const rows = await raw.$queryRaw<{ table_name: string; rls: boolean; policies: bigint }[]>`
-      SELECT c.table_name, cl.relrowsecurity AS rls, (SELECT count(*) FROM pg_policies p WHERE p.tablename = c.table_name AND p.policyname = 'league_isolation') AS policies
+  it("every league table has RLS on with the four league policies", async () => {
+    const rows = await raw.$queryRaw<{ table_name: string; rls: boolean; policies: string[] }[]>`
+      SELECT c.table_name, cl.relrowsecurity AS rls,
+        ARRAY(SELECT p.policyname::text FROM pg_policies p WHERE p.tablename = c.table_name ORDER BY p.policyname) AS policies
       FROM information_schema.columns c JOIN pg_class cl ON cl.relname = c.table_name AND cl.relkind = 'r'
       WHERE c.table_schema = 'public' AND c.column_name = 'organizationId'`;
     expect(rows.length).toBeGreaterThan(20);
-    for (const r of rows) expect({ table: r.table_name, rls: r.rls, policies: Number(r.policies) }).toEqual({ table: r.table_name, rls: true, policies: 1 });
+    for (const r of rows) expect({ table: r.table_name, rls: r.rls, policies: r.policies }).toEqual({ table: r.table_name, rls: true, policies: ["league_delete", "league_insert", "league_read", "league_update"] });
   });
 
   it("the scoped client connects as the app role, which can't bypass RLS", async () => {
@@ -238,27 +240,16 @@ describe.skipIf(!rlsOn)("row-level security (database)", async () => {
     expect(me.user).not.toBe((await raw.$queryRaw<{ u: string }[]>`SELECT current_user AS u`)[0].u);
   });
 
-  it("a raw query without app.org_id returns nothing and can't write", async () => {
-    expect(await raw.player.count()).toBeGreaterThan(0);
-    const [{ n }] = await app.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM players`;
-    expect(Number(n)).toBe(0);
-    expect(await app.team.findMany()).toEqual([]);
-    expect(await app.payment.findMany({ where: { organizationId: NVASA } })).toEqual([]);
-    await expect(app.referee.create({ data: { name: "No league", organizationId: NVASA } })).rejects.toThrow();
+  it("without app.org_id the app role can read (writes-only RLS) but can't write anything", async () => {
+    expect(await app.player.count()).toBe(await raw.player.count());
+    await expect(app.referee.create({ data: { id: "itest_rls_nolg", name: "No league", organizationId: NVASA } })).rejects.toThrow();
     expect((await app.team.updateMany({ data: { name: "Hacked" } })).count).toBe(0);
+    expect((await app.allowedZipCode.deleteMany({})).count).toBe(0);
+    expect(await raw.referee.findUnique({ where: { id: "itest_rls_nolg" } })).toBeNull();
   });
 
-  it("with app.org_id set, unfiltered raw SQL sees only that league", async () => {
-    const [, rows] = await app.$transaction([
-      app.$executeRaw`SELECT set_config('app.org_id', ${DEMO}, true)`,
-      app.$queryRaw<{ organizationId: string }[]>`SELECT DISTINCT "organizationId" FROM players`,
-    ]);
-    expect(rows).toEqual([{ organizationId: DEMO }]);
-    // SET LOCAL ends with the transaction: the next query on the pool sees nothing again
-    expect(Number((await app.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM players`)[0].n)).toBe(0);
-  });
-
-  it("a write naming another league fails the policy check, inside a league transaction", async () => {
+  it("with app.org_id set, writes reach only that league's rows", async () => {
+    const nvasaTeams = await raw.team.count({ where: { organizationId: NVASA } });
     await expect(
       app.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.org_id', ${DEMO}, true)`;
@@ -266,15 +257,19 @@ describe.skipIf(!rlsOn)("row-level security (database)", async () => {
       }),
     ).rejects.toThrow(/row-level security/);
     expect(await raw.referee.findUnique({ where: { id: "itest_rls_ref" } })).toBeNull();
+    // An unfiltered UPDATE touches the Demo League's rows only (it changes nothing: same value)
+    const [, touched] = await app.$transaction([app.$executeRaw`SELECT set_config('app.org_id', ${DEMO}, true)`, app.$executeRaw`UPDATE teams SET name = name`]);
+    expect(touched).toBe(await raw.team.count({ where: { organizationId: DEMO } }));
+    expect(await raw.team.count({ where: { organizationId: NVASA } })).toBe(nvasaTeams);
   });
 
-  it("db.$transaction carries the league into every query of the callback", async () => {
-    const teams = await runWithOrg(DEMO, () => db.$transaction(async (tx) => [await tx.team.count(), await tx.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM teams`]));
-    expect(teams[0]).toBeGreaterThan(0);
-    expect(Number((teams[1] as { n: bigint }[])[0].n)).toBe(teams[0]);
+  it("the scoped client's writes carry the league; its reads don't open a transaction", async () => {
+    const ref = await runWithOrg(DEMO, () => db.referee.create({ data: { id: "itest_rls_ok", name: "Scoped write" } }));
+    expect(ref.organizationId).toBe(DEMO);
+    await runWithOrg(DEMO, () => db.referee.delete({ where: { id: "itest_rls_ok" } }));
+    const [a, b] = await runWithOrg(DEMO, () => Promise.all([txid(), txid()]));
+    expect(a).not.toBe(b);
   });
-
-  const txid = async () => (await db.$queryRaw<{ id: bigint }[]>`SELECT txid_current() AS id`)[0].id;
 
   it("leagueTransaction (what runAction uses): every db call and db.$transaction joins one transaction", async () => {
     const ids = await runWithOrg(DEMO, () =>
