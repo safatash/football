@@ -214,11 +214,13 @@ describe.skipIf(!hasDb)("league isolation (database)", async () => {
  * even to queries that skip the scoped client's filters. Needs a real Postgres with
  * prisma/rls/rls.sql applied (`npm run db:rls`); PGlite's superuser ignores RLS.
  */
-describe.skipIf(!hasDb || process.env.DB_RLS !== "on")("row-level security (database)", async () => {
+const rlsOn = hasDb && process.env.DB_RLS === "on";
+describe.skipIf(!rlsOn)("row-level security (database)", async () => {
   const { default: raw, appPrisma } = await import("@/platform/prisma");
   const { db, runWithOrg, leagueTransaction } = await import("@/lib/db");
   const { sendMail } = await import("@/lib/mail");
-  const app = appPrisma();
+  // A skipped describe still runs its body while collecting tests: don't connect then
+  const app = rlsOn ? appPrisma() : (null as unknown as ReturnType<typeof appPrisma>);
 
   it("every league table has RLS on with the league policy", async () => {
     const rows = await raw.$queryRaw<{ table_name: string; rls: boolean; policies: bigint }[]>`

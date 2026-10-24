@@ -26,6 +26,9 @@ const LOCAL = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 export function parseHost(host: string | null | undefined, root = rootDomain()): HostMatch {
   const h = (host ?? "").toLowerCase().trim().replace(/:\d+$/, "").replace(/\.$/, "");
   if (!h || LOCAL.has(h)) return { kind: "local" };
+  // Staging previews (*.vercel.app) pick the league like local work, but only when the
+  // deployment opts in with ALLOW_ORG_FALLBACK=true (never set in production)
+  if (h.endsWith(".vercel.app") && process.env.ALLOW_ORG_FALLBACK === "true") return { kind: "local" };
   if (h === root || h === `www.${root}`) return { kind: "root" };
   if (h.endsWith(`.${root}`)) {
     const slug = h.slice(0, -root.length - 1);

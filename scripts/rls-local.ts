@@ -34,8 +34,11 @@ async function main() {
   try {
     const quoted = `'${password.replace(/'/g, "''")}'`;
     const [{ exists }] = await prisma.$queryRaw<{ exists: boolean }[]>`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${role}) AS exists`;
-    await prisma.$executeRawUnsafe(`${exists ? "ALTER" : "CREATE"} ROLE ${role} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD ${quoted}`);
+    // Re-runs only rotate the password: Neon won't let a non-superuser restate NOSUPERUSER
+    await prisma.$executeRawUnsafe(exists ? `ALTER ROLE ${role} LOGIN PASSWORD ${quoted}` : `CREATE ROLE ${role} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD ${quoted}`);
     await prisma.$executeRawUnsafe(`GRANT app_tenant TO ${role}`);
+    const [r] = await prisma.$queryRaw<{ rolsuper: boolean; rolbypassrls: boolean }[]>`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = ${role}`;
+    if (r.rolsuper || r.rolbypassrls) throw new Error(`${role} can bypass RLS (superuser or BYPASSRLS); drop it and run this again.`);
     console.log(`RLS policies applied; ${role} logs in as a member of app_tenant. Set DB_RLS=on to use it.`);
   } finally {
     await prisma.$disconnect();

@@ -1,7 +1,8 @@
 # Phase 2b: Postgres row-level security (prototype)
 
 Status: **prototype, off by default** (`DB_RLS` unset). Applied only to local Postgres and to the
-throwaway Neon branch `rls-bench` (project `nvasa`). Neon's `main` branch is untouched.
+throwaway Neon branch `rls-bench` (project `nvasa`), which the `leaguekeep` Vercel previews use.
+Neon's `main` branch is untouched.
 
 The scoped Prisma client (`src/platform/db.ts`) already adds `organizationId` to every query. RLS
 is a second lock in the database itself: with it on, a query that skips the client's filter (a
@@ -263,25 +264,59 @@ example `updatePark` 86.4 vs 111.8 ms p50). That setup overcharges standalone qu
 (`pgbouncer=true` with toxiproxy), so grouping them into one transaction helps more than it
 would on Neon. Treat those numbers as an artifact; the Neon numbers are the ones to trust.
 
+### On Vercel: preview of `leaguekeep` against `rls-bench`
+
+Setup: a new Vercel project, `leaguekeep` (team safatashs-projects), connected to
+`safatash/football`. Its functions run in **iad1**, the same region as Neon's us-east-1. Every env var is
+**Preview-only**, so Production has none. `DATABASE_URL` is the `rls-bench` owner (pooled),
+`DATABASE_APP_URL` is `nvasa_app` (pooled, with a new branch-only password), and `DB_RLS=on`.
+
+The timing ran inside the function, through a temporary route on a throwaway `rls-timing`
+branch. That branch was never merged or pushed, and its deployment was deleted afterwards. The
+route ran the pages' real server components (home `LandingPage`; `StandingsPage`; the admin
+layout and `OperationsPage` together) and the three actions, as the NVASA office user. Each
+iteration ran once with RLS off and once with it on, alternating the order, on the same warm
+instance. That's 8 calls × 20 iterations, so 160 samples per mode. "Page" here means the
+server-side data work of the page, without HTML streaming or network.
+
+| Workload | off p50 | off p95 | on p50 | on p95 | Δ p50 | Δ p95 |
+|---|--:|--:|--:|--:|--:|--:|
+| page: home | 72.6 | 100.3 | 89.4 | 123.0 | +16.8 | **+22.7** |
+| page: standings | 14.9 | 17.5 | 24.7 | 30.8 | +9.8 | **+13.3** |
+| page: admin (layout + operations) | 70.5 | 94.2 | 97.8 | 125.3 | +27.3 | **+31.1** |
+| action: updateReferee | 15.6 | 24.7 | 18.4 | 32.6 | +2.8 | +7.9 |
+| action: updatePark | 15.2 | 24.1 | 17.8 | 30.5 | +2.6 | +6.4 |
+| action: add + remove allowed ZIP (2 actions) | 13.8 | 21.4 | 24.8 | 45.2 | +11.0 | +23.8 |
+
+**Against the rule (ship if page p95 grows by less than 10 ms): the pages fail.** Home grows by
++23 ms, standings by +13 ms and admin by +31 ms at p95. Actions are fine: +6–8 ms p95 each,
+since the one-transaction change. The extrapolation above underestimated pages. They make
+several waves of standalone queries, often in parallel, and each query pays `BEGIN`,
+`set_config` and `COMMIT`. Each one also holds a pooled connection about four times longer,
+so parallel queries queue behind each other. The admin page, with the most parallel queries,
+grows the most.
+
 ## Recommendation
 
-**Adopt RLS. The round trips for actions are cut (above); next, confirm from a Vercel preview.**
+**Don't turn RLS on for reads yet: the pages miss the 10 ms bar on Vercel. Two ways forward:**
 
-1. *Cut the cost for actions:* **done** (see "Follow-up: one transaction per action"). Actions
-   went from about +100 ms to about +10 ms on the Neon branch from this Mac.
-2. *Confirm in the real topology* (needs your go-ahead, because it means adding env vars to
-   Vercel): deploy a preview whose `DATABASE_URL` and `DATABASE_APP_URL` point at `rls-bench`,
-   set `DB_RLS=on`, and compare preview timings with RLS on and off. Ship if page p95 grows by
-   less than 10 ms. The extrapolation above says pages already pass.
-3. *Then make it real:* turn `prisma/rls/rls.sql` into a migration and run the one-time role setup
-   on `main`: `nvasa_app` with its own password, plus `DATABASE_APP_URL` in Vercel. The owner URL
-   stays for migrations, the seed, crons and `src/platform`. CI already runs the integration
-   suite a second time with RLS on.
-
-If the preview numbers come back much worse (for example functions in another region from the
-database), keep RLS for writes only. Server actions already run in a transaction, so they'd pay
-a single extra statement, and reads would rely on the client extension and the raw-client guard
-test, as they do today.
+1. *Cut the cost for actions:* **done** (see "Follow-up: one transaction per action").
+2. *Confirm in the real topology:* **done** (see "On Vercel" above): pages +13–31 ms p95,
+   actions +6–8 ms p95.
+3. **Option A, ship now: RLS for writes only.** Run the policies only for
+   `INSERT`/`UPDATE`/`DELETE` (`FOR INSERT … WITH CHECK`, `FOR UPDATE/DELETE … USING`) and keep
+   reads on the client extension. Then only actions run in a league transaction (+6–8 ms p95
+   measured), and pages pay nothing. It doesn't protect reads, though, so the raw-client guard
+   test stays the read-side guard.
+4. **Option B, try first: one league transaction per page.** Extend the action fix to pages: run
+   a page's data loading (e.g. `loadLanding`, the admin layout and page loaders) in
+   `leagueTransaction`, so the league is set once per page. Parallel queries then share one
+   connection and run one after another. That may cost more than it saves on the admin page, so
+   re-measure with the same route before deciding.
+5. *Then make it real:* turn `prisma/rls/rls.sql` (or its writes-only variant) into a migration
+   and run the one-time role setup on `main`: `nvasa_app` with its own password, plus
+   `DATABASE_APP_URL` in Vercel. The owner URL stays for migrations, the seed, crons and
+   `src/platform`. CI already runs the integration suite a second time with RLS on.
 
 ## Running it locally
 
