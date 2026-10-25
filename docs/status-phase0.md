@@ -1,7 +1,9 @@
 # LeagueKeep: status after Batch 6 (Oct 24, 2026)
 
-All work is on `saas/multitenant` (latest 0f05772, CI green). `main` is at 8699960 (Batch 1).
-Batches 3–6 aren't merged into `main` yet.
+**Update Oct 25:** `main` now has everything: fast-forwarded to `saas/multitenant` (205b588),
+CI green. The six migrations (`20261025` to `20261030`) are applied to Neon `main`, after a backup
+branch `backup-before-batch3-6-2026-10-25`. Row counts were unchanged afterwards. `DB_RLS` stays off
+in production: no `nvasa_app` role there yet, and the app uses the owner connection.
 
 ## What shipped
 
@@ -29,10 +31,10 @@ no-database run, `tsc`, eslint and `next build`.
 
 ## Decisions needed from you
 
-1. **Go live with Batches 3–6?** That means merging `saas/multitenant` into `main` and applying
-   six migrations (`20261025` to `20261030`) to Neon `main`, the production database. Turning on
-   RLS there also needs the `nvasa_app` role, `DATABASE_APP_URL` and `DB_RLS=on` in production.
-   None of this is done yet.
+1. **RLS in production:** merged and migrated on Oct 25. Turning RLS on still needs the
+   `nvasa_app` role, `DATABASE_APP_URL` and `DB_RLS=on` in production. Not done, as you asked.
+   Also: NVASA's platform fee is the default 1%. It doesn't apply while NVASA uses the platform
+   account, but set it to 0 on `/platform` if the founding plan should be fee-free after cutover.
 2. **Vercel production:** the kickoff asked for env vars in both preview and production scopes.
    After your "staging only" message I set Preview only, and production builds are skipped (an
    Ignored Build Step). Keep it that way, or add Production env vars (still the staging database)?
