@@ -11,6 +11,7 @@ import { stripe } from "@/lib/stripe";
 import { runWithOrg } from "@/lib/db";
 import { orgForCheckout, orgForPaymentIntent } from "@/platform/checkout";
 import { recordStripeRefund, releaseExpiredCheckout } from "@/lib/stripe-events";
+import { reportError } from "@/lib/monitoring";
 
 function readEvent(body: string, signature: string | null): Stripe.Event {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -124,6 +125,7 @@ export async function POST(req: NextRequest) {
     await runWithOrg(orgId, () => (type === "registration" ? registrationPaid(session) : type === "registration_balance" ? balancePaid(session) : fulfillGamePass(session)));
   } catch (error) {
     console.error("Error processing webhook:", error);
+    reportError(error, { where: "stripe webhook", event: event.type });
     return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
   return NextResponse.json({ received: true });
@@ -140,6 +142,7 @@ async function chargeRefunded(charge: Stripe.Charge) {
     return NextResponse.json({ received: true, recorded: result.recorded });
   } catch (error) {
     console.error("Error recording Stripe refund:", error);
+    reportError(error, { where: "stripe webhook", event: "charge.refunded" });
     return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
 }
@@ -153,6 +156,7 @@ async function checkoutExpired(session: Stripe.Checkout.Session) {
     return NextResponse.json({ received: true, released });
   } catch (error) {
     console.error("Error releasing expired checkout:", error);
+    reportError(error, { where: "stripe webhook", event: "checkout.session.expired" });
     return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
 }

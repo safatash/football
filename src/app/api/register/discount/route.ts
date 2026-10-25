@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getActiveSeason } from "@/lib/queries/season";
 import { priceWithCode } from "@/lib/registration";
+import { LIMITS, clientIp, hitAll, rateKey, tooMany } from "@/platform/rate-limit";
 
 const Body = z.object({
   code: z.string().max(40),
@@ -12,6 +13,8 @@ const Body = z.object({
 
 /** Checks a discount code for the registration wizard. The registration route re-checks on submit. */
 export async function POST(req: NextRequest) {
+  const limited = await hitAll([[rateKey("discount-ip", await clientIp(req)), LIMITS.discountIp]]);
+  if (!limited.ok) return tooMany(limited, "code checks");
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, message: "Enter a code first." }, { status: 400 });
   const season = await getActiveSeason();

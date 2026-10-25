@@ -1,10 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { markOverdueReports, syncSuspensions } from "@/lib/maintenance";
 import { forEachLeague } from "@/platform/jobs";
+import { pruneRateLimits } from "@/platform/rate-limit";
 
 /**
  * Daily upkeep: reports still missing 48 hours after kickoff become Overdue, and players whose
- * suspension has ended go back to Active, in every active league. Vercel Cron calls it with `Authorization: Bearer $CRON_SECRET`.
+ * suspension has ended go back to Active, in every active league; old rate-limit windows are
+ * deleted. Vercel Cron calls it with `Authorization: Bearer $CRON_SECRET`.
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -15,5 +17,6 @@ export async function GET(req: NextRequest) {
     const [overdue, reinstated] = await Promise.all([markOverdueReports(), syncSuspensions()]);
     return { overdue, reinstated };
   });
-  return NextResponse.json({ leagues });
+  const rateLimitsPruned = await pruneRateLimits();
+  return NextResponse.json({ leagues, rateLimitsPruned });
 }

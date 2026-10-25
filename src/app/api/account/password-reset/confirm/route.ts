@@ -3,11 +3,14 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { accountPasswordErrors, hashPassword } from "@/lib/password";
 import { consumeToken } from "@/lib/tokens";
+import { LIMITS, clientIp, hitAll, rateKey, tooMany } from "@/platform/rate-limit";
 
 const Body = z.object({ token: z.string().min(10).max(200), password: z.string().max(200) });
 
 /** Sets a new password from a reset link (single use). Returns the email so the page can sign in. */
 export async function POST(req: NextRequest) {
+  const limited = await hitAll([[rateKey("reset-confirm-ip", await clientIp(req)), LIMITS.resetConfirmIp]]);
+  if (!limited.ok) return tooMany(limited, "attempts");
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "This reset link isn’t valid." }, { status: 400 });
   const problems = accountPasswordErrors(parsed.data.password);

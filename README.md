@@ -117,10 +117,10 @@ See `.env.example`. Beyond the database, NextAuth and Stripe keys:
 
 | Variable | What it does |
 | --- | --- |
-| `APP_ROOT_DOMAIN` | Leagues live at `<slug>.<APP_ROOT_DOMAIN>` (default `app.localhost`, so `nvasa.app.localhost:3000`). |
-| `APP_ROOT_URL` | Scheme and port of the root domain for links (default `http://<APP_ROOT_DOMAIN>:3000`). A league's links use its custom domain or `<slug>.` + this. |
+| `APP_ROOT_DOMAIN` | Leagues live at `<slug>.<APP_ROOT_DOMAIN>` (default `leaguekeep.app`; locally set `app.localhost`, so `nvasa.app.localhost:3000`). |
+| `APP_ROOT_URL` | Scheme and port of the root domain for links (default `https://<APP_ROOT_DOMAIN>`, or `http://<APP_ROOT_DOMAIN>:3000` for a `*.localhost` root). A league's links use its custom domain or `<slug>.` + this. |
 | `AUTH_TRUST_HOST` | `true` so sign-in redirects stay on the league's host (set automatically on Vercel). |
-| `APP_NAME` | Product name for "{League} via {APP_NAME}" emails (default `LeagueOffice`). |
+| `APP_NAME` | Product name for "{League} via {APP_NAME}" emails (default `LeagueKeep`). |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob, for league logo uploads. |
 | `ORG_SLUG`, `ALLOW_ORG_FALLBACK` | Local work on plain `localhost`: the league to show (or `?org=<slug>`). Ignored in production unless `ALLOW_ORG_FALLBACK=true`. |
 | `CRON_SECRET` | Required by `/api/cron/*` (`Authorization: Bearer …`). Vercel Cron sends it. |
@@ -128,6 +128,8 @@ See `.env.example`. Beyond the database, NextAuth and Stripe keys:
 | `MAIL_DELIVER`, `MAIL_TEST_RECIPIENTS` | Outside production, mail is only logged to the server console. Set `MAIL_DELIVER=true` to really send, and then only to `example.com` / `.test` addresses or the ones listed in `MAIL_TEST_RECIPIENTS`. |
 | `STRIPE_WEBHOOK_SECRET` | Verifies `/api/stripe/webhook`: `checkout.session.completed` (registration and game pass checkouts, by `metadata.type`), `checkout.session.expired` and `charge.refunded`. Subscribe the endpoint to all three. |
 | `NVASA_NOW` | Optional. Pretend it's another moment, e.g. `2026-05-16T12:00:00-04:00` to see the seeded match week. Leave unset in production. |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | Optional. Sentry error monitoring for the server / browser; unset = off. No personal data is sent (`src/lib/monitoring.ts`). |
+| `SENTRY_TRACES_SAMPLE_RATE` | Optional. Performance tracing sample rate, 0 to 1 (default 0). |
 
 ### Database, migrations and seed
 
@@ -292,6 +294,27 @@ To try it locally: open `http://app.localhost:3000/signup`, or sign in at
 Planned: Postgres row-level security as a second layer (after measuring its cost), and per-league
 payments with Stripe Connect plus platform billing with Stripe Billing. The design is in
 [docs/payments-architecture.md](docs/payments-architecture.md) (Phase 5; not built).
+
+### Security and privacy
+
+- **Rate limits** (`src/platform/rate-limit.ts`): sign-in, login-link and password-reset requests,
+  reset confirmations, player lookups, registration and discount checks are limited per IP
+  address, and per email where there is one. Counters are rows in `rate_limits`, so they hold
+  across serverless instances; the daily cron prunes them. Over the limit: HTTP 429 with
+  `Retry-After` (sign-in shows "Too many sign-in attempts").
+- **Bot protection:** the recovery, lookup and registration forms carry a hidden honeypot field
+  (`useHoneypot`). Requests that fill it get the normal answer, and nothing is sent or created.
+- **Error monitoring:** Sentry through `src/instrumentation.ts` and `src/instrumentation-client.ts`,
+  active only when a DSN is set. It's configured to send no user info, cookies, headers, query
+  strings or request bodies.
+- **Privacy policy:** `/privacy`, a placeholder marked TODO until the final text is written.
+  It's linked from the footers and the registration review.
+- **Account deletion:** players delete their account from their profile
+  (`src/lib/actions/account.ts`). The league's profile is anonymized ("Deleted player"; the date
+  of birth becomes 1900-01-01), they leave their teams and their membership ends. The league
+  keeps its registrations, payments and ledger. The shared login (email, password, sessions) is
+  erased only if no other league still uses it. League office members can't delete themselves
+  this way.
 
 ### Checks
 

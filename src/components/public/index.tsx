@@ -58,6 +58,9 @@ export async function PublicFooter() {
         <Link href="/register" className="hover:text-fg">
           Register
         </Link>
+        <Link href="/privacy" className="hover:text-fg">
+          Privacy
+        </Link>
         <span className="flex-1" />
         {brand.social.map((s) => (
           <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="font-bold hover:text-fg">

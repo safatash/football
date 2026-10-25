@@ -29,7 +29,7 @@ export function LoginForm({ platform = false }: { platform?: boolean }) {
     try {
       const result = await signIn("credentials", { email, password, redirect: false });
       if (!result || result.error) {
-        setError("That email and password don’t match our records.");
+        setError(result?.error === "RATE_LIMITED" ? "Too many sign-in attempts. Wait a few minutes and try again." : "That email and password don’t match our records.");
         setLoading(false);
       } else {
         router.push(next);

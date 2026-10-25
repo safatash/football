@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { playerInOrg, getOrgId } from "@/lib/org";
+import { LIMITS, clientIp, hitAll, honeypotFilled, rateKey, tooMany } from "@/platform/rate-limit";
 
 function maskEmail(email: string) {
   const [local, domain] = email.split("@");
@@ -14,7 +15,11 @@ function maskEmail(email: string) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const limited = await hitAll([[rateKey("retrieve-ip", await clientIp(req)), LIMITS.retrieveIp]]);
+    if (!limited.ok) return tooMany(limited, "lookups");
     const body = (await req.json().catch(() => ({}))) as { email?: unknown; dob?: unknown };
+    // Bots fill the hidden field: answer like a miss
+    if (honeypotFilled(body)) return NextResponse.json({ found: false });
     const email = typeof body.email === "string" ? body.email.trim() : "";
     const dob = typeof body.dob === "string" ? body.dob.trim().slice(0, 10) : "";
 

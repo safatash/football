@@ -5,7 +5,7 @@ import { isUnavailable, orgByDomain, orgBySlug, type OrgRef } from "@/platform/o
 /** Platform routes that don't belong to a league (they find the league themselves). */
 const PLATFORM_PATHS = [/^\/api\/stripe\/webhook$/, /^\/api\/cron\//];
 /** What the root domain (and admin.<root>) serves: signup, the operator area and sign-in. */
-const PLATFORM_HOST_PATHS = [/^\/$/, /^\/platform(\/|$)/, /^\/signup(\/|$)/, /^\/login(\/|$)/, /^\/api\/auth\//, /^\/favicon\.ico$/];
+const PLATFORM_HOST_PATHS = [/^\/$/, /^\/platform(\/|$)/, /^\/signup(\/|$)/, /^\/login(\/|$)/, /^\/privacy$/, /^\/api\/auth\//, /^\/favicon\.ico$/];
 /** Never on a league's own address. */
 const PLATFORM_ONLY = [/^\/platform(\/|$)/, /^\/signup(\/|$)/];
 /** Still open while a league is suspended, so its office can sign in and sort out billing. */

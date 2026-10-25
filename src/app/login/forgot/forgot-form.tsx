@@ -6,6 +6,7 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Notice } from "@/components/ui/card";
 import { Field, TextInput } from "@/components/ui/field";
 import { Screen } from "@/components/shell/layout";
+import { useHoneypot } from "@/components/ui/honeypot";
 
 export function ForgotForm() {
   const brand = useBrand();
@@ -13,6 +14,7 @@ export function ForgotForm() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const honeypot = useHoneypot();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -20,7 +22,7 @@ export function ForgotForm() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError("Enter a valid email address.");
     setLoading(true);
     try {
-      const res = await fetch("/api/account/password-reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim() }) });
+      const res = await fetch("/api/account/password-reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), ...honeypot.body }) });
       if (!res.ok) throw new Error();
       setSent(true);
     } catch {
@@ -46,7 +48,8 @@ export function ForgotForm() {
           </ButtonLink>
         </>
       ) : (
-        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+        <form onSubmit={submit} className="relative flex flex-col gap-4" noValidate>
+          {honeypot.field}
           {error ? <Notice tone="bad">{error}</Notice> : null}
           <Field label="Email" htmlFor="fe">
             <TextInput id="fe" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { canViewOffice, isOfficeRole } from "@/lib/access"
 import { consumeToken } from "@/lib/tokens"
 import { canSignIn, currentOrgIdOrNull, effectiveRole, platformFlags, userByEmail, userById } from "@/platform/identity"
+import { LIMITS, clientIp, hitAll, rateKey } from "@/platform/rate-limit"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -18,6 +19,12 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Email and password required")
         }
+        // Slows down password guessing: per address and per email (the form explains RATE_LIMITED)
+        const limited = await hitAll([
+          [rateKey("login-ip", await clientIp()), LIMITS.loginIp],
+          [rateKey("login-email", credentials.email), LIMITS.loginEmail],
+        ])
+        if (!limited.ok) throw new Error("RATE_LIMITED")
         const orgId = await currentOrgIdOrNull()
         const user = await userByEmail(credentials.email, orgId)
         if (!user) throw new Error("No user found with this email")

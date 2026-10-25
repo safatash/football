@@ -104,6 +104,9 @@ model Player {
 
   emergencyContactName  String?
   emergencyContactPhone String?
+  /// Set when the player deleted their account: personal details are replaced, the league keeps
+  /// its registration, payment and ledger rows (src/lib/actions/account.ts)
+  anonymizedAt          DateTime?
 
   // Soccer Info
   position   String
@@ -1317,4 +1320,21 @@ model Impersonation {
 
   @@index([userId, organizationId])
   @@map("impersonations")
+}
+
+// ============================================
+// RATE LIMITS (platform)
+// ============================================
+
+/// Fixed-window request counters for login, account recovery and registration
+/// (src/platform/rate-limit.ts). Platform-level: keys aren't league data. Old windows are
+/// deleted by the daily cron.
+model RateLimit {
+  key         String
+  windowStart DateTime
+  count       Int      @default(1)
+
+  @@id([key, windowStart])
+  @@index([windowStart])
+  @@map("rate_limits")
 }

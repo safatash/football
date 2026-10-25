@@ -329,6 +329,9 @@ export default async function LandingPage() {
             <Link href="/results" className="hover:text-fg">
               Results
             </Link>
+            <Link href="/privacy" className="hover:text-fg">
+              Privacy
+            </Link>
             {brand.social.map((s) => (
               <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="hover:text-fg">
                 {s.label}

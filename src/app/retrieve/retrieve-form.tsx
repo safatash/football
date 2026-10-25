@@ -8,6 +8,7 @@ import { Toast, useToast } from "@/components/ui/controls";
 import { Field, TextInput } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { Screen } from "@/components/shell/layout";
+import { useHoneypot } from "@/components/ui/honeypot";
 
 type Found = { found: true; firstName: string; lastInitial: string; maskedEmail: string; since: number; lastTeam?: string };
 type Result = Found | { found: false } | null;
@@ -20,6 +21,7 @@ export function RetrieveForm() {
   const [loading, setLoading] = useState(false);
   const [toast, showToast] = useToast(3200);
   const [sending, setSending] = useState(false);
+  const honeypot = useHoneypot();
 
   async function lookup(e: FormEvent) {
     e.preventDefault();
@@ -34,7 +36,7 @@ export function RetrieveForm() {
       const res = await fetch("/api/retrieve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, dob }),
+        body: JSON.stringify({ email, dob, ...honeypot.body }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "We couldn’t look that up right now.");
@@ -58,7 +60,8 @@ export function RetrieveForm() {
         <p className="text-muted">Enter the email and date of birth you registered with. We’ll match them to your past seasons.</p>
       </div>
 
-      <form onSubmit={lookup} className="flex flex-col gap-4" noValidate>
+      <form onSubmit={lookup} className="relative flex flex-col gap-4" noValidate>
+        {honeypot.field}
         <Field label="Email" htmlFor="re">
           <TextInput id="re" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
@@ -106,7 +109,7 @@ export function RetrieveForm() {
               onClick={async () => {
                 setSending(true);
                 try {
-                  const res = await fetch("/api/account/login-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, dob }) });
+                  const res = await fetch("/api/account/login-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, dob, ...honeypot.body }) });
                   showToast(res.ok ? `Login link sent to ${result.maskedEmail}` : "We couldn’t send the link. Try again in a minute.");
                 } finally {
                   setSending(false);

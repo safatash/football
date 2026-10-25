@@ -78,15 +78,15 @@ describe.skipIf(!hasDb)("league branding, profile and staff (database)", async (
 
   it("emails come from the league via the app, with replies to the league", async () => {
     tenant.orgId = DEMO;
-    process.env.SMTP_FROM = "LeagueOffice <mail@leagueoffice.test>";
-    expect(await senderFor()).toEqual({ from: '"Demo League via LeagueOffice" <mail@leagueoffice.test>', replyTo: "office@demo-league.example.com" });
+    process.env.SMTP_FROM = "LeagueKeep <mail@leaguekeep.test>";
+    expect(await senderFor()).toEqual({ from: '"Demo League via LeagueKeep" <mail@leaguekeep.test>', replyTo: "office@demo-league.example.com" });
     expect(await senderFor("captain@example.com")).toMatchObject({ replyTo: "captain@example.com" });
     const mail = await loginLinkEmail({ firstName: "Maya", url: "http://demo.app.localhost:3000/login/link?token=x" });
     expect(mail.subject).toBe("Your Demo League login link");
     expect(mail.html).toContain("#1C5598");
     expect(`${mail.text}${mail.html}`).not.toMatch(/NVASA|nvasa\.org/);
     tenant.orgId = NVASA;
-    expect((await senderFor()).from).toBe('"NVASA via LeagueOffice" <mail@leagueoffice.test>');
+    expect((await senderFor()).from).toBe('"NVASA via LeagueKeep" <mail@leaguekeep.test>');
     delete process.env.SMTP_FROM;
   });
 

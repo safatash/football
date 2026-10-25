@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 import { leagueTransaction } from "@/lib/db";
+import { reportError } from "@/lib/monitoring";
 import { SeasonReadOnlyError } from "@/lib/queries/season";
 import { ForbiddenError, UnauthorizedError } from "@/lib/team-access";
 
@@ -37,6 +38,7 @@ export async function runAction<T>(fn: () => Promise<ActionResult<T>>, opts: { t
     // A record that isn't in this league (or was deleted) looks the same: not found
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") return { ok: false, status: 404, error: "That record doesn’t exist." };
     console.error("Action failed", e);
+    reportError(e, { where: "server action" });
     return { ok: false, status: 500, error: "Something went wrong. Try again in a moment." };
   }
 }

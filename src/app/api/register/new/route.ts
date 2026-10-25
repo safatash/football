@@ -13,6 +13,8 @@ import { stripe } from "@/lib/stripe";
 import { regNumber } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
 import { registrationReceivedEmail } from "@/lib/mail-templates";
+import { reportError } from "@/lib/monitoring";
+import { LIMITS, clientIp, hitAll, honeypotFilled, rateKey, tooMany } from "@/platform/rate-limit";
 
 const text = (max: number) => z.string().trim().max(max);
 const GENDER = { Female: "FEMALE", Male: "MALE", "Non-binary": "NON_BINARY", FEMALE: "FEMALE", MALE: "MALE", NON_BINARY: "NON_BINARY" } as const;
@@ -61,7 +63,10 @@ const bad = (error: string, status = 400) => NextResponse.json({ error }, { stat
  */
 export async function POST(req: NextRequest) {
   try {
+    const limited = await hitAll([[rateKey("register-ip", await clientIp(req)), LIMITS.registerIp]]);
+    if (!limited.ok) return tooMany(limited, "registration attempts");
     const raw = await req.json().catch(() => null);
+    if (honeypotFilled(raw)) return bad("We couldn’t finish your registration. Please try again.");
     const session = await getSession();
     const returningPlayerId = session?.user?.playerId ?? null;
 
@@ -254,6 +259,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, checkoutUrl: checkout.url });
   } catch (error) {
     console.error("Registration error:", error);
+    reportError(error, { where: "registration" });
     return bad(`We couldn’t finish your registration. Please try again. ${await contactLine()}`, 500);
   }
 }

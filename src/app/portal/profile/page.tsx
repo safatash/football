@@ -7,6 +7,8 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { PasswordForm } from "./password-form";
 import { LogoutButton, ProfileForm } from "./profile-form";
+import { DeleteAccount } from "./delete-account";
+import { getBrand } from "@/lib/branding";
 
 export const metadata = { title: "Profile" };
 
@@ -119,6 +121,7 @@ export default async function PlayerProfilePage() {
           </Card>
           <PasswordForm />
           <LogoutButton />
+          <DeleteAccount email={player.user.email} leagueName={(await getBrand()).name} />
         </aside>
       </Screen>
     </>

@@ -13,6 +13,7 @@ import { Stepper } from "@/components/ui/stepper";
 import { ActionBar, AppBar, Screen } from "@/components/shell/layout";
 import { ageOn, checkEligibility, type GenderValue } from "@/lib/eligibility";
 import { money } from "@/lib/format";
+import { useHoneypot } from "@/components/ui/honeypot";
 
 const STEPS = ["Account", "Player details", "Contact", "Playing background", "Team preferences", "Captain & updates", "Fees & review"];
 const SHIRTS = ["Youth S", "Youth M", "Youth L", "Adult XS", "Adult S", "Adult M", "Adult L", "Adult XL", "Adult 2XL", "Adult 3XL"];
@@ -214,6 +215,7 @@ export function RegistrationWizard({
   const [checkout, setCheckout] = useState(false);
   const [fromReview, setFromReview] = useState(false);
   const [toast, showToast] = useToast();
+  const honeypot = useHoneypot();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const firstRender = useRef(true);
 
@@ -356,6 +358,7 @@ export function RegistrationWizard({
           captainRequest: f.captain,
           captainNote: f.captain ? f.capNote.trim() : "",
           discountCode: appliedCode,
+          ...honeypot.body,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -428,6 +431,7 @@ export function RegistrationWizard({
       </AppBar>
 
       <Screen>
+        {honeypot.field}
         {/* 1 · Account */}
         {step === 1 ? (
           <>
@@ -852,6 +856,7 @@ export function RegistrationWizard({
               </div>
             ) : null}
             <p className="text-xs text-muted">
+              How we use your details: <a href="/privacy" target="_blank" className="font-bold underline">privacy policy</a>.{" "}
               {total === 0
                 ? "Nothing to pay. Your registration goes straight to the league office for review."
                 : "You’ll finish payment on our secure checkout page. Your registration goes to the league office for review after payment."}

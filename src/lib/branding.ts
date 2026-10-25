@@ -9,7 +9,7 @@ import { leagueOrigin } from "@/lib/tenant";
 import { brandById } from "@/platform/orgs";
 
 /** The product name ("{League} via {App}" in emails). */
-export const appName = () => process.env.APP_NAME || "LeagueOffice";
+export const appName = () => process.env.APP_NAME || "LeagueKeep";
 
 export type Brand = {
   orgId: string | null;

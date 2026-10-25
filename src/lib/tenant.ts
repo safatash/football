@@ -11,7 +11,8 @@ export const ORG_ID_HEADER = "x-org-id";
 export const ORG_SLUG_HEADER = "x-org-slug";
 export const ORG_COOKIE = "org_slug";
 
-export const rootDomain = () => (process.env.APP_ROOT_DOMAIN ?? "app.localhost").toLowerCase().replace(/:\d+$/, "");
+/** The product's root domain (APP_ROOT_DOMAIN, default leaguekeep.app; local work uses app.localhost). */
+export const rootDomain = () => (process.env.APP_ROOT_DOMAIN || "leaguekeep.app").toLowerCase().replace(/:\d+$/, "");
 
 export type HostMatch = { kind: "subdomain"; slug: string } | { kind: "root" } | { kind: "custom"; domain: string } | { kind: "local" };
 
@@ -49,13 +50,16 @@ export const isValidSlug = (s: string) => /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$
 
 /**
  * A league's public origin, e.g. https://nvasa.example.com or https://nvasa.org.
- * APP_ROOT_URL gives the scheme and port of the root domain (default http://<APP_ROOT_DOMAIN>:3000).
+ * APP_ROOT_URL gives the scheme and port of the root domain (default https://<APP_ROOT_DOMAIN>, or
+ * http://<APP_ROOT_DOMAIN>:3000 for a *.localhost root).
  */
+const rootUrl = () => process.env.APP_ROOT_URL || (rootDomain().endsWith("localhost") ? `http://${rootDomain()}:3000` : `https://${rootDomain()}`);
+
 /** The platform's own origin (signup and the operator area). */
-export const platformOrigin = () => new URL(process.env.APP_ROOT_URL || `http://${rootDomain()}:3000`).origin;
+export const platformOrigin = () => new URL(rootUrl()).origin;
 
 export function leagueOrigin(org: { slug: string; customDomain: string | null }) {
-  const root = new URL(process.env.APP_ROOT_URL || `http://${rootDomain()}:3000`);
+  const root = new URL(rootUrl());
   if (org.customDomain) return `https://${org.customDomain}`;
   return `${root.protocol}//${org.slug}.${root.host}`;
 }
