@@ -522,6 +522,8 @@ async function prepareMatch(data: MatchData, matchId?: string) {
       // Scores the office enters are the official result, so they count in the standings
       homeScore: completed ? data.homeScore : null,
       awayScore: completed ? data.awayScore : null,
+      // An edit through the match form replaces any forfeit recorded earlier
+      forfeitTeamId: null,
     },
   };
 }

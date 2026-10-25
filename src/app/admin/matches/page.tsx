@@ -27,6 +27,16 @@ export default async function MatchesPage({ searchParams }: { searchParams: Sear
           <>
             <DivisionFilter divisions={divisions} value={picked?.code ?? ""} />
             {season.archived ? null : (
+              <>
+                <ButtonLink href={withSeason("/admin/matches/generate", season)} variant="ghost" size="sm">
+                  Generate schedule
+                </ButtonLink>
+                <ButtonLink href={withSeason("/admin/matches/import", season)} variant="ghost" size="sm">
+                  Import CSV
+                </ButtonLink>
+              </>
+            )}
+            {season.archived ? null : (
               <ButtonLink href={withSeason(picked ? `/admin/matches/new?division=${picked.code}` : "/admin/matches/new", season)} variant="primary" size="sm">
                 <Icon name="plus" className="size-4" />
                 New match

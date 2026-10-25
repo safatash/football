@@ -25,6 +25,7 @@ const EXAMPLE_STANDINGS = (
   gf,
   ga,
   gd: gf - ga,
+  adj: 0,
   pts: w * 3 + d,
 }));
 

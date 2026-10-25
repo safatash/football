@@ -204,6 +204,8 @@ model Season {
   registrations Registration[]
   discountCodes DiscountCode[]
   settings      LeagueSettings?
+  fieldAvailability FieldAvailability[]
+  pointAdjustments  PointAdjustment[]
 
   @@unique([organizationId, name])
   @@unique([organizationId, slug])
@@ -317,6 +319,8 @@ model Team {
   discountCodes          DiscountCode[]
   preferredRegistrations Registration[]   @relation("PreferredTeam")
   backupRegistrations    Registration[]   @relation("BackupTeam")
+  blackouts              TeamBlackout[]
+  pointAdjustments       PointAdjustment[]
 
   @@unique([seasonId, divisionId, name])
   @@unique([seasonId, name]) // team names are unique within a season
@@ -602,6 +606,8 @@ model Match {
   // Scores
   homeScore Int?
   awayScore Int?
+  /// The team that forfeited (the other team wins OrganizationSettings.forfeitGoals–0)
+  forfeitTeamId String?
 
   status MatchStatus @default(SCHEDULED)
 
@@ -808,13 +814,15 @@ model Field {
   notes          String?
   legacyId       Int? // fields.id in the old site (shared across seasons)
 
-  matches Match[]
+  matches      Match[]
+  availability FieldAvailability[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([parkId, name])
   @@unique([organizationId, legacyId])
+  @@unique([id, organizationId])
   @@index([organizationId])
   @@map("fields")
 }
@@ -1204,6 +1212,9 @@ model Organization {
 
   members        OrganizationMember[]
   settings       OrganizationSettings?
+  fieldAvailability FieldAvailability[]
+  teamBlackouts     TeamBlackout[]
+  pointAdjustments  PointAdjustment[]
   impersonations Impersonation[]
 
   players            Player[]
@@ -1300,6 +1311,8 @@ model OrganizationSettings {
   waiverRequired Boolean @default(true)
 
   registrationOpen Boolean @default(true)
+  /// Score a forfeit is recorded as: the winner's goals (the forfeiting team gets 0)
+  forfeitGoals     Int     @default(3)
 
   /// Redirect the old ColdFusion links (*.cfm). Only NVASA had the old site.
   legacyRedirects Boolean @default(false)
@@ -1369,4 +1382,65 @@ model StripeEvent {
   error          String?
 
   @@map("stripe_events")
+}
+
+// ============================================
+// SCHEDULING DATA (structured, for the schedule generator and a future smart scheduler)
+// ============================================
+
+/// When a field can host matches: a weekly window, for one season or (seasonId null) every season.
+model FieldAvailability {
+  id             String       @id @default(cuid())
+  organizationId String       @default(dbgenerated()) // owning league (no database default: the scoped client always sets it)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  fieldId        String
+  field          Field        @relation(fields: [fieldId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  seasonId       String?
+  season         Season?      @relation(fields: [seasonId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  weekday        Int // 0 = Sunday … 6 = Saturday
+  startMinute    Int // first kickoff, minutes after midnight in league time (540 = 9:00)
+  endMinute      Int // the last match has to finish by this time
+
+  createdAt DateTime @default(now())
+
+  @@index([fieldId])
+  @@index([organizationId])
+  @@map("field_availability")
+}
+
+/// A date a team can't play (league calendar day).
+model TeamBlackout {
+  id             String       @id @default(cuid())
+  organizationId String       @default(dbgenerated()) // owning league (no database default: the scoped client always sets it)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  teamId         String
+  team           Team         @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  date           DateTime     @db.Date
+  note           String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, date])
+  @@index([organizationId])
+  @@map("team_blackouts")
+}
+
+/// Points added to or taken off a team's season total (e.g. -3 for fielding an ineligible player).
+model PointAdjustment {
+  id              String       @id @default(cuid())
+  organizationId  String       @default(dbgenerated()) // owning league (no database default: the scoped client always sets it)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  seasonId        String
+  season          Season       @relation(fields: [seasonId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  teamId          String
+  team            Team         @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  points          Int // negative for a deduction
+  reason          String
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([seasonId, teamId])
+  @@index([organizationId])
+  @@map("point_adjustments")
 }

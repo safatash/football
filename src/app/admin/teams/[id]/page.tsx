@@ -13,6 +13,9 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { rosterLimitLabel, rosterWarning } from "@/lib/division-rules";
 import { DemoBadge } from "../../_components/demo";
+import { TeamBlackouts } from "./blackouts";
+import { fmtDateOnly, isoDate } from "@/lib/format";
+import { db } from "@/lib/db";
 
 export const metadata = { title: "Team" };
 
@@ -22,7 +25,12 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
   const t = await getTeam(id, season.id);
   if (!t || t.seasonId !== season.id) notFound();
   const s = (href: string) => withSeason(href, season);
-  const [roster, schedule, table] = await Promise.all([teamRoster(t.id), listMatches(season.id, { teamId: t.id }), loadStandings(season.id, t.division.id)]);
+  const [roster, schedule, table, blackouts] = await Promise.all([
+    teamRoster(t.id),
+    listMatches(season.id, { teamId: t.id }),
+    loadStandings(season.id, t.division.id),
+    db.teamBlackout.findMany({ where: { teamId: t.id }, orderBy: { date: "asc" } }),
+  ]);
   const rec = table.find((r) => r.team.id === t.id);
   const [w, d, l, gf, ga, pts] = [rec?.w ?? 0, rec?.d ?? 0, rec?.l ?? 0, rec?.gf ?? 0, rec?.ga ?? 0, rec?.pts ?? 0];
   const gd = gf - ga;
@@ -149,6 +157,11 @@ export default async function TeamDetailPage({ params, searchParams }: { params:
           )}
         </section>
       </div>
+      <TeamBlackouts
+        teamId={t.id}
+        readOnly={season.archived}
+        rows={blackouts.map((b) => ({ id: b.id, date: isoDate(b.date), label: fmtDateOnly(b.date), note: b.note }))}
+      />
     </>
   );
 }

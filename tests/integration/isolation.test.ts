@@ -190,6 +190,24 @@ describe.skipIf(!hasDb)("league isolation (database)", async () => {
     await refs.setOfficialsPaid({ ids: [nv.official], paid: true });
   });
 
+  it("the Demo League office can't touch NVASA's schedule data, standings or fields", async () => {
+    auth.user = users.demoOwner;
+    const schedule = await import("@/lib/actions/schedule");
+    const before = await raw.match.findUniqueOrThrow({ where: { id: nv.match } });
+    for (const [name, res] of Object.entries({
+      forfeit: await schedule.recordForfeit({ matchId: nv.match, forfeitTeamId: nv.team }),
+      adjust: await schedule.addPointAdjustment({ seasonId: nv.season, teamId: nv.team, points: -3, reason: "Itest isolation" }),
+      blackout: await schedule.addTeamBlackout({ teamId: nv.team, date: "2026-09-06", note: "Itest isolation" }),
+      availability: await schedule.setFieldAvailability({ fieldId: nv.field, windows: [{ weekday: 0, start: "09:00", end: "15:00" }] }),
+      generate: await schedule.previewSchedule({ seasonId: nv.season, divisionIds: [nv.division], startDate: "2026-09-01", endDate: "2026-09-30" }),
+      import: await schedule.importSchedule({ seasonId: nv.season, csv: "home,away,date,time\nFairfax United,Bloodline,9/6/2026,9:00" }),
+    })) expect(res, name).toMatchObject({ ok: false });
+    expect(await raw.match.findUniqueOrThrow({ where: { id: nv.match } })).toMatchObject({ status: before.status, homeScore: before.homeScore, forfeitTeamId: null });
+    expect(await raw.pointAdjustment.count({ where: { organizationId: NVASA } })).toBe(0);
+    expect(await raw.teamBlackout.count({ where: { teamId: nv.team } })).toBe(0);
+    expect(await raw.fieldAvailability.count({ where: { fieldId: nv.field } })).toBe(0);
+  });
+
   it("a captain in the Demo League has no captain access to NVASA's team of the same name", async () => {
     auth.user = users.maya;
     expect(await captain.setLineupRole({ teamId: nv.team, teamRosterId: nv.roster, role: "Bench" })).toMatchObject({ ok: false });

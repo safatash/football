@@ -84,8 +84,8 @@ Pull from `claude/nvasa-gap-audit-2026-10-19.md` (Project doc) and section 0 abo
 - [ ] **Stripe Connect Express:** (Built in Batch 5, test mode. The application fee is 1% plus Stripe's processing fee, so the league pays processing. Still open: onboarding a live league and NVASA's cutover.) implement it per `docs/payments-architecture.md`, and onboard the first live league onto a connected account. Application fee = `platformFeeBps` on Organization (default 100, 0 for comped design partners).
 - [x] **Security:** rate limiting and bot protection on login, retrieve, password reset and registration. (Batch 4: Postgres counters and a honeypot. A stronger bot check, such as Vercel BotID or Turnstile, is an open decision.)
 - [x] **Monitoring and compliance:** Sentry, a privacy policy page, and account deletion. (Batch 4. The privacy text is a placeholder: TODO(legal).)
-- [ ] **Scheduling:** a round-robin schedule generator and/or CSV schedule import.
-- [ ] **Standings:** forfeits and point deductions.
+- [x] **Scheduling:** a round-robin schedule generator and/or CSV schedule import. (Batch 6: both; field availability and team blackouts stored as structured rows.)
+- [x] **Standings:** forfeits and point deductions. (Batch 6.)
 - [ ] **Docs:** clean up the stale `TODO.md` / `PRODUCTION_PLAN.md` and the create-next-app README header.
 
 Nice to have in Phase 0 (otherwise it moves to Phase 3): rainout tool, broadcast email, roster freeze date, late fee, game-pass cap.

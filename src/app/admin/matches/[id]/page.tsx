@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { Crest, Jersey, PageHeading } from "@/components/league";
+import { ForfeitControl } from "./forfeit-control";
 import { Badge, GamePassTag, MatchStatusBadge, PlayerStatusBadge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { Card, CardHeader, EmptyState, KeyValue } from "@/components/ui/card";
@@ -61,6 +62,10 @@ export default async function MatchDetailPage({ params, searchParams }: { params
   const m = /^\d+$/.test(id) ? await getMatchByGameNumber(season.id, Number(id)) : null;
   if (!m) notFound();
   const readOnly = season.archived;
+  const [forfeit, forfeitGoals] = await Promise.all([
+    db.match.findUnique({ where: { id: m.id }, select: { forfeitTeamId: true } }),
+    db.organizationSettings.findFirst({ select: { forfeitGoals: true } }).then((s) => s?.forfeitGoals ?? 3),
+  ]);
   const home = m.homeTeam;
   const away = m.awayTeam;
 
@@ -159,6 +164,14 @@ export default async function MatchDetailPage({ params, searchParams }: { params
       </Card>
 
       <div className="grid gap-[18px] md:grid-cols-2 xl:grid-cols-3">
+        <ForfeitControl
+          matchId={m.id}
+          home={{ id: home.id, name: home.name }}
+          away={{ id: away.id, name: away.name }}
+          forfeitTeamId={forfeit?.forfeitTeamId ?? null}
+          goals={forfeitGoals}
+          disabled={readOnly || m.status === "CANCELLED"}
+        />
         <Card>
           <CardHeader title="Details" />
           <KeyValue

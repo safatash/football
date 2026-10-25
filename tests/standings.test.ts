@@ -37,4 +37,15 @@ describe("standings", () => {
     expect(rows[0]).toMatchObject({ team: { id: "a" }, pts: 3 });
     expect(rows.find((x) => x.team.id === "d")).toMatchObject({ played: 0, pts: 0 });
   });
+
+  it("point adjustments change the points (and the order), not the record", () => {
+    const rows = computeStandings(teams, [r("a", "b", 2, 0), r("c", "d", 1, 0)], [
+      { teamId: "a", points: -3 },
+      { teamId: "b", points: 1 },
+      { teamId: "zzz", points: 5 },
+    ]);
+    expect(rows.find((x) => x.team.id === "a")).toMatchObject({ w: 1, adj: -3, pts: 0 });
+    expect(rows.find((x) => x.team.id === "b")).toMatchObject({ l: 1, adj: 1, pts: 1 });
+    expect(rows[0].team.id).toBe("c");
+  });
 });

@@ -8,12 +8,19 @@ import { SIZE, SURFACE, getFieldSchedule } from "@/lib/queries/fields";
 import { addressLine } from "@/lib/public";
 import { Crumbs } from "../../../_components/season";
 import { FieldForm } from "../forms";
+import { AvailabilityForm } from "./availability-form";
 
 export const metadata = { title: "Field" };
 
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
 export default async function FieldPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [data, parks] = await Promise.all([getFieldSchedule(id), db.park.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })]);
+  const [data, parks, windows] = await Promise.all([
+    getFieldSchedule(id),
+    db.park.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.fieldAvailability.findMany({ where: { fieldId: id, seasonId: null }, orderBy: [{ weekday: "asc" }, { startMinute: "asc" }] }),
+  ]);
   if (!data) notFound();
   const { field, label, days, upcoming, clashes } = data;
   const seasonQ = (m: { season: { name: string; isActive: boolean } }) => (m.season.isActive ? "" : `?season=${encodeURIComponent(m.season.name)}`);
@@ -31,6 +38,12 @@ export default async function FieldPage({ params }: { params: Promise<{ id: stri
           sub={[addressLine(field.park), SURFACE[field.surface], SIZE[field.size], field.lights ? "Lights" : "No lights"].filter(Boolean).join(" · ")}
         />
       </div>
+
+      <AvailabilityForm
+        fieldId={field.id}
+        readOnly={false}
+        initial={windows.map((w) => ({ weekday: w.weekday, start: hhmm(w.startMinute), end: hhmm(w.endMinute) }))}
+      />
 
       <section className="flex flex-col gap-3">
         <h2 className="text-[26px]">Upcoming matches</h2>

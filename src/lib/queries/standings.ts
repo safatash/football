@@ -27,9 +27,14 @@ async function confirmedResults(seasonId: string, divisionId?: string) {
   return rows.map((r) => ({ homeTeamId: r.homeTeamId, awayTeamId: r.awayTeamId, homeScore: r.homeScore!, awayScore: r.awayScore! }));
 }
 
+/** Point adjustments for a season (deductions are negative). */
+export const seasonAdjustments = cache(async (seasonId: string) =>
+  db.pointAdjustment.findMany({ where: { seasonId }, select: { id: true, teamId: true, points: true, reason: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
+);
+
 export const loadStandings = cache(async (seasonId: string, divisionId: string) => {
-  const [teams, results] = await Promise.all([listTeams(seasonId, divisionId), confirmedResults(seasonId, divisionId)]);
-  return computeStandings(teams, results);
+  const [teams, results, adjustments] = await Promise.all([listTeams(seasonId, divisionId), confirmedResults(seasonId, divisionId), seasonAdjustments(seasonId)]);
+  return computeStandings(teams, results, adjustments);
 });
 
 export type DivisionStandings = { division: DivisionRow; rows: StandingRow<TeamSummary>[]; teams: number; completed: number };
@@ -40,18 +45,18 @@ export type DivisionStandings = { division: DivisionRow; rows: StandingRow<TeamS
  * The admin Standings page and the division page's Standings tab both read this.
  */
 export const standingsByDivision = cache(async (seasonId: string): Promise<DivisionStandings[]> => {
-  const [divisions, teams, results] = await Promise.all([listDivisions(seasonId), listTeams(seasonId), confirmedResults(seasonId)]);
+  const [divisions, teams, results, adjustments] = await Promise.all([listDivisions(seasonId), listTeams(seasonId), confirmedResults(seasonId), seasonAdjustments(seasonId)]);
   return divisions.map((division) => {
     const divTeams = teams.filter((t) => t.division.id === division.id);
     const ids = new Set(divTeams.map((t) => t.id));
     const counted = results.filter((r) => ids.has(r.homeTeamId) && ids.has(r.awayTeamId));
-    return { division, rows: computeStandings(divTeams, counted), teams: divTeams.length, completed: counted.length };
+    return { division, rows: computeStandings(divTeams, counted, adjustments), teams: divTeams.length, completed: counted.length };
   });
 });
 
 /** Standings for every division in a season, in display order (two queries in total). */
 export const loadSeasonStandings = cache(async (seasonId: string) => {
-  const [teams, results] = await Promise.all([listTeams(seasonId), confirmedResults(seasonId)]);
+  const [teams, results, adjustments] = await Promise.all([listTeams(seasonId), confirmedResults(seasonId), seasonAdjustments(seasonId)]);
   const byDivision = new Map<string, { division: TeamSummary["division"]; rows: StandingRow<TeamSummary>[] }>();
   for (const t of teams) if (!byDivision.has(t.division.id)) byDivision.set(t.division.id, { division: t.division, rows: [] });
   for (const [id, entry] of byDivision) {
@@ -60,6 +65,7 @@ export const loadSeasonStandings = cache(async (seasonId: string) => {
     entry.rows = computeStandings(
       divTeams,
       results.filter((r) => ids.has(r.homeTeamId) && ids.has(r.awayTeamId)),
+      adjustments,
     );
   }
   return [...byDivision.values()];

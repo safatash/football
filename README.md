@@ -298,6 +298,25 @@ Planned: Postgres row-level security as a second layer (after measuring its cost
 payments with Stripe Connect plus platform billing with Stripe Billing. The design is in
 [docs/payments-architecture.md](docs/payments-architecture.md) (Phase 5; not built).
 
+### Scheduling and standings
+
+- **Field availability** (field page): weekly windows when a field can host matches. **Team
+  blackout dates** (team page): days a team can't play. Both are stored as structured rows
+  (`field_availability`, `team_blackouts`), ready for a smarter scheduler later.
+- **Generate schedule** (Matches › Generate schedule; `src/lib/round-robin.ts`): a single or
+  double round robin for the chosen divisions, on the fields' weekly times. Kickoffs are 2 hours
+  apart; nothing is scheduled in the past, on blackout dates, or in slots existing matches use;
+  no team plays twice a day. Preview first; pairings that don't fit are listed. Creating
+  recomputes the plan on the server.
+- **Import CSV** (Matches › Import CSV; `src/lib/schedule-csv.ts`): a header row with date, time,
+  home, away and optionally field, division and game number. Every line is checked first
+  (teams, fields, divisions, game numbers), with clashes shown as warnings; nothing is imported
+  until every line is valid.
+- **Forfeits** (match page): the other team wins `OrganizationSettings.forfeitGoals`–0 (default
+  3), and the result counts in the standings. Editing the match result replaces the forfeit.
+- **Point adjustments** (Standings): deductions or bonuses with a reason. Tables show adjusted
+  points with a note; wins, draws and goals stay as played.
+
 ### League payments (Stripe Connect)
 
 Each league connects its own Stripe Express account (Settings › Online payments, also a setup

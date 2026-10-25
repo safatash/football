@@ -2,6 +2,7 @@ import { Crest } from "@/components/league";
 import { BodyCell, BodyRow, DataTable, HeadCell, RowLink, TableBody, TableHead, TableWrap } from "@/components/ui/table";
 import type { StandingRow } from "@/lib/standings";
 import type { CrestTeam } from "@/components/league";
+import { AdjustmentNote } from "@/components/public";
 
 type StandingsTeam = CrestTeam & { id: string; code?: string | null };
 
@@ -59,7 +60,10 @@ export function StandingsTable({
                   </span>
                 </BodyCell>
                 <BodyCell align="right">
-                  <b className="font-display text-[22px] font-extrabold">{r.pts}</b>
+                  <b className="font-display text-[22px] font-extrabold">
+                    {r.pts}
+                    {r.adj ? "*" : ""}
+                  </b>
                 </BodyCell>
                 <BodyCell align="right">{r.played}</BodyCell>
                 <BodyCell align="right">{r.w}</BodyCell>
@@ -82,6 +86,7 @@ export function StandingsTable({
           })}
         </TableBody>
       </DataTable>
+      <AdjustmentNote rows={rows} />
     </TableWrap>
   );
 }

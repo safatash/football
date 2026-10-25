@@ -303,6 +303,7 @@ export function PublicStandings({ rows, caption, highlight, teamHref }: { rows: 
               </BodyCell>
               <BodyCell align="right" className="font-display text-lg font-extrabold">
                 {r.pts}
+                {r.adj ? "*" : ""}
               </BodyCell>
               <BodyCell align="right">{r.played}</BodyCell>
               <BodyCell align="right">{r.w}</BodyCell>
@@ -315,7 +316,19 @@ export function PublicStandings({ rows, caption, highlight, teamHref }: { rows: 
           ))}
         </TableBody>
       </DataTable>
+      <AdjustmentNote rows={rows} />
     </TableWrap>
+  );
+}
+
+/** "* Includes point adjustments: Fairfax United −3" under a table, when there are any. */
+export function AdjustmentNote({ rows }: { rows: { team: { id: string; name: string }; adj: number }[] }) {
+  const adjusted = rows.filter((r) => r.adj);
+  if (!adjusted.length) return null;
+  return (
+    <p className="px-3 pt-2 pb-3 text-[12.5px] text-muted">
+      * Points include league adjustments: {adjusted.map((r) => `${r.team.name} ${r.adj > 0 ? "+" : "−"}${Math.abs(r.adj)}`).join(", ")}.
+    </p>
   );
 }
 
