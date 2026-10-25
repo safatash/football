@@ -4,7 +4,7 @@ import { Card, Notice } from "@/components/ui/card";
 import { getBrand } from "@/lib/branding";
 import { getOrgId } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { paymentAccount, paymentsMode, refreshAccount } from "@/platform/payments";
+import { paymentAccount, paymentsMode, refreshAccount, stripeProcessingFee } from "@/platform/payments";
 import { ConnectButtons } from "./connect-buttons";
 
 export const metadata = { title: "Online payments" };
@@ -18,7 +18,9 @@ export default async function OnlinePaymentsPage({ searchParams }: { searchParam
   if (!account) return null;
   const mode = paymentsMode(account);
   const readOnly = !session?.user?.isAdmin;
-  const fee = (account.platformFeeBps / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  const pct = (bps: number) => (bps / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  const fee = pct(account.platformFeeBps);
+  const processing = stripeProcessingFee();
 
   const status =
     mode === "connected"
@@ -57,7 +59,10 @@ export default async function OnlinePaymentsPage({ searchParams }: { searchParam
             <dd>{account.stripePayoutsEnabled ? "On" : "Not yet"}</dd>
           </dl>
         ) : null}
-        <p className="text-sm text-muted">Platform fee: {fee}% of each online payment{account.platformFeeBps === 0 ? " (waived)" : ""}.</p>
+        <p className="text-sm text-muted">
+          Fees on each online payment: platform fee {fee}%{account.platformFeeBps === 0 ? " (waived)" : ""}, plus card processing ({pct(processing.bps)}% + {processing.cents}¢), which Stripe charges.
+          The rest goes to your account.
+        </p>
         <ConnectButtons
           connectLabel={mode === "connected" ? null : account.stripeAccountId ? "Continue Stripe setup" : "Connect payments"}
           dashboard={!!account.stripeAccountId && account.stripeDetailsSubmitted}

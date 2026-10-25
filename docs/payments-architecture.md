@@ -21,8 +21,10 @@ from this proposal:
   `stripe_events` (idempotent).
 - Not done yet: the `stripeCheckoutId` rename (sessions are still in `Payment.stripeChargeId`),
   `stripeRefundId`, statement descriptors.
-- **Open decision:** with destination charges, Stripe's processing fee (~2.9% + 30¢) is charged to
-  the platform, so a 1% application fee doesn't cover it. Options are in the Batch 5 report.
+- **Fee (decided Oct 24):** destination charges stay. The application fee is the platform fee
+  (`platformFeeBps`) **plus Stripe's processing fee** (`STRIPE_FEE_BPS` / `STRIPE_FEE_CENTS`,
+  default 2.9% + 30¢), so the league pays card processing and the platform keeps its full 1%.
+  A comped league pays processing only (`feeFor` in `src/platform/payments.ts`).
 
 The original proposal follows.
 Covers two separate flows of money:

@@ -35,8 +35,27 @@ export async function paymentAccount(orgId: string): Promise<PaymentAccount | nu
 export const paymentsMode = (a: Pick<PaymentAccount, "stripeAccountId" | "stripeChargesEnabled" | "legacyPlatformPayments">): PaymentsMode =>
   a.stripeAccountId && a.stripeChargesEnabled ? "connected" : a.legacyPlatformPayments ? "legacy" : "not-ready";
 
-/** The platform's application fee on a charge, in cents. */
-export const feeFor = (platformFeeBps: number, totalCents: number) => Math.max(0, Math.round((totalCents * platformFeeBps) / 10_000));
+/**
+ * Stripe's card processing price, passed on to the league. With destination charges Stripe bills
+ * the platform for processing, so the application fee includes it (otherwise a 1% fee would lose
+ * money). Configurable: STRIPE_FEE_BPS (default 290 = 2.9%) and STRIPE_FEE_CENTS (default 30).
+ */
+export function stripeProcessingFee() {
+  const num = (v: string | undefined, d: number) => (v && /^\d+$/.test(v.trim()) ? Number(v.trim()) : d);
+  return { bps: num(process.env.STRIPE_FEE_BPS, 290), cents: num(process.env.STRIPE_FEE_CENTS, 30) };
+}
+
+/**
+ * The application fee on a charge, in cents: the league's platform fee (platformFeeBps) plus
+ * Stripe's processing fee, so the league pays processing and the platform keeps its full share.
+ * A comped league (0 bps) pays processing only. Never more than the charge.
+ */
+export function feeFor(platformFeeBps: number, totalCents: number, processing = stripeProcessingFee()) {
+  if (totalCents <= 0) return 0;
+  const platform = Math.round((totalCents * platformFeeBps) / 10_000);
+  const stripeFee = Math.round((totalCents * processing.bps) / 10_000) + processing.cents;
+  return Math.min(totalCents, Math.max(0, platform + stripeFee));
+}
 
 export class StripeLiveModeError extends Error {
   constructor() {

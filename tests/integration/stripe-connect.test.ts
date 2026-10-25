@@ -111,9 +111,12 @@ describe.skipIf(!hasDb)("Stripe Connect (database)", async () => {
   });
 
   it("the fee is basis points of the total, and the mode follows the account", () => {
-    expect(feeFor(100, 9500)).toBe(95);
-    expect(feeFor(0, 9500)).toBe(0);
-    expect(feeFor(250, 4999)).toBe(125);
+    // 1% platform + Stripe's 2.9% + 30¢ processing, passed on to the league
+    expect(feeFor(100, 9500)).toBe(95 + 276 + 30);
+    expect(feeFor(0, 9500)).toBe(276 + 30); // comped: processing only
+    expect(feeFor(250, 4999, { bps: 0, cents: 0 })).toBe(125);
+    expect(feeFor(100, 0)).toBe(0);
+    expect(feeFor(100, 20)).toBe(20); // never more than the charge
     expect(paymentsMode({ stripeAccountId: "acct_1", stripeChargesEnabled: true, legacyPlatformPayments: false })).toBe("connected");
     expect(paymentsMode({ stripeAccountId: "acct_1", stripeChargesEnabled: false, legacyPlatformPayments: true })).toBe("legacy");
     expect(paymentsMode({ stripeAccountId: null, stripeChargesEnabled: false, legacyPlatformPayments: false })).toBe("not-ready");
@@ -166,15 +169,15 @@ describe.skipIf(!hasDb)("Stripe Connect (database)", async () => {
   it("a connected league's checkout is a destination charge with the platform fee", async () => {
     await checkoutFor(DEMO, 9500);
     expect(fake.sessions.at(-1)).toMatchObject({
-      metadata: { organizationId: DEMO, stripeAccountId: ACCT, applicationFee: "95" },
-      payment_intent_data: { on_behalf_of: ACCT, transfer_data: { destination: ACCT }, application_fee_amount: 95, metadata: { organizationId: DEMO } },
+      metadata: { organizationId: DEMO, stripeAccountId: ACCT, applicationFee: "401" },
+      payment_intent_data: { on_behalf_of: ACCT, transfer_data: { destination: ACCT }, application_fee_amount: 401, metadata: { organizationId: DEMO } },
     });
-    // Comped league: no fee at all
+    // Comped league: no platform fee, the league still pays card processing
     await raw.organization.update({ where: { id: DEMO }, data: { platformFeeBps: 0 } });
     await checkoutFor(DEMO, 9500);
     const comped = fake.sessions.at(-1) as { payment_intent_data: Record<string, unknown>; metadata: Record<string, string> };
-    expect(comped.payment_intent_data).not.toHaveProperty("application_fee_amount");
-    expect(comped.metadata.applicationFee).toBe("0");
+    expect(comped.payment_intent_data).toMatchObject({ application_fee_amount: 306 });
+    expect(comped.metadata.applicationFee).toBe("306");
     await raw.organization.update({ where: { id: DEMO }, data: { platformFeeBps: 100 } });
   });
 

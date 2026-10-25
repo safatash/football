@@ -77,7 +77,7 @@ export function OrgControls({ id, status, plan, platformFeeBps }: { id: string; 
         </Button>
       </div>
       <div className="grid gap-4 md:grid-cols-3 md:items-end">
-        <Field label="Platform fee (%)" htmlFor="o-fee" hint="On each online payment. 0 for comped design partners">
+        <Field label="Platform fee (%)" htmlFor="o-fee" hint="On each online payment, on top of card processing. 0 for comped design partners">
           <TextInput id="o-fee" type="number" min={0} max={10} step={0.05} value={fee} onChange={(e) => setFee(e.target.value)} />
         </Field>
         <Button
