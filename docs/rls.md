@@ -2,7 +2,7 @@
 
 Status: **shipped as writes-only RLS** (migration `20261025000000_rls_writes`), turned on per
 environment with `DB_RLS=on` plus `DATABASE_APP_URL`. Read-side RLS was measured and parked:
-it cost pages +13–31 ms p95 on Vercel ("On Vercel" below). The backlog item is in `TODO.md`.
+it cost pages +13–31 ms p95 on Vercel ("On Vercel" below). The backlog item is in `docs/leaguekeep-dev-brief.md` (4e).
 So far the migration has been applied only to local Postgres and to the throwaway Neon branch
 `rls-bench`, which the `leaguekeep` Vercel previews use. Neon's `main` gets it with the next
 `prisma migrate deploy` there.
@@ -328,7 +328,7 @@ grows the most.
    measured), and pages pay nothing. It doesn't protect reads, though, so the raw-client guard
    test stays the read-side guard.
 4. **Option B, try first: one league transaction per page.** In the backlog for before the
-   Phase 2 launch (`TODO.md`). Extend the action fix to pages: run
+   Phase 2 launch (`docs/leaguekeep-dev-brief.md`, 4e). Extend the action fix to pages: run
    a page's data loading (e.g. `loadLanding`, the admin layout and page loaders) in
    `leagueTransaction`, so the league is set once per page. Parallel queries then share one
    connection and run one after another. That may cost more than it saves on the admin page, so

@@ -1,3 +1,5 @@
+> **Superseded** by [`docs/leaguekeep-dev-brief.md`](../leaguekeep-dev-brief.md) (Oct 24, 2026). Kept for history; don't plan from this file.
+
 # NVASA production plan
 
 This document turns the current NVASA prototype into a production build plan.
