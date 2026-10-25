@@ -9,7 +9,7 @@ import { blocklistHit } from "@/lib/queries/registrations";
 import { priceWithCode, countDiscountUse, registrationRules } from "@/lib/registration";
 import { getSession } from "@/lib/session";
 import { appUrl } from "@/lib/branding";
-import { stripe } from "@/lib/stripe";
+import { createLeagueCheckout, leaguePaymentsMode } from "@/lib/league-checkout";
 import { regNumber } from "@/lib/format";
 import { sendMail } from "@/lib/mail";
 import { registrationReceivedEmail } from "@/lib/mail-templates";
@@ -117,6 +117,8 @@ export async function POST(req: NextRequest) {
     const priced = await priceWithCode({ fee: Number(division.registrationFee), code: data.discountCode, season, teamId: preferredTeamId });
     if (!priced.ok) return bad(priced.message);
     const free = priced.total === 0;
+    // A league that can't take online payments yet: the registration goes to the office unpaid
+    const payLater = !free && (await leaguePaymentsMode()) === "not-ready";
 
     // Account checks
     if (np) {
@@ -199,19 +201,19 @@ export async function POST(req: NextRequest) {
           totalAmount: priced.total,
           discountCodeId: priced.discountId,
           waiverAcceptedAt: data.waiverAccepted ? new Date() : null,
-          // Free registrations go straight to review; paid ones wait for the Stripe webhook
-          status: free ? "PENDING" : "SUBMITTED",
+          // Free and pay-later registrations go straight to review; paid ones wait for the Stripe webhook
+          status: free || payLater ? "PENDING" : "SUBMITTED",
           paymentStatus: free ? "PAID" : "UNPAID",
         },
       });
       if (data.captainRequest && preferredTeamId) {
         await tx.captainRequest.create({ data: { playerId: playerId!, teamId: preferredTeamId, registrationId: reg.id, note: captainNote } });
       }
-      if (free && priced.discountId) await countDiscountUse(tx, priced.discountId);
+      if ((free || payLater) && priced.discountId) await countDiscountUse(tx, priced.discountId);
       return reg;
     });
 
-    if (free) {
+    if (free || payLater) {
       await sendMail({
         to: email,
         ...(await registrationReceivedEmail({
@@ -219,14 +221,15 @@ export async function POST(req: NextRequest) {
           seasonName: season.name,
           divisionName: division.name,
           number: regNumber(registration.number),
-          paid: true,
+          paid: free,
+          payLater,
         })),
       });
       return NextResponse.json({ success: true, checkoutUrl: `/register/success?registration=${registration.id}` });
     }
 
     const name = player ? `${player.firstName} ${player.lastName}` : `${np!.firstName} ${np!.lastName}`;
-    const checkout = await stripe().checkout.sessions.create({
+    const checkout = await createLeagueCheckout({
       payment_method_types: ["card"],
       line_items: [
         {
@@ -248,7 +251,6 @@ export async function POST(req: NextRequest) {
       customer_email: email,
       metadata: {
         type: "registration",
-        organizationId: await getOrgId(),
         registrationId: registration.id,
         playerId: registration.playerId,
         division: division.name,

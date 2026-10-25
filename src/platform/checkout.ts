@@ -27,3 +27,15 @@ export async function orgForPaymentIntent(paymentIntent: string | null | undefin
   const payment = await prisma.payment.findUnique({ where: { stripePaymentIntentId: paymentIntent }, select: { organizationId: true } });
   return payment?.organizationId ?? null;
 }
+
+/**
+ * A connected checkout's metadata names the league's Stripe account as well as the league. Only
+ * our server creates sessions, but the two must still agree before money is recorded for a league.
+ * Checkouts without an account (platform account, before Connect) pass.
+ */
+export async function checkoutAccountMatches(orgId: string, metadata: Record<string, string> | null | undefined): Promise<boolean> {
+  const account = metadata?.stripeAccountId;
+  if (!account) return true;
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { stripeAccountId: true } });
+  return org?.stripeAccountId === account;
+}

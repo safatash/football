@@ -9,7 +9,8 @@ import { syncPaymentStatus } from "@/lib/billing";
 import { countDiscountUse } from "@/lib/registration";
 import { stripe } from "@/lib/stripe";
 import { runWithOrg } from "@/lib/db";
-import { orgForCheckout, orgForPaymentIntent } from "@/platform/checkout";
+import { checkoutAccountMatches, orgForCheckout, orgForPaymentIntent } from "@/platform/checkout";
+import { connectFields } from "@/lib/league-checkout";
 import { recordStripeRefund, releaseExpiredCheckout } from "@/lib/stripe-events";
 import { reportError } from "@/lib/monitoring";
 
@@ -43,6 +44,7 @@ async function registrationPaid(session: Stripe.Checkout.Session) {
         relatedEntityId: reg.id,
         method: "STRIPE",
         paidAt: new Date(),
+        ...connectFields(session.metadata),
       },
     });
     await tx.registration.update({
@@ -85,6 +87,7 @@ async function balancePaid(session: Stripe.Checkout.Session) {
         relatedEntityId: reg.id,
         method: "STRIPE",
         paidAt: new Date(),
+        ...connectFields(session.metadata),
       },
     });
     const s = await syncPaymentStatus(tx, reg.id);
@@ -119,6 +122,12 @@ export async function POST(req: NextRequest) {
   if (!orgId) {
     console.error("Webhook: no league for checkout", session.id);
     return NextResponse.json({ error: "Unknown league" }, { status: 400 });
+  }
+  // A connected checkout names the league's account too: both have to agree
+  if (!(await checkoutAccountMatches(orgId, session.metadata))) {
+    console.error("Webhook: checkout account doesn't belong to its league", session.id);
+    reportError(new Error("Stripe checkout account mismatch"), { session: session.id, organizationId: orgId });
+    return NextResponse.json({ error: "Account mismatch" }, { status: 400 });
   }
 
   try {

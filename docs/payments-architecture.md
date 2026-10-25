@@ -1,6 +1,30 @@
 # Payments per league: architecture proposal
 
-Status: **proposal only, nothing built.** Written for Phase 5 of the multi-tenant work.
+Status: **league payments (Connect Express) built in Batch 5** (test mode only); platform billing
+(section 5), refund-to-card and disputes are not built yet. What was built, and where it differs
+from this proposal:
+
+- `Organization`: `stripeAccountId` and the three status flags, and **`platformFeeBps`** (default
+  100 = 1%, 0 for comped leagues; set per league on `/platform`). This replaces
+  `applicationFeeBps` + `applicationFeeCents`, per the LeagueKeep brief.
+- **`legacyPlatformPayments`**: leagues that existed before Connect (NVASA, and the Demo League on
+  existing databases) keep taking payments on the platform account until they connect (the
+  section 6 cutover). New leagues must connect first. Until then, registration goes to the office
+  unpaid ("pay later"), and payment links and paid game passes say online payment isn't set up.
+- One checkout helper, `createLeagueCheckout` (`src/lib/league-checkout.ts`), for registration,
+  balance links and game passes: a destination charge with `on_behalf_of`, plus
+  `application_fee_amount` when the fee is above 0. The session metadata carries
+  `stripeAccountId` and `applicationFee`; the webhook stores them on `Payment`
+  (`stripeAccountId`, `applicationFeeAmount`). It rejects a checkout whose account isn't the league's.
+- Onboarding: Settings › Online payments (and the setup checklist step). `account.updated` and
+  `account.application.deauthorized` arrive on `/api/stripe/connect-webhook`, logged in
+  `stripe_events` (idempotent).
+- Not done yet: the `stripeCheckoutId` rename (sessions are still in `Payment.stripeChargeId`),
+  `stripeRefundId`, statement descriptors.
+- **Open decision:** with destination charges, Stripe's processing fee (~2.9% + 30¢) is charged to
+  the platform, so a 1% application fee doesn't cover it. Options are in the Batch 5 report.
+
+The original proposal follows.
 Covers two separate flows of money:
 
 1. **League payments**: players pay a league for registrations, balances and game passes. With

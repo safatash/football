@@ -61,6 +61,21 @@ export async function setOrganizationStatus(input: z.input<typeof StatusInput>):
   }, { transaction: false });
 }
 
+const FeeInput = z.object({ id: Id, platformFeeBps: z.number().int().min(0, "The fee can’t be negative.").max(1000, "Keep the fee at 10% or less.") });
+/** The application fee on the league's online payments, in basis points (0 for comped design partners). */
+export async function setPlatformFee(input: z.input<typeof FeeInput>): Promise<ActionResult> {
+  return runAction(async () => {
+    const data = FeeInput.parse(input);
+    const me = await platformUser();
+    const org = await orgById(data.id);
+    if (!org) throw new ActionError("No such league.", 404);
+    const pct = `${(data.platformFeeBps / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+    await updateOrganization(data.id, { platformFeeBps: data.platformFeeBps }, me, `Platform fee set to ${pct} by platform`);
+    revalidatePath(`/platform/orgs/${data.id}`);
+    return { ok: true, message: `Platform fee set to ${pct}` };
+  }, { transaction: false });
+}
+
 const PlanInput = z.object({ id: Id, plan: z.string().trim().min(1, "Name the plan.").max(40) });
 export async function setOrganizationPlan(input: z.input<typeof PlanInput>): Promise<ActionResult> {
   return runAction(async () => {

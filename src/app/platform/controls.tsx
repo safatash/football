@@ -6,7 +6,7 @@ import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, Notice } from "@/components/ui/card";
 import { Field, SelectInput, TextInput } from "@/components/ui/field";
-import { checkSlug, createOrganizationAction, extendTrial, impersonateAdmin, setOrganizationPlan, setOrganizationStatus } from "@/platform/actions";
+import { checkSlug, createOrganizationAction, extendTrial, impersonateAdmin, setOrganizationPlan, setOrganizationStatus, setPlatformFee } from "@/platform/actions";
 
 type Result = { ok: true; message: string } | { ok: false; error: string };
 
@@ -32,11 +32,12 @@ function useRun() {
 }
 
 /** Status, plan, trial and support access for one league. */
-export function OrgControls({ id, status, plan }: { id: string; status: string; plan: string }) {
+export function OrgControls({ id, status, plan, platformFeeBps }: { id: string; status: string; plan: string; platformFeeBps: number }) {
   const { pending, msg, setMsg, run, start } = useRun();
   const [s, setS] = useState(status);
   const [p, setP] = useState(plan);
   const [days, setDays] = useState("14");
+  const [fee, setFee] = useState(String(platformFeeBps / 100));
   const [reason, setReason] = useState("");
 
   function impersonate() {
@@ -73,6 +74,17 @@ export function OrgControls({ id, status, plan }: { id: string; status: string; 
         </Field>
         <Button disabled={pending || !p.trim() || p === plan} onClick={() => run(() => setOrganizationPlan({ id, plan: p }))}>
           Save plan
+        </Button>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3 md:items-end">
+        <Field label="Platform fee (%)" htmlFor="o-fee" hint="On each online payment. 0 for comped design partners">
+          <TextInput id="o-fee" type="number" min={0} max={10} step={0.05} value={fee} onChange={(e) => setFee(e.target.value)} />
+        </Field>
+        <Button
+          disabled={pending || fee.trim() === "" || Math.round(Number(fee) * 100) === platformFeeBps}
+          onClick={() => run(() => setPlatformFee({ id, platformFeeBps: Math.round(Number(fee) * 100) }))}
+        >
+          Save fee
         </Button>
       </div>
       <div className="grid gap-4 md:grid-cols-3 md:items-end">

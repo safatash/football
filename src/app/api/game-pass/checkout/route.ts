@@ -4,7 +4,7 @@ import { z } from "zod";
 import { GamePassError, checkGamePassPurchase, fulfillGamePass } from "@/lib/game-pass-server";
 import { getSession } from "@/lib/session";
 import { appUrl, getBrand } from "@/lib/branding";
-import { stripe } from "@/lib/stripe";
+import { OnlinePaymentsUnavailable, createLeagueCheckout } from "@/lib/league-checkout";
 import { getOrgId } from "@/lib/db";
 
 const Body = z.object({ matchId: z.string().trim().min(1).max(64), teamId: z.string().trim().max(64).nullish() });
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ url: `/register/game-pass/confirmation?pass=${pass.id}` });
     }
 
-    const checkout = await stripe().checkout.sessions.create({
+    const checkout = await createLeagueCheckout({
       mode: "payment",
       payment_method_types: ["card"],
       customer_email: player.user.email,
@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ url: checkout.url });
   } catch (e) {
     if (e instanceof GamePassError) return NextResponse.json({ error: e.message }, { status: e.status });
+    if (e instanceof OnlinePaymentsUnavailable) return NextResponse.json({ error: "Online payments aren’t set up for this league yet, so game passes can’t be bought online. Ask the league office." }, { status: 409 });
     console.error("Game pass checkout failed", e);
     return NextResponse.json({ error: "We couldn’t start checkout. Try again in a moment." }, { status: 500 });
   }

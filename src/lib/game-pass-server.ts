@@ -9,6 +9,7 @@ import { sendMail } from "@/lib/mail";
 import { gamePassReceiptEmail } from "@/lib/mail-templates";
 import { blocklistHit } from "@/lib/queries/registrations";
 import { getSettings } from "@/lib/queries/season";
+import { connectFields } from "@/lib/league-checkout";
 
 export class GamePassError extends Error {
   constructor(
@@ -91,6 +92,7 @@ export async function fulfillGamePass(session: Pick<Stripe.Checkout.Session, "id
           paymentType: "GAME_PASS",
           relatedEntityType: "game_pass",
           paidAt: new Date(),
+          ...connectFields(session.metadata),
         },
       }));
 

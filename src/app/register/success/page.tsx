@@ -13,6 +13,8 @@ export const metadata: Metadata = { title: "Registration received" };
 
 type Info = {
   firstName?: string;
+  seasonName?: string;
+  payLater?: boolean;
   email?: string;
   paid: boolean;
   submittedAt?: Date;
@@ -36,6 +38,7 @@ async function loadInfo(sessionId?: string, registrationId?: string): Promise<In
       include: {
         player: { include: { user: { select: { email: true } } } },
         preferredTeam: { select: { name: true } },
+        season: { select: { name: true } },
         _count: { select: { captainRequestRows: true } },
       },
     });
@@ -48,6 +51,8 @@ async function loadInfo(sessionId?: string, registrationId?: string): Promise<In
     }
     return {
       firstName: reg.player.firstName,
+      seasonName: reg.season.name,
+      payLater: !stripePaid && reg.paymentStatus === "UNPAID" && Number(reg.totalAmount) > 0,
       email: reg.player.user.email,
       paid: stripePaid || reg.paymentStatus === "PAID",
       submittedAt: reg.submittedAt,
@@ -90,7 +95,8 @@ export default async function RegistrationSuccessPage({
           </span>
           <h1 className="text-[40px]">You’re in the queue{info.firstName ? `, ${info.firstName}` : ""}.</h1>
           <p className="text-muted">
-            Your Spring 2026 registration is {info.paid ? "paid and " : ""}waiting for the league office.{" "}
+            Your {info.seasonName ?? "season"} registration is {info.paid ? "paid and " : ""}waiting for the league office.{" "}
+            {info.payLater ? "They’ll tell you how to pay. " : null}
             {info.email ? (
               <>
                 We’ll email <b className="text-fg">{info.email}</b> when it’s approved.

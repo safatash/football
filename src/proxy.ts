@@ -3,7 +3,7 @@ import { ORG_COOKIE, ORG_ID_HEADER, ORG_SLUG_HEADER, devFallbackSlug, parseHost 
 import { isUnavailable, orgByDomain, orgBySlug, type OrgRef } from "@/platform/orgs";
 
 /** Platform routes that don't belong to a league (they find the league themselves). */
-const PLATFORM_PATHS = [/^\/api\/stripe\/webhook$/, /^\/api\/cron\//];
+const PLATFORM_PATHS = [/^\/api\/stripe\/(connect-)?webhook$/, /^\/api\/cron\//];
 /** What the root domain (and admin.<root>) serves: signup, the operator area and sign-in. */
 const PLATFORM_HOST_PATHS = [/^\/$/, /^\/platform(\/|$)/, /^\/signup(\/|$)/, /^\/login(\/|$)/, /^\/privacy$/, /^\/api\/auth\//, /^\/favicon\.ico$/];
 /** Never on a league's own address. */

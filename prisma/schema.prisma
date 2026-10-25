@@ -978,6 +978,11 @@ model Payment {
   // Legacy Authorize.Net support
   authorizeNetTransactionId String? // TransactionID from old system
 
+  // Stripe Connect: the league account the money went to (null = the platform's account) and the
+  // platform's application fee on it
+  stripeAccountId      String?
+  applicationFeeAmount Decimal? @db.Decimal(10, 2)
+
   // Recorded by the league office (Stripe payments come from the webhook). Payments are never
   // deleted: corrections are new rows (refunds, waivers).
   method           PaymentMethod?
@@ -1181,6 +1186,19 @@ model Organization {
   plan         String             @default("pilot")
   trialEndsAt  DateTime?
 
+  // Stripe Connect (docs/payments-architecture.md): the league's own Express account. Platform-owned
+  // fields: only src/platform and the Connect webhook change them.
+  stripeAccountId        String?   @unique // acct_…
+  stripeChargesEnabled   Boolean   @default(false) // mirrors account.charges_enabled
+  stripePayoutsEnabled   Boolean   @default(false)
+  stripeDetailsSubmitted Boolean   @default(false)
+  stripeAccountUpdatedAt DateTime?
+  /// Application fee on each online payment, in basis points (100 = 1%; 0 for comped leagues)
+  platformFeeBps         Int       @default(100)
+  /// Leagues that took online payments before Connect keep using the platform's Stripe account
+  /// until they connect their own (the cutover in docs/payments-architecture.md, section 6)
+  legacyPlatformPayments Boolean   @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1337,4 +1355,18 @@ model RateLimit {
   @@id([key, windowStart])
   @@index([windowStart])
   @@map("rate_limits")
+}
+
+/// Stripe events handled by the webhooks (platform-level), so a retried event is processed once.
+model StripeEvent {
+  id             String    @id // evt_…
+  type           String
+  account        String? // event.account, for Connect events
+  /// The league it was for. Not named organizationId: this is a platform log, not league data
+  leagueId       String?
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
+  error          String?
+
+  @@map("stripe_events")
 }

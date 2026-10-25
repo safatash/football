@@ -38,6 +38,8 @@ export default async function PlatformOrgPage({ params }: { params: Promise<{ id
           <KeyValue
             items={[
               ["Plan", org.plan],
+              ["Online payments", org.stripeAccountId ? (org.stripeChargesEnabled ? `Connected (${org.stripeAccountId})` : `Onboarding (${org.stripeAccountId})`) : org.legacyPlatformPayments ? "Platform account (before Connect)" : "Not connected"],
+              ["Platform fee", `${(org.platformFeeBps / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`],
               ["Trial ends", org.trialEndsAt ? fmtDateOnly(org.trialEndsAt) : "—"],
               ["Created", fmtDateOnly(org.createdAt)],
               ["Contact", org.contactEmail ?? "—"],
@@ -60,7 +62,7 @@ export default async function PlatformOrgPage({ params }: { params: Promise<{ id
           />
         </Card>
       </div>
-      <OrgControls id={org.id} status={org.status} plan={org.plan} />
+      <OrgControls id={org.id} status={org.status} plan={org.plan} platformFeeBps={org.platformFeeBps} />
       <Card className="flex flex-col gap-2">
         <h2 className="text-xl">Support access</h2>
         {d.impersonations.length ? (

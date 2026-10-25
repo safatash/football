@@ -62,6 +62,7 @@ export function AdminShell({
         { href: "/admin/seasons", label: "Seasons", icon: "cal" },
         { href: "/admin/settings", label: "Fees & eligibility", icon: "card" },
         { href: "/admin/settings/fields", label: "Fields", icon: "pin" },
+        { href: "/admin/settings/online-payments", label: "Online payments", icon: "card" },
         { href: "/admin/settings/payments", label: "Payments", icon: "list" },
       ],
     ],

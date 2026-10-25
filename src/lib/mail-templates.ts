@@ -93,13 +93,15 @@ export async function passwordResetEmail(opts: { firstName: string; url: string 
   return { subject, text: `${body}\n\n${opts.url}${footer(b)}`, html: layout(b, { title: subject, body: paras(body), cta: { label: "Choose a new password", href: opts.url } }) };
 }
 
-export async function registrationReceivedEmail(opts: { firstName: string; seasonName: string; divisionName: string; number: string; paid: boolean }) {
+export async function registrationReceivedEmail(opts: { firstName: string; seasonName: string; divisionName: string; number: string; paid: boolean; payLater?: boolean }) {
   const b = await getBrand();
   const subject = `We got your ${opts.seasonName} registration (${opts.number})`;
   const body = `Hi ${opts.firstName},\n\nThanks for registering for ${opts.divisionName}. ${
     opts.paid
       ? "Your payment is in, and the league office will review your registration."
-      : "Once your payment goes through, the league office will review your registration."
+      : opts.payLater
+        ? "The league office will review your registration and tell you how to pay."
+        : "Once your payment goes through, the league office will review your registration."
   } We’ll email you when it’s approved.`;
   const link = `${b.url}/portal/registrations`;
   return { subject, text: `${body}\n\n${link}${footer(b)}`, html: layout(b, { title: "Registration received", body: paras(body), cta: { label: "See my registration", href: link } }) };

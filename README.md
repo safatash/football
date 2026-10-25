@@ -127,6 +127,8 @@ See `.env.example`. Beyond the database, NextAuth and Stripe keys:
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Outgoing mail. Production sends when set. |
 | `MAIL_DELIVER`, `MAIL_TEST_RECIPIENTS` | Outside production, mail is only logged to the server console. Set `MAIL_DELIVER=true` to really send, and then only to `example.com` / `.test` addresses or the ones listed in `MAIL_TEST_RECIPIENTS`. |
 | `STRIPE_WEBHOOK_SECRET` | Verifies `/api/stripe/webhook`: `checkout.session.completed` (registration and game pass checkouts, by `metadata.type`), `checkout.session.expired` and `charge.refunded`. Subscribe the endpoint to all three. |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | Verifies `/api/stripe/connect-webhook` (Connect events from leagues' accounts: `account.updated`, `account.application.deauthorized`). |
+| `STRIPE_ALLOW_LIVE` | League payments and onboarding refuse a live key (`sk_live_…`) unless this is `true`. |
 | `NVASA_NOW` | Optional. Pretend it's another moment, e.g. `2026-05-16T12:00:00-04:00` to see the seeded match week. Leave unset in production. |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | Optional. Sentry error monitoring for the server / browser; unset = off. No personal data is sent (`src/lib/monitoring.ts`). |
 | `SENTRY_TRACES_SAMPLE_RATE` | Optional. Performance tracing sample rate, 0 to 1 (default 0). |
@@ -294,6 +296,18 @@ To try it locally: open `http://app.localhost:3000/signup`, or sign in at
 Planned: Postgres row-level security as a second layer (after measuring its cost), and per-league
 payments with Stripe Connect plus platform billing with Stripe Billing. The design is in
 [docs/payments-architecture.md](docs/payments-architecture.md) (Phase 5; not built).
+
+### League payments (Stripe Connect)
+
+Each league connects its own Stripe Express account (Settings › Online payments, also a setup
+checklist step). Registration, balance-link and game-pass checkouts go through
+`createLeagueCheckout` (`src/lib/league-checkout.ts`). That makes a destination charge to the
+league's account with the platform's application fee: `Organization.platformFeeBps`, default
+1%, 0 for comped leagues, set on `/platform`. Leagues that existed before Connect
+(`legacyPlatformPayments`, e.g. NVASA) keep using the platform account until they connect.
+A league that isn't connected takes registrations "pay later". Connect events go to
+`/api/stripe/connect-webhook`. Test mode only: a live key is refused unless `STRIPE_ALLOW_LIVE=true`.
+Details and open decisions: `docs/payments-architecture.md`.
 
 ### Security and privacy
 

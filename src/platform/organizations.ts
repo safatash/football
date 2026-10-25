@@ -103,7 +103,7 @@ export async function createOrganization(input: { name: string; slug: string; ow
   return result;
 }
 
-export async function updateOrganization(id: string, data: { status?: OrganizationStatus; plan?: string; trialEndsAt?: Date | null }, actor: { id: string; email: string }, summary: string) {
+export async function updateOrganization(id: string, data: { status?: OrganizationStatus; plan?: string; trialEndsAt?: Date | null; platformFeeBps?: number }, actor: { id: string; email: string }, summary: string) {
   await prisma.$transaction(async (tx) => {
     await tx.organization.update({ where: { id }, data });
     await platformAudit(tx, id, actor, { action: "org.updated", summary, data: JSON.parse(JSON.stringify(data)) });
