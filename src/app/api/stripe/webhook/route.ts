@@ -9,7 +9,8 @@ import { syncPaymentStatus } from "@/lib/billing";
 import { countDiscountUse } from "@/lib/registration";
 import { stripe } from "@/lib/stripe";
 import { runWithOrg } from "@/lib/db";
-import { orgForCheckout } from "@/platform/checkout";
+import { orgForCheckout, orgForPaymentIntent } from "@/platform/checkout";
+import { recordStripeRefund, releaseExpiredCheckout } from "@/lib/stripe-events";
 
 function readEvent(body: string, signature: string | null): Stripe.Event {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -102,6 +103,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
+  if (event.type === "charge.refunded") return chargeRefunded(event.data.object as Stripe.Charge);
+  if (event.type === "checkout.session.expired") return checkoutExpired(event.data.object as Stripe.Checkout.Session);
   if (event.type !== "checkout.session.completed") return NextResponse.json({ received: true });
   const session = event.data.object as Stripe.Checkout.Session;
   const type = session.metadata?.type ?? (session.metadata?.registrationId ? "registration" : null);
@@ -124,4 +127,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
   return NextResponse.json({ received: true });
+}
+
+/** A refund made in Stripe: add it to the league's ledger. */
+async function chargeRefunded(charge: Stripe.Charge) {
+  const paymentIntent = typeof charge.payment_intent === "string" ? charge.payment_intent : (charge.payment_intent?.id ?? null);
+  const orgId = await orgForPaymentIntent(paymentIntent);
+  // Not one of our payments (another product on the same Stripe account): nothing to do
+  if (!orgId) return NextResponse.json({ received: true, ignored: "unknown payment" });
+  try {
+    const result = await runWithOrg(orgId, () => recordStripeRefund(charge));
+    return NextResponse.json({ received: true, recorded: result.recorded });
+  } catch (error) {
+    console.error("Error recording Stripe refund:", error);
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
+  }
+}
+
+/** A checkout expired unpaid: release the registration it was holding. */
+async function checkoutExpired(session: Stripe.Checkout.Session) {
+  const orgId = await orgForCheckout(session.metadata);
+  if (!orgId) return NextResponse.json({ received: true, ignored: "unknown league" });
+  try {
+    const released = await runWithOrg(orgId, () => releaseExpiredCheckout(session));
+    return NextResponse.json({ received: true, released });
+  } catch (error) {
+    console.error("Error releasing expired checkout:", error);
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
+  }
 }

@@ -86,6 +86,8 @@ export default async function PlayerProfilePage() {
               city: player.city,
               state: player.state,
               zip: player.zip,
+              emergencyContactName: player.emergencyContactName ?? "",
+              emergencyContactPhone: player.emergencyContactPhone ?? "",
               contactMe: player.contactMe,
               social: player.social,
               tournaments: player.tournaments,

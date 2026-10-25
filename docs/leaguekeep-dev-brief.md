@@ -77,10 +77,10 @@ Goal: one real league (NVASA if it signs, otherwise the first design partner) ru
 
 Pull from `claude/nvasa-gap-audit-2026-10-19.md` (Project doc) and section 0 above. Must-haves before the season:
 
-- [ ] **Waiver:** set `Registration.waiverAcceptedAt` in the registration wizard, and enforce it when `OrganizationSettings` requires a waiver.
-- [ ] **Emergency contact:** collect it in the registration wizard and the player profile, not only in the admin add-player form.
-- [ ] **Registration open/close:** read `OrganizationSettings.registrationOpen`, and add season open/close dates.
-- [ ] **Stripe webhooks:** handle `charge.refunded` and `checkout.session.expired`, and confirm `checkout.session.completed` writes Payment records in every environment.
+- [x] **Waiver:** set `Registration.waiverAcceptedAt` in the registration wizard, and enforce it when `OrganizationSettings` requires a waiver.
+- [x] **Emergency contact:** collect it in the registration wizard and the player profile, not only in the admin add-player form.
+- [x] **Registration open/close:** read `OrganizationSettings.registrationOpen`, and add season open/close dates.
+- [ ] **Stripe webhooks:** handle `charge.refunded` and `checkout.session.expired` (**done**, Batch 3), and confirm `checkout.session.completed` writes Payment records in every environment (still open: it needs a Stripe test-mode webhook on staging).
 - [ ] **Stripe Connect Express:** implement it per `docs/payments-architecture.md`, and onboard the first live league onto a connected account. Application fee = `platformFeeBps` on Organization (default 100, 0 for comped design partners).
 - [ ] **Security:** rate limiting and bot protection on login, retrieve, password reset and registration.
 - [ ] **Monitoring and compliance:** Sentry, a privacy policy page, and account deletion.

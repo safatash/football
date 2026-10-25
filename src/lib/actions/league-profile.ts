@@ -38,6 +38,9 @@ const ProfileInput = z.object({
   supportEmail: email,
   timezone: z.string().refine((t) => timezones.has(t), "Pick a timezone."),
   waiverText: opt(20000),
+  // Left out = unchanged (older callers don't send them)
+  registrationOpen: z.boolean().optional(),
+  waiverRequired: z.boolean().optional(),
   logoUrl: httpsUrl("the logo"),
   facebookUrl: httpsUrl("Facebook"),
   twitterUrl: httpsUrl("X (Twitter)"),
@@ -55,11 +58,12 @@ export async function updateLeagueProfile(input: ProfileInputValues): Promise<Ac
     const data = ProfileInput.parse(input);
     const me = await requireOrgRole(["OWNER", "ADMIN"]);
     const orgId = await getOrgId();
-    const { waiverText, ...org } = data;
+    const { waiverText, registrationOpen, waiverRequired, ...org } = data;
+    const rules = { ...(registrationOpen !== undefined ? { registrationOpen } : {}), ...(waiverRequired !== undefined ? { waiverRequired } : {}) };
     await db.$transaction(async (tx) => {
       // Organization isn't league-scoped (it is the league): always this league's own row
       await tx.organization.update({ where: { id: orgId }, data: org });
-      await tx.organizationSettings.upsert({ where: { organizationId: orgId }, update: { waiverText }, create: { organizationId: orgId, waiverText } });
+      await tx.organizationSettings.upsert({ where: { organizationId: orgId }, update: { waiverText, ...rules }, create: { organizationId: orgId, waiverText, ...rules } });
       await audit(tx, me, { action: "league.profile", entityType: "organization", entityId: orgId, summary: `Updated the league profile (${org.name})` });
     });
     refresh();

@@ -20,3 +20,10 @@ export async function orgForCheckout(metadata: Record<string, string> | null | u
   }
   return null;
 }
+
+/** Which league a Stripe PaymentIntent was paid to (refund events carry no checkout metadata). */
+export async function orgForPaymentIntent(paymentIntent: string | null | undefined): Promise<string | null> {
+  if (!paymentIntent) return null;
+  const payment = await prisma.payment.findUnique({ where: { stripePaymentIntentId: paymentIntent }, select: { organizationId: true } });
+  return payment?.organizationId ?? null;
+}

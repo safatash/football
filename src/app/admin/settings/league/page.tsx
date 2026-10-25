@@ -8,7 +8,7 @@ export const metadata = { title: "League profile" };
 
 export default async function LeagueProfilePage() {
   const orgId = await getOrgId();
-  const [brand, settings, session] = await Promise.all([brandFor(orgId), db.organizationSettings.findFirst({ select: { waiverText: true } }), getSession()]);
+  const [brand, settings, session] = await Promise.all([brandFor(orgId), db.organizationSettings.findFirst({ select: { waiverText: true, registrationOpen: true, waiverRequired: true } }), getSession()]);
   const readOnly = session?.user?.orgRole === "STAFF";
   return (
     <>
@@ -27,6 +27,8 @@ export default async function LeagueProfilePage() {
           supportEmail: brand.supportEmail === brand.contactEmail ? "" : (brand.supportEmail ?? ""),
           timezone: brand.timezone,
           waiverText: settings?.waiverText ?? "",
+          registrationOpen: settings?.registrationOpen ?? true,
+          waiverRequired: settings?.waiverRequired ?? true,
           logoUrl: brand.logoUrl ?? "",
           facebookUrl: brand.social.find((s) => s.label === "Facebook")?.url ?? "",
           twitterUrl: brand.social.find((s) => s.label === "X (Twitter)")?.url ?? "",

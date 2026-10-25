@@ -38,10 +38,22 @@ const SeasonInput = z
     startDate: IsoDate,
     endDate: IsoDate,
     makeActive: z.boolean().default(false),
+    /** Season registration window (inclusive league days); empty = no limit on that side */
+    registrationOpensOn: IsoDate.nullish().or(z.literal("")).transform((v) => v || null),
+    registrationClosesOn: IsoDate.nullish().or(z.literal("")).transform((v) => v || null),
     /** Starter divisions, positions and sizes (offered for a league's first season) */
     template: z.enum(["ADULT_REC", "BLANK"]).default("BLANK"),
   })
-  .refine((s) => s.endDate >= s.startDate, { message: "The season can’t end before it starts.", path: ["endDate"] });
+  .refine((s) => s.endDate >= s.startDate, { message: "The season can’t end before it starts.", path: ["endDate"] })
+  .refine((s) => !s.registrationOpensOn || !s.registrationClosesOn || s.registrationClosesOn >= s.registrationOpensOn, {
+    message: "Registration can’t close before it opens.",
+    path: ["registrationClosesOn"],
+  });
+
+const registrationDates = (s: { registrationOpensOn: string | null; registrationClosesOn: string | null }) => ({
+  registrationOpensOn: s.registrationOpensOn ? day(s.registrationOpensOn) : null,
+  registrationClosesOn: s.registrationClosesOn ? day(s.registrationClosesOn) : null,
+});
 
 async function uniqueSeasonSlug(name: string, exceptId?: string) {
   const base = seasonSlug(name) || "season";
@@ -61,7 +73,7 @@ export async function createSeason(input: z.input<typeof SeasonInput>): Promise<
     const season = await db.$transaction(async (tx) => {
       if (data.makeActive) await tx.season.updateMany({ where: { isActive: true }, data: { isActive: false } });
       const s = await tx.season.create({
-        data: { name: data.name, slug, startDate: day(data.startDate), endDate: day(data.endDate), isActive: data.makeActive },
+        data: { name: data.name, slug, startDate: day(data.startDate), endDate: day(data.endDate), isActive: data.makeActive, ...registrationDates(data) },
       });
       // Start from the current season's league settings
       await tx.leagueSettings.create({
@@ -92,7 +104,7 @@ export async function updateSeason(input: z.input<typeof SeasonInput> & { id: st
     const slug = data.name === season.name ? season.slug : await uniqueSeasonSlug(data.name, id);
     await db.$transaction(async (tx) => {
       if (data.makeActive && !season.isActive) await tx.season.updateMany({ where: { isActive: true }, data: { isActive: false } });
-      await tx.season.update({ where: { id }, data: { name: data.name, slug, startDate: day(data.startDate), endDate: day(data.endDate), isActive: data.makeActive } });
+      await tx.season.update({ where: { id }, data: { name: data.name, slug, startDate: day(data.startDate), endDate: day(data.endDate), isActive: data.makeActive, ...registrationDates(data) } });
     });
     refreshAll();
     return { ok: true, message: `${data.name} saved` };

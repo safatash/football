@@ -29,6 +29,11 @@ const schema = z.object({
     .string()
     .trim()
     .regex(/^\d{5}(-\d{4})?$/, "Enter a 5-digit ZIP"),
+  emergencyContactName: req("emergency contact's name", 80),
+  emergencyContactPhone: z
+    .string()
+    .trim()
+    .refine((v) => v.replace(/\D/g, "").length >= 10, "Enter a 10-digit phone number"),
   contactMe: z.boolean(),
   social: z.boolean(),
   tournaments: z.boolean(),
@@ -51,6 +56,8 @@ export async function updateProfile(_prev: ProfileState, formData: FormData): Pr
     city: str("city"),
     state: str("state"),
     zip: str("zip"),
+    emergencyContactName: str("emergencyContactName"),
+    emergencyContactPhone: str("emergencyContactPhone"),
     contactMe: formData.get("contactMe") === "on",
     social: formData.get("social") === "on",
     tournaments: formData.get("tournaments") === "on",

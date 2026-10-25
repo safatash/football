@@ -33,8 +33,8 @@ export type WizardDivision = {
 };
 export type WizardTeam = { id: string; name: string; div: string; size: number };
 /** A signed-in player's profile: they get the shorter returning-player path. */
-export type WizardProfile = { first: string; last: string; email: string; dob: string; gender: Gender; pos: string; shirt: string };
-type Ctx = { openingDay: string; openingLabel: string; minAge: number; returning: boolean };
+export type WizardProfile = { first: string; last: string; email: string; dob: string; gender: Gender; pos: string; shirt: string; emergencyName: string; emergencyPhone: string };
+type Ctx = { openingDay: string; openingLabel: string; minAge: number; returning: boolean; waiverRequired: boolean };
 
 function eligibleDivisions(divisions: WizardDivision[], dob: string, gender: Gender | "", openingDay: string) {
   if (ageOn(dob, openingDay) === null) return null;
@@ -69,6 +69,8 @@ type Form = {
   city: string;
   state: "VA" | "MD" | "DC";
   zip: string;
+  emName: string;
+  emPhone: string;
   background: "New" | "Returning" | "";
   level: "Not sure" | "Beginner" | "Intermediate" | "Competitive" | "";
   pref: string;
@@ -98,6 +100,8 @@ const EMPTY: Form = {
   city: "",
   state: "VA",
   zip: "",
+  emName: "",
+  emPhone: "",
   background: "",
   level: "",
   pref: "",
@@ -148,11 +152,15 @@ function validate(step: number, f: Form, ctx: Ctx): Errors {
     if (!f.pos) e.pos = "Choose a position.";
     if (!f.shirt) e.shirt = "Choose a size.";
   }
-  if (step === 3 && !ctx.returning) {
-    if (f.phone.replace(/\D/g, "").length < 10) e.phone = "Enter a 10-digit phone number.";
-    if (!f.street.trim()) e.street = "Enter your street address.";
-    if (!f.city.trim()) e.city = "Enter your city.";
-    if (!/^\d{5}$/.test(f.zip.trim())) e.zip = "Enter a 5-digit ZIP code.";
+  if (step === 3) {
+    if (!ctx.returning) {
+      if (f.phone.replace(/\D/g, "").length < 10) e.phone = "Enter a 10-digit phone number.";
+      if (!f.street.trim()) e.street = "Enter your street address.";
+      if (!f.city.trim()) e.city = "Enter your city.";
+      if (!/^\d{5}$/.test(f.zip.trim())) e.zip = "Enter a 5-digit ZIP code.";
+    }
+    if (!f.emName.trim()) e.emName = "Enter an emergency contact.";
+    if (f.emPhone.replace(/\D/g, "").length < 10) e.emPhone = "Enter a 10-digit phone number.";
   }
   if (step === 4) {
     if (!f.background) e.background = "Choose one.";
@@ -161,7 +169,7 @@ function validate(step: number, f: Form, ctx: Ctx): Errors {
   if (step === 5) {
     if (f.backup && f.backup === f.pref) e.backup = "Pick a different team than your first choice.";
   }
-  if (step === 7) {
+  if (step === 7 && ctx.waiverRequired) {
     if (!f.agree) e.agree = "You need to agree to the waiver to play.";
   }
   return e;
@@ -174,6 +182,7 @@ export function RegistrationWizard({
   eligibleZips,
   profile,
   waiverText,
+  waiverRequired,
 }: {
   season: { name: string; openingDay: string; openingLabel: string };
   divisions: WizardDivision[];
@@ -182,16 +191,18 @@ export function RegistrationWizard({
   profile: WizardProfile | null;
   /** The league's waiver and code of conduct (League profile). */
   waiverText: string | null;
+  /** League setting: players must accept the waiver to register. */
+  waiverRequired: boolean;
 }) {
   const brand = useBrand();
   const returning = !!profile;
-  // Returning players skip account and contact details: those carry over from their profile.
-  const order = returning ? [2, 4, 5, 6, 7] : [1, 2, 3, 4, 5, 6, 7];
-  const ctx: Ctx = { openingDay: season.openingDay, openingLabel: season.openingLabel, minAge: Math.min(...divisions.map((d) => d.minAge), 18), returning };
+  // Returning players skip account details, and on Contact only confirm their emergency contact
+  const order = returning ? [2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5, 6, 7];
+  const ctx: Ctx = { openingDay: season.openingDay, openingLabel: season.openingLabel, minAge: Math.min(...divisions.map((d) => d.minAge), 18), returning, waiverRequired };
   const [step, setStep] = useState(order[0]);
   const [f, setF] = useState<Form>(() =>
     profile
-      ? { ...EMPTY, first: profile.first, last: profile.last, email: profile.email, dob: profile.dob, gender: profile.gender, pos: (profile.pos as Pos) || "", shirt: profile.shirt, background: "Returning" }
+      ? { ...EMPTY, first: profile.first, last: profile.last, email: profile.email, dob: profile.dob, gender: profile.gender, pos: (profile.pos as Pos) || "", shirt: profile.shirt, emName: profile.emergencyName, emPhone: profile.emergencyPhone, background: "Returning" }
       : EMPTY,
   );
   const [checkingCode, setCheckingCode] = useState(false);
@@ -329,6 +340,9 @@ export function RegistrationWizard({
           city: f.city.trim(),
           state: f.state,
           zip: f.zip.trim(),
+          emergencyName: f.emName.trim(),
+          emergencyPhone: f.emPhone.trim(),
+          waiverAccepted: waiverRequired && f.agree,
           position: f.pos,
           tshirtSize: f.shirt,
           contactMe: f.optNews,
@@ -561,49 +575,60 @@ export function RegistrationWizard({
         {/* 3 · Contact */}
         {step === 3 ? (
           <>
-            {head("How we reach you", "Captains use your phone number for match-day changes.")}
-            <Field label="Mobile phone" htmlFor="ph" error={err("phone")}>
-              <TextInput id="ph" type="tel" autoComplete="tel" value={f.phone} onChange={(e) => set("phone", e.target.value)} aria-invalid={inv("phone")} />
+            {head(returning ? "Emergency contact" : "How we reach you", returning ? "Who should we call if something happens at a match? Check it’s still right." : "Captains use your phone number for match-day changes.")}
+            {returning ? null : (
+              <>
+                <Field label="Mobile phone" htmlFor="ph" error={err("phone")}>
+                  <TextInput id="ph" type="tel" autoComplete="tel" value={f.phone} onChange={(e) => set("phone", e.target.value)} aria-invalid={inv("phone")} />
+                </Field>
+                <Field label="Street address" htmlFor="st" error={err("street")}>
+                  <TextInput id="st" autoComplete="street-address" value={f.street} onChange={(e) => set("street", e.target.value)} aria-invalid={inv("street")} />
+                </Field>
+                <Field label="City" htmlFor="ci" error={err("city")}>
+                  <TextInput id="ci" autoComplete="address-level2" value={f.city} onChange={(e) => set("city", e.target.value)} aria-invalid={inv("city")} />
+                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="State" htmlFor="sta">
+                    <SelectInput id="sta" autoComplete="address-level1" value={f.state} onChange={(e) => set("state", e.target.value as Form["state"])}>
+                      {["VA", "MD", "DC"].map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </SelectInput>
+                  </Field>
+                  <Field label="ZIP code" htmlFor="zip" error={err("zip")}>
+                    <TextInput
+                      id="zip"
+                      inputMode="numeric"
+                      autoComplete="postal-code"
+                      maxLength={5}
+                      value={f.zip}
+                      onChange={(e) => set("zip", e.target.value.replace(/\D/g, ""))}
+                      aria-invalid={inv("zip")}
+                    />
+                  </Field>
+                </div>
+                <div aria-live="polite">
+                  {f.zip.length === 5 ? (
+                    eligibleZips.includes(f.zip) ? (
+                      <Notice tone="ok" title="You’re in our playing area.">
+                        {f.zip} is an eligible ZIP code.
+                      </Notice>
+                    ) : (
+                      <Notice tone="warn" title={`${f.zip} is outside our usual area.`}>
+                        You can still register. The league office will confirm you live or work in Fairfax County or an eligible ZIP.
+                      </Notice>
+                    )
+                  ) : null}
+                </div>
+              </>
+            )}
+            {returning ? null : <h3 className="text-[22px]">Emergency contact</h3>}
+            <Field label="Contact name" htmlFor="emn" error={err("emName")}>
+              <TextInput id="emn" autoComplete="off" value={f.emName} onChange={(e) => set("emName", e.target.value)} aria-invalid={inv("emName")} />
             </Field>
-            <Field label="Street address" htmlFor="st" error={err("street")}>
-              <TextInput id="st" autoComplete="street-address" value={f.street} onChange={(e) => set("street", e.target.value)} aria-invalid={inv("street")} />
+            <Field label="Contact phone" htmlFor="emp" error={err("emPhone")}>
+              <TextInput id="emp" type="tel" autoComplete="off" value={f.emPhone} onChange={(e) => set("emPhone", e.target.value)} aria-invalid={inv("emPhone")} />
             </Field>
-            <Field label="City" htmlFor="ci" error={err("city")}>
-              <TextInput id="ci" autoComplete="address-level2" value={f.city} onChange={(e) => set("city", e.target.value)} aria-invalid={inv("city")} />
-            </Field>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="State" htmlFor="sta">
-                <SelectInput id="sta" autoComplete="address-level1" value={f.state} onChange={(e) => set("state", e.target.value as Form["state"])}>
-                  {["VA", "MD", "DC"].map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </SelectInput>
-              </Field>
-              <Field label="ZIP code" htmlFor="zip" error={err("zip")}>
-                <TextInput
-                  id="zip"
-                  inputMode="numeric"
-                  autoComplete="postal-code"
-                  maxLength={5}
-                  value={f.zip}
-                  onChange={(e) => set("zip", e.target.value.replace(/\D/g, ""))}
-                  aria-invalid={inv("zip")}
-                />
-              </Field>
-            </div>
-            <div aria-live="polite">
-              {f.zip.length === 5 ? (
-                eligibleZips.includes(f.zip) ? (
-                  <Notice tone="ok" title="You’re in our playing area.">
-                    {f.zip} is an eligible ZIP code.
-                  </Notice>
-                ) : (
-                  <Notice tone="warn" title={`${f.zip} is outside our usual area.`}>
-                    You can still register. The league office will confirm you live or work in Fairfax County or an eligible ZIP.
-                  </Notice>
-                )
-              ) : null}
-            </div>
           </>
         ) : null}
 
@@ -790,7 +815,14 @@ export function RegistrationWizard({
                     ["Division", d.name],
                   ]}
                 />
-                {returning ? null : <Summary title="Contact" onEdit={() => edit(3)} rows={[["Phone", f.phone], ["Address", `${f.street}, ${f.city}, ${f.state} ${f.zip}`]]} />}
+                <Summary
+                  title="Contact"
+                  onEdit={() => edit(3)}
+                  rows={[
+                    ...(returning ? [] : ([["Phone", f.phone], ["Address", `${f.street}, ${f.city}, ${f.state} ${f.zip}`]] as [string, string][])),
+                    ["Emergency", `${f.emName} · ${f.emPhone}`],
+                  ]}
+                />
                 <Summary title="Background" onEdit={() => edit(4)} rows={[[brand.name, f.background], ["Level", LEVEL_LABEL[f.level] ?? f.level]]} />
                 <Summary
                   title="Team"
@@ -813,10 +845,12 @@ export function RegistrationWizard({
                 <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-line text-muted">{waiverText}</div>
               </details>
             ) : null}
-            <div data-error={err("agree") ? true : undefined} tabIndex={err("agree") ? -1 : undefined} className="flex flex-col">
-              <CheckRow checked={f.agree} onChange={(v) => set("agree", v)} title={`I agree to the ${brand.name} player waiver and code of conduct`} sub="Required to play" />
-              {err("agree") ? <span className="pl-[34px] text-[12.5px] font-semibold text-bad">{err("agree")}</span> : null}
-            </div>
+            {waiverRequired ? (
+              <div data-error={err("agree") ? true : undefined} tabIndex={err("agree") ? -1 : undefined} className="flex flex-col">
+                <CheckRow checked={f.agree} onChange={(v) => set("agree", v)} title={`I agree to the ${brand.name} player waiver and code of conduct`} sub="Required to play" />
+                {err("agree") ? <span className="pl-[34px] text-[12.5px] font-semibold text-bad">{err("agree")}</span> : null}
+              </div>
+            ) : null}
             <p className="text-xs text-muted">
               {total === 0
                 ? "Nothing to pay. Your registration goes straight to the league office for review."

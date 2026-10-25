@@ -6,7 +6,8 @@ import { AppBar, Screen } from "@/components/shell/layout";
 import { db } from "@/lib/db";
 import { fmtDateOnly, isoDate } from "@/lib/format";
 import { ageLabel, listOpenDivisions } from "@/lib/queries/admin-league";
-import { getActiveSeason, getSettings } from "@/lib/queries/season";
+import { getSettings } from "@/lib/queries/season";
+import { registrationRules } from "@/lib/registration";
 import { listTeams } from "@/lib/queries/teams";
 import { getSession } from "@/lib/session";
 import { RegistrationWizard, type WizardDivision, type WizardProfile } from "./registration-wizard";
@@ -17,14 +18,15 @@ export const dynamic = "force-dynamic";
 const GENDER = { FEMALE: "Female", MALE: "Male", NON_BINARY: "Non-binary" } as const;
 
 export default async function NewRegistrationPage() {
-  const season = await getActiveSeason();
-  if (!season?.isActive) {
+  // The league's switch, an active season and the season's registration dates
+  const { season, window, waiverRequired, waiverText } = await registrationRules();
+  if (!window.open || !season) {
     return (
       <>
         <AppBar title="Season registration" backHref="/register" />
         <Screen>
           <EmptyState icon="cal" title="Registration isn’t open right now" action={<ButtonLink href="/" size="sm">Back to {(await getBrand()).name}</ButtonLink>}>
-            Check back when the next season opens.
+            {!window.open && (window.reason === "not-yet" || window.reason === "closed") ? window.message : "Check back when the next season opens."}
           </EmptyState>
         </Screen>
       </>
@@ -52,6 +54,8 @@ export default async function NewRegistrationPage() {
         gender: GENDER[player.gender],
         pos: player.position,
         shirt: player.tshirtSize,
+        emergencyName: player.emergencyContactName ?? "",
+        emergencyPhone: player.emergencyContactPhone ?? "",
       }
     : null;
 
@@ -73,7 +77,8 @@ export default async function NewRegistrationPage() {
       teams={teams.filter((t) => t.division).map((t) => ({ id: t.id, name: t.name, div: t.division.code, size: t.rosterSize }))}
       eligibleZips={zips.filter((z) => !z.county || (settings.countyAllowed && settings.eligibleCounties.includes(z.county))).map((z) => z.zipCode)}
       profile={profile}
-      waiverText={(await db.organizationSettings.findFirst({ select: { waiverText: true } }))?.waiverText ?? null}
+      waiverText={waiverText}
+      waiverRequired={waiverRequired}
     />
   );
 }

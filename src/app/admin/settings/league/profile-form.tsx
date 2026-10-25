@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, Notice } from "@/components/ui/card";
+import { CheckRow } from "@/components/ui/controls";
 import { Field, SelectInput, TextArea, TextInput } from "@/components/ui/field";
 import { removeLeagueLogo, updateLeagueProfile, uploadLeagueLogo } from "@/lib/actions/league-profile";
 
@@ -17,6 +18,8 @@ type Values = {
   supportEmail: string;
   timezone: string;
   waiverText: string;
+  registrationOpen: boolean;
+  waiverRequired: boolean;
   logoUrl: string;
   facebookUrl: string;
   twitterUrl: string;
@@ -192,7 +195,21 @@ export function LeagueProfileForm({ values, timezones, blobReady, readOnly, url 
       </Card>
 
       <Card className="flex flex-col gap-4">
-        <h2 className="text-xl">Player waiver</h2>
+        <h2 className="text-xl">Registration and waiver</h2>
+        <div className="flex flex-col gap-1">
+          <CheckRow
+            checked={v.registrationOpen}
+            onChange={(on) => !readOnly && set("registrationOpen", on)}
+            title="Season registration is open"
+            sub="Turn off to close registration for every season. Each season can also set opening and closing dates."
+          />
+          <CheckRow
+            checked={v.waiverRequired}
+            onChange={(on) => !readOnly && set("waiverRequired", on)}
+            title="Players must accept the waiver"
+            sub="Registration records when each player accepted it"
+          />
+        </div>
         <Field label="Waiver and code of conduct" htmlFor="lp-waiver" hint="Players read and agree to this when they register">
           <TextArea id="lp-waiver" value={v.waiverText} onChange={(e) => set("waiverText", e.target.value)} className="min-h-[220px]" disabled={readOnly} />
         </Field>

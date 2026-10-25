@@ -24,7 +24,15 @@ export default async function EditSeasonPage({ params }: { params: Promise<{ id:
       ) : (
         <SeasonForm
           activeName={active?.name ?? "none"}
-          season={{ id: season.id, name: season.name, startDate: isoDate(season.startDate), endDate: isoDate(season.endDate), isActive: season.isActive }}
+          season={{
+            id: season.id,
+            name: season.name,
+            startDate: isoDate(season.startDate),
+            endDate: isoDate(season.endDate),
+            registrationOpensOn: season.registrationOpensOn ? isoDate(season.registrationOpensOn) : "",
+            registrationClosesOn: season.registrationClosesOn ? isoDate(season.registrationClosesOn) : "",
+            isActive: season.isActive,
+          }}
         />
       )}
     </>

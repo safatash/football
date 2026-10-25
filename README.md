@@ -36,6 +36,18 @@ shared components in `src/components/{ui,league,shell}`, and a live style sheet 
   `DiscountCode`. Submitted → Pending review (paid or free) → Approved / Denied. Signed-in players
   get a shorter returning-player path. No-team players land in placement; captain requests create
   `CaptainRequest` rows.
+  - Open only while the league's switch is on (League profile) and inside the season's optional
+    registration dates (inclusive league days; `src/lib/registration-window.ts`). The page and the
+    API share the rule.
+  - When the league requires the waiver, players must accept it, and `Registration.waiverAcceptedAt`
+    records when. Every registration collects an emergency contact; players can also edit it on
+    their profile.
+  - A paid registration's Stripe Checkout expires after an hour. `checkout.session.expired`
+    then cancels the unpaid registration and its pending captain request, so the player can start
+    again.
+- **Refunds made in Stripe** (`charge.refunded`) add a REFUND row to the league's ledger for the
+  newly refunded amount; a retried event adds nothing. A fully refunded game pass is cancelled and
+  leaves the match roster. See `src/lib/stripe-events.ts`.
 - **Game passes** (`/register/game-pass`): pick a scheduled match and team, Stripe Checkout for the
   season's game pass fee; the webhook creates the pass (valid on match day, Eastern) and a
   match-only roster row. Expired passes never appear in roster pools.
@@ -114,7 +126,7 @@ See `.env.example`. Beyond the database, NextAuth and Stripe keys:
 | `CRON_SECRET` | Required by `/api/cron/*` (`Authorization: Bearer …`). Vercel Cron sends it. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Outgoing mail. Production sends when set. |
 | `MAIL_DELIVER`, `MAIL_TEST_RECIPIENTS` | Outside production, mail is only logged to the server console. Set `MAIL_DELIVER=true` to really send, and then only to `example.com` / `.test` addresses or the ones listed in `MAIL_TEST_RECIPIENTS`. |
-| `STRIPE_WEBHOOK_SECRET` | Verifies `/api/stripe/webhook` (registration and game pass checkouts, by `metadata.type`). |
+| `STRIPE_WEBHOOK_SECRET` | Verifies `/api/stripe/webhook`: `checkout.session.completed` (registration and game pass checkouts, by `metadata.type`), `checkout.session.expired` and `charge.refunded`. Subscribe the endpoint to all three. |
 | `NVASA_NOW` | Optional. Pretend it's another moment, e.g. `2026-05-16T12:00:00-04:00` to see the seeded match week. Leave unset in production. |
 
 ### Database, migrations and seed

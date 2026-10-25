@@ -23,6 +23,8 @@ export type ProfileValues = {
   city: string;
   state: string;
   zip: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
   contactMe: boolean;
   social: boolean;
   tournaments: boolean;
@@ -113,6 +115,12 @@ export function ProfileForm({ values }: { values: ProfileValues }) {
           {input("state", "State", { autoComplete: "address-level1", maxLength: 2, required: true })}
           {input("zip", "ZIP", { autoComplete: "postal-code", inputMode: "numeric", required: true })}
         </div>
+      </Card>
+
+      <Card className="flex flex-col gap-4">
+        <h3 className="text-[19px] font-bold">Emergency contact</h3>
+        {input("emergencyContactName", "Contact name", { autoComplete: "off", required: true })}
+        {input("emergencyContactPhone", "Contact phone", { type: "tel", autoComplete: "off", inputMode: "tel", required: true })}
       </Card>
 
       <Card className="flex flex-col gap-1">

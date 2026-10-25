@@ -5,9 +5,8 @@ import { db } from "@/lib/db";
 import { playerInOrg, getOrgId } from "@/lib/org";
 import { accountPasswordErrors, hashPassword } from "@/lib/password";
 import { checkEligibility } from "@/lib/eligibility";
-import { getActiveSeason } from "@/lib/queries/season";
 import { blocklistHit } from "@/lib/queries/registrations";
-import { priceWithCode, countDiscountUse } from "@/lib/registration";
+import { priceWithCode, countDiscountUse, registrationRules } from "@/lib/registration";
 import { getSession } from "@/lib/session";
 import { appUrl } from "@/lib/branding";
 import { stripe } from "@/lib/stripe";
@@ -28,6 +27,9 @@ const SeasonFields = z.object({
   captainRequest: z.boolean().optional().default(false),
   captainNote: text(1000).optional(),
   discountCode: text(40).optional().default(""),
+  waiverAccepted: z.boolean().optional().default(false),
+  emergencyName: text(80).min(1, "Please add an emergency contact."),
+  emergencyPhone: text(30).refine((v) => v.replace(/\D/g, "").length >= 10, "Enter a 10-digit phone number for your emergency contact."),
 });
 
 /** Account + profile fields for a brand-new player. */
@@ -67,8 +69,10 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) return bad(parsed.error.issues[0]?.message ?? "Check your details and try again.");
     const data = parsed.data;
 
-    const season = await getActiveSeason();
-    if (!season?.isActive) return bad("Registration isn’t open right now. Check back soon.");
+    // Open: the league's switch, an active season and the season's registration dates
+    const { season, window, waiverRequired } = await registrationRules();
+    if (!window.open || !season) return bad(window.open ? "Registration isn’t open right now. Check back soon." : window.message);
+    if (waiverRequired && !data.waiverAccepted) return bad("You need to accept the waiver and code of conduct to register.");
 
     // Who is registering
     let player: { id: string; dob: Date; gender: "MALE" | "FEMALE" | "NON_BINARY"; email: string; firstName: string; lastName: string } | null = null;
@@ -154,6 +158,8 @@ export async function POST(req: NextRequest) {
                 county: allowedZip?.county ?? null,
                 position: np.position,
                 tshirtSize: np.tshirtSize,
+                emergencyContactName: data.emergencyName,
+                emergencyContactPhone: data.emergencyPhone,
                 contactMe: np.contactMe,
                 social: np.social,
                 tournaments: np.tournaments,
@@ -165,6 +171,9 @@ export async function POST(req: NextRequest) {
           include: { players: playerInOrg(await getOrgId()) },
         });
         playerId = user.players[0]!.id;
+      } else {
+        // Returning players confirm or update their emergency contact on each registration
+        await tx.player.update({ where: { id: playerId! }, data: { emergencyContactName: data.emergencyName, emergencyContactPhone: data.emergencyPhone } });
       }
 
       const reg = await tx.registration.create({
@@ -184,6 +193,7 @@ export async function POST(req: NextRequest) {
           amountBeforeDiscount: priced.fee,
           totalAmount: priced.total,
           discountCodeId: priced.discountId,
+          waiverAcceptedAt: data.waiverAccepted ? new Date() : null,
           // Free registrations go straight to review; paid ones wait for the Stripe webhook
           status: free ? "PENDING" : "SUBMITTED",
           paymentStatus: free ? "PAID" : "UNPAID",
@@ -224,6 +234,9 @@ export async function POST(req: NextRequest) {
         },
       ],
       mode: "payment",
+      // An unpaid registration holds the player's spot; when checkout expires the webhook
+      // cancels it (checkout.session.expired), so don't hold it for Stripe's default 24 hours
+      expires_at: Math.floor(Date.now() / 1000) + 60 * 60,
       success_url: `${(await appUrl())}/register/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${(await appUrl())}/register/new`,
       client_reference_id: registration.id,

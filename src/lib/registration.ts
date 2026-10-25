@@ -1,6 +1,8 @@
 import { db, type DbTx } from "@/lib/db";
 import { getOrgId } from "@/lib/org";
 import { normalizeCode, priceRegistration, validateDiscount, type DiscountRule } from "@/lib/fees";
+import { now } from "@/lib/clock";
+import { registrationWindow } from "@/lib/registration-window";
 
 type Db = DbTx;
 
@@ -33,4 +35,17 @@ export async function countDiscountUse(tx: DbTx, discountCodeId: string) {
     where: { id: discountCodeId, ...(code.maxUses != null ? { uses: { lt: code.maxUses } } : {}) },
     data: { uses: { increment: 1 } },
   });
+}
+
+/**
+ * The active season and the league's registration rules: whether it's open (switch + season
+ * window), and whether the waiver must be accepted.
+ */
+export async function registrationRules(at = now()) {
+  const [season, settings] = await Promise.all([
+    db.season.findFirst({ where: { isActive: true }, select: { id: true, name: true, isActive: true, startDate: true, endDate: true, registrationOpensOn: true, registrationClosesOn: true } }),
+    db.organizationSettings.findFirst({ select: { registrationOpen: true, waiverRequired: true, waiverText: true } }),
+  ]);
+  const window = registrationWindow({ leagueOpen: settings?.registrationOpen ?? true, season, at });
+  return { season, window, waiverRequired: settings?.waiverRequired ?? true, waiverText: settings?.waiverText ?? null };
 }

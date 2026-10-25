@@ -143,7 +143,7 @@ export function DeleteButton({ label, title, body, action, doneHref }: { label: 
 /* Season                                                              */
 /* ------------------------------------------------------------------ */
 
-export type SeasonFormValues = { id?: string; name: string; startDate: string; endDate: string; isActive: boolean };
+export type SeasonFormValues = { id?: string; name: string; startDate: string; endDate: string; registrationOpensOn: string; registrationClosesOn: string; isActive: boolean };
 
 export function SeasonForm({ season, activeName, templates }: { season?: SeasonFormValues; activeName: string; templates?: { key: "ADULT_REC" | "BLANK"; label: string; description: string }[] }) {
   const { pending, error, errors, run } = useSave();
@@ -153,7 +153,14 @@ export function SeasonForm({ season, activeName, templates }: { season?: SeasonF
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const input = { name: str(f, "name"), startDate: str(f, "startDate"), endDate: str(f, "endDate"), makeActive: active };
+    const input = {
+      name: str(f, "name"),
+      startDate: str(f, "startDate"),
+      endDate: str(f, "endDate"),
+      registrationOpensOn: str(f, "registrationOpensOn"),
+      registrationClosesOn: str(f, "registrationClosesOn"),
+      makeActive: active,
+    };
     run(() => (season?.id ? updateSeason({ ...input, id: season.id }) : createSeason({ ...input, template })), () => `/admin/seasons?done=${season?.id ? "season-saved" : "season-created"}&what=${encodeURIComponent(input.name)}`);
   }
   return (
@@ -169,6 +176,12 @@ export function SeasonForm({ season, activeName, templates }: { season?: SeasonF
           </Field>
           <Field label="Last day" htmlFor="s-end">
             <TextInput id="s-end" name="endDate" type="date" defaultValue={season?.endDate} required />
+          </Field>
+          <Field label="Registration opens" htmlFor="s-reg-open" hint="Optional. Leave empty to open as soon as the season is active">
+            <TextInput id="s-reg-open" name="registrationOpensOn" type="date" defaultValue={season?.registrationOpensOn} />
+          </Field>
+          <Field label="Registration closes" htmlFor="s-reg-close" hint="Optional. Last day players can register">
+            <TextInput id="s-reg-close" name="registrationClosesOn" type="date" defaultValue={season?.registrationClosesOn} />
           </Field>
         </div>
         <CheckRow
